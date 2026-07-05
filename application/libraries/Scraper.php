@@ -352,7 +352,7 @@
             }               
             
             
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
             curl_setopt($ch, CURLOPT_COOKIEJAR, "my_cookies.txt");
             curl_setopt($ch, CURLOPT_COOKIEFILE, "my_cookies.txt");
              
@@ -650,7 +650,7 @@
             }
             
             
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
             curl_setopt($ch, CURLOPT_COOKIEJAR, "my_cookies.txt");
             curl_setopt($ch, CURLOPT_COOKIEFILE, "my_cookies.txt");
              
@@ -940,8 +940,8 @@
                     CURLOPT_CONNECTTIMEOUT => 30,
                     CURLOPT_TIMEOUT        => 30,
                     CURLOPT_MAXREDIRS      => 10,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_SSL_VERIFYHOST => false,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                    CURLOPT_SSL_VERIFYHOST => 2,
             );
             $ch = curl_init($url);
             curl_setopt_array($ch, $options);

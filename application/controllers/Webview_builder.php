@@ -277,7 +277,7 @@ class Webview_builder extends Home
 		   			curl_setopt($ch,CURLOPT_POSTFIELDS,$post_data);
 		   			curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 		                // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		   			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		   			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		   			curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 		   			$reply_response=curl_exec($ch);  
 
@@ -380,7 +380,7 @@ class Webview_builder extends Home
         curl_setopt($ch,CURLOPT_POST,1);
         curl_setopt($ch,CURLOPT_POSTFIELDS,$json_response);
         curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
         echo $reply_response=curl_exec($ch);
 		
@@ -524,7 +524,7 @@ class Webview_builder extends Home
 		   			curl_setopt($ch,CURLOPT_POSTFIELDS,$post_data);
 		   			curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 		                // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		   			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		   			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		   			curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 		   			$reply_response=curl_exec($ch);  
 
@@ -751,7 +751,7 @@ class Webview_builder extends Home
 		                curl_setopt($ch,CURLOPT_POSTFIELDS,$post_data);
 		                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 		                // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		                curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 		                $reply_response=curl_exec($ch);  
 		        
@@ -976,7 +976,7 @@ class Webview_builder extends Home
 		   			curl_setopt($ch,CURLOPT_POSTFIELDS,$post_data);
 		   			curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 		                // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		   			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		   			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		   			curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 		   			$reply_response=curl_exec($ch);  
 

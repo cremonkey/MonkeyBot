@@ -74,8 +74,8 @@ class Update_system extends Home
 		curl_setopt($ch, CURLOPT_POSTFIELDS, $string);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 		curl_setopt($ch, CURLOPT_REFERER,$_SERVER['SERVER_NAME']);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 		curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
 		$response = curl_exec($ch);
 
@@ -113,8 +113,8 @@ class Update_system extends Home
 				curl_setopt($ch, CURLOPT_POSTFIELDS, $add_on_string);
 				curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);				
 				curl_setopt($ch, CURLOPT_REFERER,$_SERVER['SERVER_NAME']);
-				curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-				curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+				curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+				curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 				curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
 				$add_on_response = curl_exec($ch);
 				curl_close($ch);
@@ -200,8 +200,8 @@ class Update_system extends Home
 		curl_setopt($ch, CURLOPT_POSTFIELDS, $string);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 		curl_setopt($ch, CURLOPT_REFERER,$_SERVER['SERVER_NAME']);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 		curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
 		$response = curl_exec($ch);
 
@@ -252,8 +252,8 @@ class Update_system extends Home
 				curl_setopt($ch, CURLOPT_POSTFIELDS, $add_on_string);
 				curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);				
 				curl_setopt($ch, CURLOPT_REFERER,$_SERVER['SERVER_NAME']);
-				curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-				curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+				curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+				curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 				curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
 				$add_on_response = curl_exec($ch);
 				curl_close($ch);
@@ -379,8 +379,8 @@ class Update_system extends Home
 		  			$ch = curl_init();
 		  			curl_setopt($ch, CURLOPT_URL, $url);
 		  			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-		  			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-		  			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+		  			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+		  			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 		  			curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
 		  			$return = curl_exec($ch);
 		  			curl_close($ch);
@@ -539,8 +539,8 @@ class Update_system extends Home
 		  			$ch = curl_init();
 		  			curl_setopt($ch, CURLOPT_URL, $url);
 		  			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-		  			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-		  			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+		  			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+		  			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 		  			curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
 		  			$return = curl_exec($ch);
 		  			curl_close($ch);

@@ -72,7 +72,7 @@ class Sms_manager{
 
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 	    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 
@@ -108,7 +108,7 @@ class Sms_manager{
 
 		curl_setopt($ch, CURLOPT_POSTFIELDS, $post_fields); 
 
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 
@@ -821,7 +821,7 @@ class Sms_manager{
 
 	    	// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
 
-	     	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+	     	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 	     	curl_setopt($ch, CURLOPT_COOKIEJAR, "my_cookies.txt");  
 
@@ -909,7 +909,7 @@ class Sms_manager{
 
 	    // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
 
-	    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+	    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 	    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 
@@ -1381,7 +1381,7 @@ class Sms_manager{
 
 	    // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
 
-	    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+	    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 	    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 
@@ -1429,7 +1429,7 @@ class Sms_manager{
 
 		 // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
 
-		 curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		 curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 		 curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 
@@ -1557,7 +1557,7 @@ class Sms_manager{
 
 	    // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
 
-	    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+	    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 	    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 
@@ -2207,7 +2207,7 @@ class Sms_manager{
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, array(
             "Accept: application/json",
             "Apikey: {$api_key}"
@@ -2261,7 +2261,7 @@ class Sms_manager{
 
 	    // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
 
-	    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);   
+	    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);   
 
 	    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 
@@ -2341,7 +2341,7 @@ class Sms_manager{
 
 			curl_setopt($ch, CURLOPT_POSTFIELDS, $post_fields);    
 
-			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 			curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 
@@ -2439,7 +2439,7 @@ class Sms_manager{
 
 			$ch=curl_init($url);
 
-			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 			curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 
@@ -2499,7 +2499,7 @@ class Sms_manager{
 
 	// 	curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
 
-	// 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+	// 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 	// 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 
@@ -2549,7 +2549,7 @@ class Sms_manager{
 
 			// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
 
-			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
 			curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 

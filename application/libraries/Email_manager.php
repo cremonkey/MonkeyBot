@@ -130,7 +130,7 @@ class Email_manager{
 			curl_setopt ($session, CURLOPT_POSTFIELDS, $params);
 			curl_setopt($session, CURLOPT_HEADER, false);
 			curl_setopt($session, CURLOPT_RETURNTRANSFER, true);
-			curl_setopt($session, CURLOPT_SSL_VERIFYPEER, 0);
+			curl_setopt($session, CURLOPT_SSL_VERIFYPEER, true);
 			$response = curl_exec($session);
 
 			curl_close($session);
@@ -212,8 +212,8 @@ class Email_manager{
 			curl_setopt($ch, CURLOPT_USERPWD, "api:{$config['api_key']}"); 
 			curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
 			curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 60); 
-			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0); 
-			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0); 
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
+			curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2); 
 			curl_setopt($ch, CURLOPT_POST, true);  
 			curl_setopt($ch, CURLOPT_POSTFIELDS,$message); 
 			$result = curl_exec($ch);

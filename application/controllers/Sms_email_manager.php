@@ -13339,7 +13339,7 @@ class Sms_email_manager extends Home
 
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 
@@ -13371,7 +13371,7 @@ class Sms_email_manager extends Home
 
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post_fields); 
 
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 

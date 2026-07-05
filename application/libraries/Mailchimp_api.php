@@ -44,7 +44,7 @@ class Mailchimp_api
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 50);
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $insert_data);
         return $result = curl_exec($ch);
     }
@@ -73,7 +73,7 @@ class Mailchimp_api
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 50);
        
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
      
         $response = curl_exec($ch);
         
@@ -99,7 +99,7 @@ class Mailchimp_api
         $url="https://api.sendinblue.com/v3/contacts/lists";
         $header=array("api-key: {$api_key}","Content-Type: application/json");
         $ch=curl_init($url);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
         curl_setopt($ch, CURLOPT_HTTPHEADER,$header);
         $response = curl_exec( $ch );
@@ -124,7 +124,7 @@ class Mailchimp_api
         $ch=curl_init($url);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $postdata); 
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
         curl_setopt($ch, CURLOPT_HTTPHEADER,$header);
         $response = curl_exec( $ch );
@@ -139,7 +139,7 @@ class Mailchimp_api
         $header=array("Api-Token: {$api_key}","Content-Type: application/json");
         
         $ch=curl_init($url);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
         curl_setopt($ch, CURLOPT_HTTPHEADER,$header);
         $response = curl_exec( $ch );
@@ -163,7 +163,7 @@ class Mailchimp_api
         $ch=curl_init($url_add);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $postdata); 
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
         curl_setopt($ch, CURLOPT_HTTPHEADER,$header);
         $response = curl_exec( $ch );
@@ -195,7 +195,7 @@ class Mailchimp_api
         $ch=curl_init($url_list_update);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $postdata); 
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
         curl_setopt($ch, CURLOPT_HTTPHEADER,$header);
         $response = curl_exec( $ch );
@@ -211,7 +211,7 @@ class Mailchimp_api
         $url=$url."/api/segments";
         $header = array("Authorization: Basic " . $base_64_user_pass);
         $ch=curl_init($url);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
         curl_setopt($ch, CURLOPT_HTTPHEADER,$header);
         curl_setopt($ch,CURLOPT_USERAGENT,'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:64.0) Gecko/20100101 Firefox/64.0');
@@ -237,7 +237,7 @@ class Mailchimp_api
         );
 
         $ch=curl_init($url_add);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
         curl_setopt($ch, CURLOPT_HTTPHEADER, $header); 
         curl_setopt($ch,CURLOPT_USERAGENT,'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:64.0) Gecko/20100101 Firefox/64.0');
@@ -254,7 +254,7 @@ class Mailchimp_api
         $url_segment_update=$url."/api/segments/{$list_id}/contact/{$contact_id}/add";
 
         $ch=curl_init($url_segment_update);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
         curl_setopt($ch, CURLOPT_HTTPHEADER, $header); 
         curl_setopt($ch,CURLOPT_USERAGENT,'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:64.0) Gecko/20100101 Firefox/64.0');
@@ -281,7 +281,7 @@ class Mailchimp_api
         $header=array("accept:application/json");
 
         $ch=curl_init($url);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
         curl_setopt($ch, CURLOPT_HTTPHEADER,$header);
         curl_setopt($ch,CURLOPT_USERAGENT,'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:64.0) Gecko/20100101 Firefox/64.0');
@@ -304,7 +304,7 @@ class Mailchimp_api
         );
             
         $ch=curl_init($url);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
         curl_setopt($ch, CURLOPT_HTTPHEADER, $header); 
         curl_setopt($ch,CURLOPT_USERAGENT,'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:64.0) Gecko/20100101 Firefox/64.0');

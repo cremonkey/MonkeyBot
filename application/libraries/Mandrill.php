@@ -102,7 +102,7 @@ class Mandrill {
 
         curl_setopt($ch, CURLOPT_URL, $this->root . $url . '.json');
         curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
-        curl_setopt ($this->ch, CURLOPT_SSL_VERIFYPEER, FALSE);
+        curl_setopt ($this->ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
         curl_setopt($ch, CURLOPT_VERBOSE, $this->debug);
 

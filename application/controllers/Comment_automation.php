@@ -6126,7 +6126,7 @@ class Comment_automation extends Home
                   curl_setopt($ch,CURLOPT_POSTFIELDS,$post_data_label_assign);
                   curl_setopt($ch, CURLOPT_TIMEOUT, 5);
                   // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-                  curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+                  curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
                   curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
                   $reply_response=curl_exec($ch); 
                 }

@@ -2335,7 +2335,7 @@ class Messenger_bot extends Home
                 curl_setopt($ch,CURLOPT_POST,1);
                 curl_setopt($ch,CURLOPT_POSTFIELDS,$post_data_unsubscribe);
                 curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
                 $reply_response=curl_exec($ch);
             }
@@ -2351,7 +2351,7 @@ class Messenger_bot extends Home
                 curl_setopt($ch,CURLOPT_POST,1);
                 curl_setopt($ch,CURLOPT_POSTFIELDS,$post_data_unsubscribe);
                 curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
                 curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
                 $reply_response=curl_exec($ch);
             }

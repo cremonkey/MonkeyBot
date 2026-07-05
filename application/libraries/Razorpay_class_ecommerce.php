@@ -43,7 +43,7 @@ class Razorpay_class_ecommerce{
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 		curl_setopt($ch, CURLOPT_TIMEOUT, 50);
 		curl_setopt($ch, CURLOPT_POST, true);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 		curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
 		$result = curl_exec($ch);
 		$result=json_decode($result,true);
@@ -119,7 +119,7 @@ class Razorpay_class_ecommerce{
 		curl_setopt($ch, CURLOPT_HTTPHEADER,$headers);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 		curl_setopt($ch, CURLOPT_TIMEOUT, 50);
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 		$result = curl_exec($ch);
 		$result=json_decode($result,true);
 

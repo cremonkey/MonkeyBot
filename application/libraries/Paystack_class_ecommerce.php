@@ -81,7 +81,7 @@ class Paystack_class_ecommerce{
 		  	CURLOPT_ENCODING => "",
 		  	CURLOPT_MAXREDIRS => 10,
 		  	CURLOPT_TIMEOUT => 30,
-		  	CURLOPT_SSL_VERIFYPEER =>false,
+		  	CURLOPT_SSL_VERIFYPEER =>true,
 		  	CURLOPT_CUSTOMREQUEST => "GET",
 		  	CURLOPT_HTTPHEADER => array(
 		  	  "Authorization: Bearer {$this->secret_key}",

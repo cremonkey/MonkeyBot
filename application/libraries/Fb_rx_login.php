@@ -232,12 +232,12 @@ class Fb_rx_login
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 		curl_setopt($ch, CURLOPT_URL, $url);
 		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 		curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 
 		$st=curl_exec($ch); 
 		$result=json_decode($st,TRUE);
@@ -260,12 +260,12 @@ class Fb_rx_login
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 		curl_setopt($ch, CURLOPT_URL, $url);
 		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 		curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 
 		$st=curl_exec($ch); 
 
@@ -292,12 +292,12 @@ class Fb_rx_login
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 		curl_setopt($ch, CURLOPT_URL, $url);
 		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 		curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 
 		$st=curl_exec($ch); 
 		$result=json_decode($st,TRUE);
@@ -319,12 +319,12 @@ class Fb_rx_login
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 		curl_setopt($ch, CURLOPT_URL, $url);
 		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 		curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 
 		$st=curl_exec($ch); 
 
@@ -444,7 +444,7 @@ class Fb_rx_login
         curl_setopt($ch,CURLOPT_POSTFIELDS,$post_data);
 
         // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');
         curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
@@ -468,12 +468,12 @@ class Fb_rx_login
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 		curl_setopt($ch, CURLOPT_URL, $url);
 		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 		curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 		$results=curl_exec($ch); 	   
 		return  $results;   
 	}
@@ -606,7 +606,7 @@ class Fb_rx_login
             curl_setopt($ch, CURLOPT_POST, 0); // set POST method
 
          
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
             
             $content = curl_exec($ch); // run the whole process 
             $response['content'] = $content;
@@ -1359,12 +1359,12 @@ class Fb_rx_login
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 		curl_setopt($ch, CURLOPT_URL, $url);
 		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
 		curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0"); 
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 
 		$st=curl_exec($ch); 
 
@@ -1442,7 +1442,7 @@ class Fb_rx_login
 	 	curl_setopt($ch,CURLOPT_POSTFIELDS,$get_started_data); 
 	 
 	 	// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
-	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 	 	curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
@@ -1468,7 +1468,7 @@ class Fb_rx_login
 	 	curl_setopt($ch,CURLOPT_POSTFIELDS,$get_started_data); 
 	 
 	 	// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
-	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 	 	curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
@@ -1507,7 +1507,7 @@ class Fb_rx_login
 	 	curl_setopt($ch,CURLOPT_POSTFIELDS,$get_started_data); 
 	 
 	 	// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
-	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 	 	curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
@@ -1550,7 +1550,7 @@ class Fb_rx_login
 	 	curl_setopt($ch,CURLOPT_POSTFIELDS,$get_started_data); 
 	 
 	 	// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
-	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 	 	curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
@@ -1587,7 +1587,7 @@ class Fb_rx_login
 	 	curl_setopt($ch,CURLOPT_POSTFIELDS,$get_started_data); 
 	 
 	 	// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
-	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 	 	curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
@@ -1631,7 +1631,7 @@ class Fb_rx_login
 	 	curl_setopt($ch,CURLOPT_POSTFIELDS,$get_started_data); 
 	 
 	 	// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
-	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 	 	curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
@@ -1651,7 +1651,7 @@ class Fb_rx_login
 		curl_setopt($ch, CURLOPT_URL, $url);
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
@@ -1676,7 +1676,7 @@ class Fb_rx_login
 		// curl_setopt($ch,CURLOPT_POST,1);
 		//curl_setopt($ch,CURLOPT_POSTFIELDS,$message);
 		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
@@ -1699,7 +1699,7 @@ class Fb_rx_login
 		curl_setopt($ch, CURLOPT_URL, $url);
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
@@ -1725,7 +1725,7 @@ class Fb_rx_login
 		curl_setopt($ch,CURLOPT_POST,1);
 		curl_setopt($ch,CURLOPT_POSTFIELDS,$message);
 		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
@@ -1752,7 +1752,7 @@ class Fb_rx_login
 			curl_setopt($ch,CURLOPT_POST,1);
 		}
 		//curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
@@ -1778,7 +1778,7 @@ class Fb_rx_login
 	 	$headers = array("Content-type: application/json");
 	 	curl_setopt($ch, CURLOPT_URL, $url);
 	 	curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 	 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
 	 	curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
 	 	$st=curl_exec($ch); 
@@ -1805,7 +1805,7 @@ class Fb_rx_login
 	 	curl_setopt($ch, CURLOPT_HTTPHEADER, $headers); 
 	 	curl_setopt($ch,CURLOPT_POST,1);
 	 	curl_setopt($ch,CURLOPT_POSTFIELDS,$whitelisted_domains_data); 
-	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 	 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
 	 	curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3"); 
 	 	$st=curl_exec($ch);	 
@@ -1834,7 +1834,7 @@ class Fb_rx_login
     	curl_setopt($ch, CURLOPT_URL, $url);
     	curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     	// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-    	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+    	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
     	curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
     	curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
     	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
@@ -2093,7 +2093,7 @@ class Fb_rx_login
 	 	curl_setopt($ch,CURLOPT_POSTFIELDS,$ice_breakers_data); 
 	 
 	 	// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
-	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 	 	curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 
@@ -2132,7 +2132,7 @@ class Fb_rx_login
 	 	curl_setopt($ch,CURLOPT_POSTFIELDS,$get_started_data); 
 	 
 	 	// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
-	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+	 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); 
 	 	curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt'); 
 	 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1); 

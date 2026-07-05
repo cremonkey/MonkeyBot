@@ -134,7 +134,7 @@ class Paypal_class{
 		 curl_setopt($ch, CURLOPT_POSTFIELDS,$req);
 	     curl_setopt($ch, CURLOPT_URL, $this->paypal_url);
 		 // curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-	     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);  
+	     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
 	     curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
 	     curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
 	     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  

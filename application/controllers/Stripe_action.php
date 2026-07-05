@@ -2085,7 +2085,7 @@ class Stripe_action extends Home
 
 		curl_setopt($handle, CURLOPT_RETURNTRANSFER, true);
 
-		curl_setopt($handle, CURLOPT_SSL_VERIFYPEER, FALSE); # KEEP IT FALSE IF YOU RUN FROM LOCAL PC
+		curl_setopt($handle, CURLOPT_SSL_VERIFYPEER, true); # KEEP IT FALSE IF YOU RUN FROM LOCAL PC
 
 
 
