@@ -171,6 +171,16 @@
                     </label>
                   </div>
                 </div>
+                <div class="col-12 col-md-12">
+                  <div class="form-group">
+                    <label class="custom-switch mt-2">
+                      <input type="checkbox" name="ai_tools_enabled" value="1" class="custom-switch-input" <?php echo (isset($xvalue['ai_tools_enabled']) && $xvalue['ai_tools_enabled']=='1') ? 'checked' : ''; ?>>
+                      <span class="custom-switch-indicator"></span>
+                      <span class="custom-switch-description">Enable AI actions (product search, order status, discount codes, human handoff)</span>
+                    </label>
+                    <small class="form-text text-muted">The AI can look up real products/orders and generate coupons during chats. Works in Messenger/Instagram DMs.</small>
+                  </div>
+                </div>
               </div>
 
               <hr>

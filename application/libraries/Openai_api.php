@@ -19,7 +19,7 @@ class Openai_api
      * @param float  $temperature
      * @return string JSON response
      */
-    public function open_ai_completion($api_key, $prompt_or_messages, $model="text-davinci-003", $max_tokens=1500, $instruction="AI Agent", $description="description in the flow", $human="", $temperature=0.4)
+    public function open_ai_completion($api_key, $prompt_or_messages, $model="text-davinci-003", $max_tokens=1500, $instruction="AI Agent", $description="description in the flow", $human="", $temperature=0.4, $tools=null)
     {
         $text_completion_model = array(
             "text-davinci-003", "text-davinci-002", "text-curie-001", "text-babbage-001", 
@@ -55,6 +55,10 @@ class Openai_api
                     array("role" => "system", "content" => $system_content),
                     array("role" => "user", "content" => $human)
                 );
+            }
+
+            if (!empty($tools)) {
+                $data['tools'] = $tools; // SPEC-03 function calling
             }
 
             $url = "https://api.openai.com/v1/chat/completions";

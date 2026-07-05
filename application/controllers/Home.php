@@ -7091,8 +7091,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
         $messages[] = ["role" => "user", "content" => $human];
 
         // SPEC-02: route through provider-agnostic layer (OpenAI or Anthropic per open_ai_config.ai_provider)
-        $this->load->library('Ai_provider');
-        $response = $this->ai_provider->completion($api_info[0], $messages, array(
+        $completion_overrides = array(
             'model' => $model,
             'max_tokens' => $max_token,
             'temperature' => $temperature,
@@ -7100,7 +7099,23 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             'description' => $description,
             'human' => $human,
             'system' => $system_prompt,
-        ));
+        );
+
+        // SPEC-03: enable tool calling when we have subscriber context and tools are enabled
+        if (!empty($page_id) && !empty($subscribe_id) && !empty($user_id)
+            && isset($api_info[0]['ai_tools_enabled']) && $api_info[0]['ai_tools_enabled'] == '1') {
+            $sub_row = $this->basic->get_data('messenger_bot_subscriber', ['where' => ['subscribe_id' => $subscribe_id]], ['id'], '', 1);
+            $completion_overrides['tools_context'] = array(
+                'user_id' => $user_id,
+                'page_id' => $page_id,
+                'subscribe_id' => $subscribe_id,
+                'social_media' => $social_media,
+                'subscriber_row_id' => isset($sub_row[0]['id']) ? $sub_row[0]['id'] : 0,
+            );
+        }
+
+        $this->load->library('Ai_provider');
+        $response = $this->ai_provider->completion($api_info[0], $messages, $completion_overrides);
         $response = json_decode($response, true);
 
         // SPEC-04: extract + strip sentiment marker so the reply returned to callers never contains it

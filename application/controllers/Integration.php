@@ -331,6 +331,7 @@ class Integration extends Home
 				$sales_mode_enabled=$this->input->post('sales_mode_enabled',true) == '1' ? '1' : '0';
 				$auto_language=$this->input->post('auto_language',true) == '1' ? '1' : '0';
 				$sentiment_enabled=$this->input->post('sentiment_enabled',true) == '1' ? '1' : '0';
+				$ai_tools_enabled=$this->input->post('ai_tools_enabled',true) == '1' ? '1' : '0';
 				$sales_system_prompt=strip_tags($this->input->post('sales_system_prompt',true));
 				$max_history_messages=(int)$this->input->post('max_history_messages',true);
 				$temperature=(float)$this->input->post('temperature',true);
@@ -353,6 +354,7 @@ class Integration extends Home
 					'sales_mode_enabled'=>$sales_mode_enabled,
 					'auto_language'=>$auto_language,
 					'sentiment_enabled'=>$sentiment_enabled,
+					'ai_tools_enabled'=>$ai_tools_enabled,
 					'sales_system_prompt'=>$sales_system_prompt,
 					'max_history_messages'=>$max_history_messages,
 					'temperature'=>$temperature,
