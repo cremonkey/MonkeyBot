@@ -1,0 +1,7 @@
+-- SPEC-17: appointment booking
+CREATE TABLE IF NOT EXISTS ab_services (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, name VARCHAR(120) NOT NULL, duration_min INT DEFAULT 30, price DECIMAL(10,2) DEFAULT 0, currency VARCHAR(10) DEFAULT 'USD', status ENUM('0','1') DEFAULT '1', created_at DATETIME) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ab_availability (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, weekday TINYINT NOT NULL, start_time TIME NOT NULL, end_time TIME NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+CREATE TABLE IF NOT EXISTS ab_appointments (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, service_id INT NOT NULL, subscriber_id INT NULL, customer_name VARCHAR(120), customer_phone VARCHAR(40), customer_email VARCHAR(120), starts_at DATETIME NOT NULL, ends_at DATETIME NOT NULL, status ENUM('pending','confirmed','cancelled','done') DEFAULT 'pending', booking_key VARCHAR(32), source ENUM('chat','web','manual') DEFAULT 'web', reminded ENUM('0','1') DEFAULT '0', created_at DATETIME, KEY idx_user_time (user_id, starts_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+DELETE FROM menu WHERE url='appointment_booking';
+INSERT INTO menu (name,icon,color,url,serial,module_access,have_child,only_admin,only_member,add_ons_id,is_external,header_text,is_menu_manager,custom_page_id)
+VALUES ('Appointments','fas fa-calendar-check','#54ca68','appointment_booking',43,'',0,0,0,0,0,'',0,0);
