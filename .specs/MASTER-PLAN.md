@@ -39,7 +39,7 @@
 | 08 | SPEC-08-channel-enum-migration.md | 3.0 | DONE (15 enums extended, row counts intact) |
 | 09 | SPEC-09-human-handoff-pause.md | 3.3 | DONE (messenger gate + agent-assign pause + toggle endpoint; IG DM gate deferred) |
 | 10 | SPEC-10-whatsapp-cloud-api.md | 3.1 | DONE (verified: webhook handshake+403, admin auth, AI via wa enum; live-chat send integration minimal) |
-| 11 | SPEC-11-webchat-widget.md | 3.2 | PENDING |
+| 11 | SPEC-11-webchat-widget.md | 3.2 | DONE (verified e2e: widget JS, send+session, poll, AI via web enum) |
 | 12 | SPEC-12-crm-module.md | 4.1 | PENDING |
 | 13 | SPEC-13-analytics-hub.md | 4.2 | DONE (verified: page 200, all charts, usage logging wired) |
 | 14 | SPEC-14-ab-testing.md | 4.3 | PENDING |
