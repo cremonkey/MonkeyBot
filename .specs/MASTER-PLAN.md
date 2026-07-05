@@ -41,7 +41,7 @@
 | 10 | SPEC-10-whatsapp-cloud-api.md | 3.1 | PENDING |
 | 11 | SPEC-11-webchat-widget.md | 3.2 | PENDING |
 | 12 | SPEC-12-crm-module.md | 4.1 | PENDING |
-| 13 | SPEC-13-analytics-hub.md | 4.2 | PENDING |
+| 13 | SPEC-13-analytics-hub.md | 4.2 | DONE (verified: page 200, all charts, usage logging wired) |
 | 14 | SPEC-14-ab-testing.md | 4.3 | PENDING |
 | 15 | SPEC-15-telegram.md | 5.1 | PENDING |
 | 16 | SPEC-16-ai-content-writer.md | 5.2 | DONE (verified: page renders, sidebar link, generate graceful) |
