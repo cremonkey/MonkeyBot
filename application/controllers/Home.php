@@ -269,8 +269,9 @@ class Home extends CI_Controller
 
         if ($team_member_id > 0) {
 
+            // SPEC-09: pause the bot for 6h when a human agent takes over
             $this->db->where(['subscribe_id' => $subscriber_id, 'page_table_id' => $page_table_id]);
-            $this->db->update('messenger_bot_subscriber', ["assigned_used_id" => $team_member_id]);
+            $this->db->update('messenger_bot_subscriber', ["assigned_used_id" => $team_member_id, "bot_paused_until" => date('Y-m-d H:i:s', strtotime('+6 hours'))]);
 
             // SPEC-07: lead scoring on human handoff
             $this->load->helper('lead_scoring');

@@ -886,6 +886,18 @@ class Messenger_bot extends Home
         // find the social media type
         $social_media_type=$subscriber_info[0]['social_media'] ?? "fb";
 
+        // SPEC-09: when a human agent has taken over, suppress automated bot replies.
+        // $return===false means this is the internal automated bot path (the Live Chat agent
+        // send comes through the $_POST branch with $return=true and must NOT be gated).
+        if($return === false){
+            $gate_sender = $sender_id !== '' ? $sender_id : ($subscriber_info[0]['subscribe_id'] ?? '');
+            if($gate_sender !== ''){
+                $paused = $this->basic->get_data('messenger_bot_subscriber', ['where'=>['subscribe_id'=>$gate_sender]], ['bot_paused_until'], '', 1);
+                if(isset($paused[0]['bot_paused_until']) && $paused[0]['bot_paused_until'] !== null && $paused[0]['bot_paused_until'] > date('Y-m-d H:i:s')){
+                    return false; // bot is paused for this subscriber
+                }
+            }
+        }
 
         $message_str = $value['message'];
 

@@ -22,6 +22,23 @@ class livechat extends Home
         $this->member_validity();        
     }
 
+    // SPEC-09: toggle/set bot pause for a subscriber from the live chat UI.
+    // POST: subscribe_id, action ('pause'|'resume'). Verifies the subscriber belongs to the user.
+    public function toggle_bot_pause()
+    {
+        header('Content-Type: application/json');
+        $subscribe_id = $this->input->post('subscribe_id', true);
+        $action = $this->input->post('action', true);
+        if (empty($subscribe_id)) { echo json_encode(['status'=>'0','message'=>'missing subscriber']); return; }
+        // ownership: subscriber must belong to this account
+        $uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
+        $sub = $this->basic->get_data('messenger_bot_subscriber', ['where'=>['subscribe_id'=>$subscribe_id, 'user_id'=>$uid]], ['id'], '', 1);
+        if (empty($sub)) { echo json_encode(['status'=>'0','message'=>'not found']); return; }
+        $val = ($action === 'resume') ? null : date('Y-m-d H:i:s', strtotime('+6 hours'));
+        $this->db->where('id', $sub[0]['id'])->update('messenger_bot_subscriber', ['bot_paused_until'=>$val]);
+        echo json_encode(['status'=>'1','paused_until'=>$val]);
+    }
+
     public function load_livechat()
     {
         $this->config->load('pusher');
