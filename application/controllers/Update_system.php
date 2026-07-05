@@ -25,7 +25,11 @@ class Update_system extends Home
 		redirect('home/login_page', 'location');
 
 	    if ($this->session->userdata('user_type') != 'Admin')
-	    redirect('home/login_page', 'location');	 
+	    redirect('home/login_page', 'location');
+
+	    // SPEC-00 Task F: hard-disable the file-replacing update system unless explicitly opted in on this deployment
+	    if (getenv('ALLOW_SYSTEM_UPDATE') !== '1')
+	    show_error('System update is disabled on this deployment. Set ALLOW_SYSTEM_UPDATE=1 in the environment to enable it.', 403);
 
 	     $q= "SET SESSION wait_timeout=50000";
          $this->db->query($q);

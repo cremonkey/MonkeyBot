@@ -3058,7 +3058,7 @@ public function cart($id=0)
 
                 } else {
 
-                  whatsapp_button = '<a href=\"https://api.whatsapp.com/send?phone=phone=".$whatsapp_phone_number."&text=".urlencode($whatsapp_send_order_text)."\" class=\"btn btn-success\"><i class=\"fab fa-whatsapp\"></i> ".$this->lang->line('Send Order In WhatsApp')."</a>';
+                  whatsapp_button = '<a href=\"https://api.whatsapp.com/send?phone=".$whatsapp_phone_number."&text=".urlencode($whatsapp_send_order_text)."\" class=\"btn btn-success\"><i class=\"fab fa-whatsapp\"></i> ".$this->lang->line('Send Order In WhatsApp')."</a>';
 
                 }
 
