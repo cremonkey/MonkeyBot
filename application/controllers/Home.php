@@ -7033,6 +7033,20 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             return ['status' => '0', 'message' => 'OpenAI configuration not found.'];
         }
 
+        // SPEC-18: if a per-channel AI agent profile is assigned, overlay its identity/behavior
+        // onto the account config (keys + provider stay from the account). No profile → unchanged.
+        $this->load->helper('ai_agent');
+        $ai_profile = ai_resolve_profile($user_id, $social_media, $page_id);
+        if (!empty($ai_profile)) {
+            foreach (array('instruction_to_ai','sales_mode_enabled','sales_system_prompt','max_history_messages','temperature','memory_ttl_hours','auto_language','sentiment_enabled','ai_tools_enabled') as $f) {
+                if (isset($ai_profile[$f]) && $ai_profile[$f] !== null && $ai_profile[$f] !== '') $api_info[0][$f] = $ai_profile[$f];
+            }
+            if (!empty($ai_profile['model'])) {
+                if (($api_info[0]['ai_provider'] ?? 'openai') === 'anthropic') $api_info[0]['anthropic_model'] = $ai_profile['model'];
+                else $api_info[0]['models'] = $ai_profile['model'];
+            }
+        }
+
         $api_key = $api_info[0]['open_ai_secret_key'];
         $model = !empty($api_info[0]['models']) ? $api_info[0]['models'] : 'text-davinci-003';
         $max_token = !empty($api_info[0]['maximum_token']) ? (int)$api_info[0]['maximum_token'] : 800;
