@@ -34,7 +34,7 @@
 | 03 | SPEC-03-ai-function-calling.md | 1.3 | DONE (lint+SQL verified; live tool-loop needs store+key) |
 | 04 | SPEC-04-ai-sentiment-multilang.md | 1.4 | DONE (verified: marker extraction, UI, migration) |
 | 05 | SPEC-05-product-catalog-chat.md | 2.1 | PENDING |
-| 06 | SPEC-06-coupon-autogen-cart-ai.md | 2.2 | PENDING |
+| 06 | SPEC-06-coupon-autogen-cart-ai.md | 2.2 | PARTIAL (coupon_helper done+wired to AI; AI-reminder-text/recovery-metric deferred - critical cron path) |
 | 07 | SPEC-07-lead-scoring.md | 2.3 | DONE (schema+helper+2 hooks+decay+badge; msg/postback hooks deferred) |
 | 08 | SPEC-08-channel-enum-migration.md | 3.0 | DONE (15 enums extended, row counts intact) |
 | 09 | SPEC-09-human-handoff-pause.md | 3.3 | DONE (messenger gate + agent-assign pause + toggle endpoint; IG DM gate deferred) |
