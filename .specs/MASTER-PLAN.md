@@ -34,7 +34,7 @@
 | 03 | SPEC-03-ai-function-calling.md | 1.3 | DONE (lint+SQL verified; live tool-loop needs store+key) |
 | 04 | SPEC-04-ai-sentiment-multilang.md | 1.4 | DONE (verified: marker extraction, UI, migration) |
 | 05 | SPEC-05-product-catalog-chat.md | 2.1 | PARTIAL (catalog helper + AI-tool links done; FB carousel send/ADDCART postback deferred - compiled webhook path) |
-| 06 | SPEC-06-coupon-autogen-cart-ai.md | 2.2 | PARTIAL (coupon_helper done+wired to AI; AI-reminder-text/recovery-metric deferred - critical cron path) |
+| 06 | SPEC-06-coupon-autogen-cart-ai.md | 2.2 | PARTIAL (coupon_helper done+wired to AI; AI-reminder text deferred) |
 | 07 | SPEC-07-lead-scoring.md | 2.3 | DONE (schema+helper+2 hooks+decay+badge; msg/postback hooks deferred) |
 | 08 | SPEC-08-channel-enum-migration.md | 3.0 | DONE (15 enums extended, row counts intact) |
 | 09 | SPEC-09-human-handoff-pause.md | 3.3 | DONE (messenger gate + agent-assign pause + toggle endpoint; IG DM gate deferred) |
@@ -42,7 +42,7 @@
 | 11 | SPEC-11-webchat-widget.md | 3.2 | DONE (verified e2e: widget JS, send+session, poll, AI via web enum) |
 | 12 | SPEC-12-crm-module.md | 4.1 | DONE (verified: dashboard, kanban+drag, deal create/move, contacts, auto-deal hook) |
 | 13 | SPEC-13-analytics-hub.md | 4.2 | DONE (verified: page 200, all charts, usage logging wired) |
-| 14 | SPEC-14-ab-testing.md | 4.3 | PENDING |
+| 14 | SPEC-14-ab-testing.md | 4.3 | PARTIAL (schema done; compose-UI + cron split deferred - broadcast engine unused, 0 rows) |
 | 15 | SPEC-15-telegram.md | 5.1 | DONE (verified: public webhook, admin auth, AI reply via tg enum) |
 | 16 | SPEC-16-ai-content-writer.md | 5.2 | DONE (verified: page renders, sidebar link, generate graceful) |
 | 17 | SPEC-17-appointments.md | 5.3 | DONE (verified e2e: services, slots, booking, double-book guard) |
