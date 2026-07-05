@@ -4634,7 +4634,7 @@ class Comment_automation extends Home
 
                                             $description=$reply_message['message']['text'];
                                             $human=$comment_text;
-                                            $response_from_api=$this->get_ai_reply_open_ai($description,$human,$info['user_id']);
+                                            $response_from_api=$this->get_ai_reply_open_ai($description,$human,$info['user_id'],$page_id,$commenter_id,"fb");
                                             $reply_message['message']['text']= $response_from_api['choices'][0]['text'] ?? "";
                                             unset($reply_message['message']['text_from']);
                                         }
@@ -4892,7 +4892,7 @@ class Comment_automation extends Home
 
                   if($auto_reply_type == 'ai_reply')
                   {
-                    $auto_reply_comment_message = $this->get_ai_reply_open_ai($ai_training_data,$comment_text,$info['user_id']);
+                    $auto_reply_comment_message = $this->get_ai_reply_open_ai($ai_training_data,$comment_text,$info['user_id'],$page_id,$commenter_id,"fb");
                     $auto_reply_comment_message = $auto_reply_comment_message['choices'][0]['text'] ?? "";
                     $comment_image_link=$comment_video_link=$comment_gif_link='';
                     $auto_reply_private_message = $info['auto_reply_text'];
@@ -5031,7 +5031,7 @@ class Comment_automation extends Home
 
                                 $description=$reply_message['message']['text'];
                                 $human=$comment_text;
-                                $response_from_api=$this->get_ai_reply_open_ai($description,$human,$info['user_id']);
+                                $response_from_api=$this->get_ai_reply_open_ai($description,$human,$info['user_id'],$page_id,$commenter_id,"fb");
                                 $reply_message['message']['text']= $response_from_api['choices'][0]['text'] ?? "";
                                 unset($reply_message['message']['text_from']);
                             }
@@ -5598,7 +5598,7 @@ class Comment_automation extends Home
 
                                           $description=$reply_message['message']['text'];
                                           $human=$comment_text;
-                                          $response_from_api=$this->get_ai_reply_open_ai($description,$human,$info['user_id']);
+                                          $response_from_api=$this->get_ai_reply_open_ai($description,$human,$info['user_id'],$page_id,$commenter_id,"fb");
                                           $reply_message['message']['text']= $response_from_api['choices'][0]['text'] ?? "";
                                           unset($reply_message['message']['text_from']);
                                       }
@@ -5854,7 +5854,7 @@ class Comment_automation extends Home
 
                 if($auto_reply_type == 'ai_reply')
                 {
-                  $auto_reply_comment_message = $this->get_ai_reply_open_ai($ai_training_data,$comment_text,$info['user_id']);
+                  $auto_reply_comment_message = $this->get_ai_reply_open_ai($ai_training_data,$comment_text,$info['user_id'],$page_id,$commenter_id,"fb");
                   $auto_reply_comment_message = $auto_reply_comment_message['choices'][0]['text'] ?? "";
                   $comment_image_link=$comment_video_link=$comment_gif_link='';
                   $auto_reply_private_message = $info['auto_reply_text'];
@@ -5994,7 +5994,7 @@ class Comment_automation extends Home
 
                               $description=$reply_message['message']['text'];
                               $human=$comment_text;
-                              $response_from_api=$this->get_ai_reply_open_ai($description,$human,$info['user_id']);
+                              $response_from_api=$this->get_ai_reply_open_ai($description,$human,$info['user_id'],$page_id,$commenter_id,"fb");
                               $reply_message['message']['text']= $response_from_api['choices'][0]['text'] ?? "";
                               unset($reply_message['message']['text_from']);
                           }

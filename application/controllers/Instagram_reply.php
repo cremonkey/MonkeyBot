@@ -3183,7 +3183,7 @@ class Instagram_reply extends Home
 
                                               $description=$reply_message['message']['text'];
                                               $human=$comment_text;
-                                              $response_from_api=$this->get_ai_reply_open_ai($description,$human,$user_id);
+                                              $response_from_api=$this->get_ai_reply_open_ai($description,$human,$user_id,$fb_page_id,$commenter_id,"ig");
                                               $reply_message['message']['text']= $response_from_api['choices'][0]['text'] ?? "";
                                               unset($reply_message['message']['text_from']);
                                           }
@@ -3364,7 +3364,7 @@ class Instagram_reply extends Home
 
                     if($auto_reply_type == 'ai_reply')
                     {
-                      $auto_reply_comment_message = $this->get_ai_reply_open_ai($ai_training_data,$comment_text,$user_id);
+                      $auto_reply_comment_message = $this->get_ai_reply_open_ai($ai_training_data,$comment_text,$user_id,$fb_page_id,$commenter_id,"ig");
                       $auto_reply_comment_message = $auto_reply_comment_message['choices'][0]['text'] ?? "";
                       $auto_reply_private_message = $autoreply_info[0]['auto_reply_text'];
                     }
@@ -3461,7 +3461,7 @@ class Instagram_reply extends Home
 
                                 $description=$reply_message['message']['text'];
                                 $human=$comment_text;
-                                $response_from_api=$this->get_ai_reply_open_ai($description,$human,$user_id);
+                                $response_from_api=$this->get_ai_reply_open_ai($description,$human,$user_id,$fb_page_id,$commenter_id,"ig");
                                 $reply_message['message']['text']= $response_from_api['choices'][0]['text'] ?? "";
                                 unset($reply_message['message']['text_from']);
                             }
