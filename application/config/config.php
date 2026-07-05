@@ -248,7 +248,7 @@ $config['encryption_key'] = '12345';
 |
 */
 $config['sess_cookie_name']		= 'ci_session';
-$config['sess_expiration']		= 0;
+$config['sess_expiration']		= 14400;
 $config['sess_expire_on_close']	= TRUE;
 $config['sess_encrypt_cookie']	= FALSE;
 $config['sess_match_ip']		= FALSE;
@@ -269,7 +269,8 @@ $config['sess_save_path'] = FCPATH . 'application/cache/';
 $config['cookie_prefix']	= "";
 $config['cookie_domain']	= "";
 $config['cookie_path']		= "/";
-$config['cookie_secure']	= FALSE;
+$config['cookie_secure']	= TRUE;
+$config['cookie_httponly']	= TRUE;
 
 /*
 |--------------------------------------------------------------------------
