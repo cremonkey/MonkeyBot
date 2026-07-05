@@ -19,12 +19,16 @@
 - Reference schema (original): `assets/backup_db/initial_db.sql`. LIVE schema may differ — always check live DB with SHOW CREATE TABLE before ALTER.
 - Addon pattern: new features = HMVC module in `application/modules/<name>/controllers/<Name>.php` with comment header (Addon Name / Unique Name / Modules JSON / Project ID), extends Home, activate() calls `$this->register_addon($name,$sidebar,$sql,$purchase_code)` (Home.php:4047). Internal addons must NOT call `addon_credential_check()`.
 - AI entry point: `Home.php::get_ai_reply_open_ai($description,$human,$user_id,$page_id,$subscribe_id,$social_media)` line ~6999; lib `application/libraries/Openai_api.php`; config table `open_ai_config`; memory table `ai_conversation_history`.
+- The app has its OWN CSRF: `Home::csrf_token_check()` validates session `csrf_token` on POST forms (login form field name `csrf_token`, value `session->csrf_token_session`). CI global csrf_protection stays FALSE (see docs/SECURITY-TASK-D.md). Login POST = `home/login`, fields `username`,`password`,`csrf_token`.
+- base_url is set to `https://bot.cremonkey.com/` (config volume + repo). MUST stay https or assets break as mixed-content behind Traefik. To test login end-to-end: GET home/login, scrape csrf_token, POST home/login.
+- Password auth now uses `application/helpers/password_helper.php` (pw_hash/pw_verify/pw_needs_rehash) — md5 legacy accepted + auto-upgraded on login. New password writes MUST use pw_hash().
+- Secrets: `application/helpers/secret_helper.php` (secret_encrypt/decrypt/mask) — encryption INERT until a strong encryption_key is set (still '12345'; see docs/SECURITY-TASK-E.md). secret_decrypt is always safe to wrap reads with.
 
 ## EXECUTION ORDER & STATUS
 
 | # | Spec | Phase | Status |
 |---|------|-------|--------|
-| 00 | SPEC-00-security-hardening.md | 0 | PENDING |
+| 00 | SPEC-00-security-hardening.md | 0 | DONE (A,B,C,F,G done+verified; D deferred, E blocked-on-key) + CSS mixed-content fix |
 | 01 | SPEC-01-ai-memory-fix.md | 1.1 | PENDING |
 | 02 | SPEC-02-ai-provider-abstraction.md | 1.2 | PENDING |
 | 03 | SPEC-03-ai-function-calling.md | 1.3 | PENDING |
