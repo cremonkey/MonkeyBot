@@ -31,7 +31,7 @@
 | 00 | SPEC-00-security-hardening.md | 0 | DONE (A,B,C,F,G done+verified; D deferred, E blocked-on-key) + CSS mixed-content fix |
 | 01 | SPEC-01-ai-memory-fix.md | 1.1 | DONE (9 call sites: 3 IG + 6 FB comments) |
 | 02 | SPEC-02-ai-provider-abstraction.md | 1.2 | DONE (verified: OpenAI path live, router, UI, keep-if-blank) |
-| 03 | SPEC-03-ai-function-calling.md | 1.3 | PENDING |
+| 03 | SPEC-03-ai-function-calling.md | 1.3 | DONE (lint+SQL verified; live tool-loop needs store+key) |
 | 04 | SPEC-04-ai-sentiment-multilang.md | 1.4 | DONE (verified: marker extraction, UI, migration) |
 | 05 | SPEC-05-product-catalog-chat.md | 2.1 | PENDING |
 | 06 | SPEC-06-coupon-autogen-cart-ai.md | 2.2 | PENDING |
