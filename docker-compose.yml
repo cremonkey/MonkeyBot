@@ -1,0 +1,89 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    environment:
+      APP_BASE_URL: ${APP_BASE_URL:-}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./:/var/www/html:rw
+      - app_cache:/var/www/html/application/cache
+      - app_logs:/var/www/html/application/logs
+      - app_config:/var/www/html/application/config
+      - app_upload:/var/www/html/upload
+      - app_upload_caster:/var/www/html/upload_caster
+      - app_download:/var/www/html/download
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "9000"
+
+  web:
+    image: nginx:1.27-alpine
+    depends_on:
+      - app
+    expose:
+      - "80"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.monkeybot-web.entrypoints=web
+      - traefik.http.routers.monkeybot-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.monkeybot-web.rule=Host(`bot.cremonkey.com`)
+      - traefik.http.routers.monkeybot-web.service=monkeybot-web
+      - traefik.http.routers.monkeybot-websecure.entrypoints=websecure
+      - traefik.http.routers.monkeybot-websecure.rule=Host(`bot.cremonkey.com`)
+      - traefik.http.routers.monkeybot-websecure.service=monkeybot-websecure
+      - traefik.http.routers.monkeybot-websecure.tls.certresolver=letsencrypt
+      - traefik.http.services.monkeybot-web.loadbalancer.server.port=80
+      - traefik.http.services.monkeybot-websecure.loadbalancer.server.port=80
+    networks:
+      - default
+      - dokploy-network
+    volumes:
+      - ./:/var/www/html:ro
+      - app_cache:/var/www/html/application/cache:ro
+      - app_logs:/var/www/html/application/logs:ro
+      - app_config:/var/www/html/application/config:ro
+      - app_upload:/var/www/html/upload:ro
+      - app_upload_caster:/var/www/html/upload_caster:ro
+      - app_download:/var/www/html/download:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    command: ["nginx", "-g", "daemon off;"]
+
+  db:
+    image: mariadb:10.11
+    command:
+      - --character-set-server=utf8
+      - --collation-server=utf8_general_ci
+      - --sql-mode=
+      - --innodb-file-per-table=1
+    environment:
+      MARIADB_DATABASE: ${MYSQL_DATABASE:-monkeybot}
+      MARIADB_USER: ${MYSQL_USER:-monkeybot}
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:-change-me-now}
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-root-now}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u root -p$$MARIADB_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+networks:
+  dokploy-network:
+    external: true
+
+volumes:
+  db_data:
+  app_cache:
+  app_logs:
+  app_config:
+  app_upload:
+  app_upload_caster:
+  app_download:

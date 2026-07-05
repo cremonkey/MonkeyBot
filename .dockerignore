@@ -1,0 +1,11 @@
+.git
+.gitignore
+node_modules
+vendor
+application/cache/*
+application/logs/*
+upload/*
+upload_caster/*
+download/*
+.DS_Store
+*.log
