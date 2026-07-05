@@ -35,7 +35,7 @@
 | 04 | SPEC-04-ai-sentiment-multilang.md | 1.4 | DONE (verified: marker extraction, UI, migration) |
 | 05 | SPEC-05-product-catalog-chat.md | 2.1 | PENDING |
 | 06 | SPEC-06-coupon-autogen-cart-ai.md | 2.2 | PENDING |
-| 07 | SPEC-07-lead-scoring.md | 2.3 | PENDING |
+| 07 | SPEC-07-lead-scoring.md | 2.3 | DONE (schema+helper+2 hooks+decay+badge; msg/postback hooks deferred) |
 | 08 | SPEC-08-channel-enum-migration.md | 3.0 | PENDING |
 | 09 | SPEC-09-human-handoff-pause.md | 3.3 | PENDING |
 | 10 | SPEC-10-whatsapp-cloud-api.md | 3.1 | PENDING |
