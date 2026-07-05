@@ -111,25 +111,20 @@ class Ai_tools
     protected function t_search_products($user_id, $args)
     {
         $q = trim((string) ($args['query'] ?? ''));
-        if ($q === '') return 'No search query given.';
+        // SPEC-05: use the catalog helper so results include buy links the AI can share in chat
+        if (file_exists(APPPATH.'helpers/ecommerce_catalog_helper.php')) {
+            $this->CI->load->helper('ecommerce_catalog');
+            $text = ecom_catalog_text($user_id, $q, 5);
+            return $text !== '' ? ("Products found (share links with the customer):\n".$text) : ('No products matched "'.$q.'".');
+        }
         $db = $this->CI->db;
-        $db->select('p.product_name, p.sell_price, p.original_price, p.stock_item, p.stock_prevent_purchase, s.store_name, s.store_unique_id')
-           ->from('ecommerce_product p')
-           ->join('ecommerce_store s', 's.id = p.store_id', 'left')
-           ->where('p.user_id', $user_id)
-           ->where('p.status', '1')
-           ->where('p.deleted', '0')
-           ->group_start()->like('p.product_name', $q)->or_like('p.product_description', $q)->group_end()
-           ->limit(5);
+        $db->select('p.product_name, p.sell_price, p.original_price, p.stock_item, p.stock_prevent_purchase')
+           ->from('ecommerce_product p')->where('p.user_id', $user_id)->where('p.status', '1')->where('p.deleted', '0')
+           ->group_start()->like('p.product_name', $q)->or_like('p.product_description', $q)->group_end()->limit(5);
         $rows = $db->get()->result_array();
         if (empty($rows)) return 'No products matched "'.$q.'".';
         $out = array();
-        foreach ($rows as $r) {
-            $line = $r['product_name'].' — '.$r['sell_price'];
-            if (!empty($r['original_price']) && $r['original_price'] > $r['sell_price']) $line .= ' (was '.$r['original_price'].')';
-            if ($r['stock_prevent_purchase'] === '1' && (int)$r['stock_item'] <= 0) $line .= ' [out of stock]';
-            $out[] = $line;
-        }
+        foreach ($rows as $r) { $out[] = $r['product_name'].' — '.$r['sell_price']; }
         return "Products found:\n- ".implode("\n- ", $out);
     }
 
