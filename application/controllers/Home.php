@@ -7044,6 +7044,17 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             $system_prompt = $api_info[0]['instruction_to_ai'] . "." . $description;
         }
 
+        // SPEC-04: automatic language matching + sentiment tagging (single-call, no extra API cost)
+        $auto_language = isset($api_info[0]['auto_language']) ? ($api_info[0]['auto_language'] == '1') : true;
+        $sentiment_enabled = isset($api_info[0]['sentiment_enabled']) && $api_info[0]['sentiment_enabled'] == '1';
+        if ($auto_language) {
+            $system_prompt .= "\n\nAlways reply in the same language as the customer's last message (Arabic -> Arabic, English -> English). Match their dialect and tone.";
+        }
+        if ($sentiment_enabled) {
+            $system_prompt .= "\n\nIf the customer is angry or frustrated: apologize briefly, de-escalate, and offer to connect them with a human agent.";
+            $system_prompt .= "\n\nAfter your reply, on a new final line output exactly one of [[SENTIMENT:positive]] [[SENTIMENT:neutral]] [[SENTIMENT:negative]] for the customer's mood. Put nothing after that marker.";
+        }
+
         $messages = [];
         $messages[] = ["role" => "system", "content" => $system_prompt];
 
@@ -7092,6 +7103,17 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
         ));
         $response = json_decode($response, true);
 
+        // SPEC-04: extract + strip sentiment marker so the reply returned to callers never contains it
+        $detected_sentiment = null;
+        if ($sentiment_enabled && isset($response['choices'][0]['text'])) {
+            $txt = $response['choices'][0]['text'];
+            if (preg_match('/\[\[SENTIMENT:(positive|neutral|negative)\]\]/i', $txt, $sm)) {
+                $detected_sentiment = strtolower($sm[1]);
+            }
+            $txt = preg_replace('/\s*\[\[SENTIMENT:(positive|neutral|negative)\]\]\s*/i', '', $txt);
+            $response['choices'][0]['text'] = trim($txt);
+        }
+
         // Save conversation pair
         if (!empty($page_id) && !empty($subscribe_id) && !empty($user_id)) {
             $ai_reply_text = isset($response['choices'][0]['text']) ? $response['choices'][0]['text'] : '';
@@ -7103,6 +7125,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                     'social_media' => $social_media,
                     'human_message' => $human,
                     'ai_reply' => $ai_reply_text,
+                    'sentiment' => $detected_sentiment,
                     'created_at' => date("Y-m-d H:i:s")
                 ]);
 

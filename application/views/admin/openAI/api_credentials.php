@@ -151,6 +151,29 @@
               </div>
 
               <hr>
+              <h5 class="mb-3"><i class="fas fa-language"></i> Language &amp; Sentiment</h5>
+              <div class="row">
+                <div class="col-12 col-md-6">
+                  <div class="form-group">
+                    <label class="custom-switch mt-2">
+                      <input type="checkbox" name="auto_language" value="1" class="custom-switch-input" <?php echo (!isset($xvalue['auto_language']) || $xvalue['auto_language']=='1') ? 'checked' : ''; ?>>
+                      <span class="custom-switch-indicator"></span>
+                      <span class="custom-switch-description">Auto-detect &amp; reply in customer's language</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="col-12 col-md-6">
+                  <div class="form-group">
+                    <label class="custom-switch mt-2">
+                      <input type="checkbox" name="sentiment_enabled" value="1" class="custom-switch-input" <?php echo (isset($xvalue['sentiment_enabled']) && $xvalue['sentiment_enabled']=='1') ? 'checked' : ''; ?>>
+                      <span class="custom-switch-indicator"></span>
+                      <span class="custom-switch-description">Detect sentiment &amp; de-escalate angry customers</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <hr>
               <h5 class="mb-3"><i class="fas fa-robot"></i> Sales Bot Mode</h5>
 
               <div class="row">
