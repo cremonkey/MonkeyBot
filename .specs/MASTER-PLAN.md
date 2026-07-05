@@ -45,7 +45,7 @@
 | 14 | SPEC-14-ab-testing.md | 4.3 | PENDING |
 | 15 | SPEC-15-telegram.md | 5.1 | DONE (verified: public webhook, admin auth, AI reply via tg enum) |
 | 16 | SPEC-16-ai-content-writer.md | 5.2 | DONE (verified: page renders, sidebar link, generate graceful) |
-| 17 | SPEC-17-appointments.md | 5.3 | PENDING |
+| 17 | SPEC-17-appointments.md | 5.3 | DONE (verified e2e: services, slots, booking, double-book guard) |
 
 Statuses: PENDING → IN-PROGRESS → REVIEW → DONE (or BLOCKED:<reason>)
 
