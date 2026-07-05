@@ -5447,8 +5447,18 @@ public function proceed_checkout()
   // SPEC-07: lead scoring on checkout (strong purchase intent)
   if($subscriber_id!=""){
     $this->load->helper("lead_scoring");
-    $ls_sub = $this->basic->get_data("messenger_bot_subscriber", ["where"=>["subscribe_id"=>$subscriber_id]], ["id"], "", 1);
-    if(isset($ls_sub[0]["id"])) lead_add_score($ls_sub[0]["id"], "purchase", "checkout cart ".$cart_id);
+    $ls_sub = $this->basic->get_data("messenger_bot_subscriber", ["where"=>["subscribe_id"=>$subscriber_id]], ["id","user_id","full_name","email","phone_number","social_media"], "", 1);
+    if(isset($ls_sub[0]["id"])){
+      lead_add_score($ls_sub[0]["id"], "purchase", "checkout cart ".$cart_id);
+      if(file_exists(APPPATH."helpers/crm_helper.php")){ // SPEC-12 auto Won deal
+        $this->load->helper("crm");
+        crm_auto_deal($ls_sub[0]["user_id"], $ls_sub[0]["id"], "purchase", array(
+          "title"=>($ls_sub[0]["full_name"]?:"Customer")." order",
+          "contact_name"=>$ls_sub[0]["full_name"], "contact_email"=>$ls_sub[0]["email"],
+          "contact_phone"=>$ls_sub[0]["phone_number"], "source"=>$ls_sub[0]["social_media"] ?: "manual", "cart_id"=>$cart_id,
+        ));
+      }
+    }
   }
 
   if($subscriber_id=="")
