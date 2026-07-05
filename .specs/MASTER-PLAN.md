@@ -33,7 +33,7 @@
 | 02 | SPEC-02-ai-provider-abstraction.md | 1.2 | DONE (verified: OpenAI path live, router, UI, keep-if-blank) |
 | 03 | SPEC-03-ai-function-calling.md | 1.3 | DONE (lint+SQL verified; live tool-loop needs store+key) |
 | 04 | SPEC-04-ai-sentiment-multilang.md | 1.4 | DONE (verified: marker extraction, UI, migration) |
-| 05 | SPEC-05-product-catalog-chat.md | 2.1 | PENDING |
+| 05 | SPEC-05-product-catalog-chat.md | 2.1 | PARTIAL (catalog helper + AI-tool links done; FB carousel send/ADDCART postback deferred - compiled webhook path) |
 | 06 | SPEC-06-coupon-autogen-cart-ai.md | 2.2 | PARTIAL (coupon_helper done+wired to AI; AI-reminder-text/recovery-metric deferred - critical cron path) |
 | 07 | SPEC-07-lead-scoring.md | 2.3 | DONE (schema+helper+2 hooks+decay+badge; msg/postback hooks deferred) |
 | 08 | SPEC-08-channel-enum-migration.md | 3.0 | DONE (15 enums extended, row counts intact) |
