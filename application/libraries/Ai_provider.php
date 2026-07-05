@@ -13,7 +13,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  */
 class Ai_provider
 {
-    const MAX_TOOL_ROUNDS = 3;
+    const MAX_TOOL_ROUNDS = 2; // bounded to limit worst-case wall-clock inside the webhook
 
     public function completion($config_row, $messages, $overrides = array())
     {

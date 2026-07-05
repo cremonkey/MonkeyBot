@@ -38,7 +38,7 @@
                   <td>@<?php echo htmlspecialchars($a['bot_username']); ?></td>
                   <td><?php echo $a['ai_enabled']=='1'?'<span class="badge badge-success">On</span>':'<span class="badge badge-secondary">Off</span>'; ?></td>
                   <td><?php echo $a['status']=='1'?'<span class="badge badge-primary">Active</span>':'Inactive'; ?></td>
-                  <td><a href="<?php echo base_url('telegram_bot/delete/'.$a['id']); ?>" class="btn btn-sm btn-danger" onclick="return confirm('Remove this bot?')">Delete</a></td>
+                  <td><a href="<?php echo base_url('telegram_bot/delete/'.$a['id'].'?t='.$this->session->userdata('csrf_token_session')); ?>" class="btn btn-sm btn-danger" onclick="return confirm('Remove this bot?')">Delete</a></td>
                 </tr>
                 <?php endforeach; else: ?>
                 <tr><td colspan="4" class="text-muted">No bots connected yet.</td></tr>

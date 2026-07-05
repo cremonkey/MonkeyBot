@@ -133,7 +133,8 @@ class Ai_tools
         $key = trim((string) ($args['email_or_phone'] ?? ''));
         if ($key === '') return 'No email or phone given.';
         $db = $this->CI->db;
-        $db->from('ecommerce_cart')->where('user_id', $user_id)
+        // only real placed orders (action_type=checkout), not in-progress/abandoned carts
+        $db->from('ecommerce_cart')->where('user_id', $user_id)->where('action_type', 'checkout')
            ->group_start()->where('buyer_email', $key)->or_where('buyer_mobile', $key)->group_end()
            ->order_by('id', 'DESC')->limit(1);
         $row = $db->get()->row_array();

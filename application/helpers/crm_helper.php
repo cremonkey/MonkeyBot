@@ -36,7 +36,7 @@ if (!function_exists('crm_stage_id')) {
 if (!function_exists('crm_auto_deal')) {
     /**
      * Idempotent: won't duplicate an open deal for the same subscriber+trigger.
-     * @param string $trigger 'purchase'|'abandoned_cart'|'new_lead'
+     * @param string $trigger 'purchase'(=Won) | 'abandoned_cart' | 'checkout'(=Negotiation, open) | 'new_lead'
      */
     function crm_auto_deal($user_id, $subscriber_row_id, $trigger, $data = array())
     {
@@ -45,8 +45,10 @@ if (!function_exists('crm_auto_deal')) {
             $user_id = (int)$user_id;
             if ($user_id <= 0) return;
             $pid = crm_ensure_pipeline($user_id);
-            $stage_name = $trigger === 'purchase' ? 'Won' : ($trigger === 'abandoned_cart' ? 'Abandoned Cart' : 'New Lead');
+            $stage_name = $trigger === 'purchase' ? 'Won' : ($trigger === 'abandoned_cart' ? 'Abandoned Cart' : ($trigger === 'checkout' ? 'Negotiation' : 'New Lead'));
             $stage_id = crm_stage_id($pid, $stage_name);
+            if (!$stage_id) $stage_id = crm_stage_id($pid, 'New Lead'); // fallback if stage renamed/removed
+            if (!$stage_id) { $first = $CI->db->from('crm_stages')->where('pipeline_id',$pid)->order_by('position','ASC')->limit(1)->get()->row_array(); $stage_id = $first['id'] ?? null; }
             if (!$stage_id) return;
 
             // idempotency: existing non-lost deal for this subscriber

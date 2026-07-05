@@ -40,12 +40,14 @@ class Whatsapp_bot extends Home
         $pnid = strip_tags((string)$this->input->post('phone_number_id', true));
         $display = strip_tags((string)$this->input->post('display_phone', true));
         $token = trim((string)$this->input->post('access_token', true));
+        $app_secret = trim((string)$this->input->post('app_secret', true));
         $ai_enabled = $this->input->post('ai_enabled', true) == '1' ? '1' : '0';
         if ($pnid === '' || $token === '') { $this->session->set_flashdata('error','Phone number ID and access token are required'); redirect('whatsapp_bot'); return; }
         $verify = bin2hex(random_bytes(16));
         $this->basic->insert_data('whatsapp_accounts', array(
             'user_id'=>$this->uid, 'label'=>$label, 'waba_id'=>$waba_id, 'phone_number_id'=>$pnid,
-            'display_phone'=>$display, 'access_token'=>secret_encrypt($token), 'verify_token'=>$verify,
+            'display_phone'=>$display, 'access_token'=>secret_encrypt($token),
+            'app_secret'=>($app_secret !== '' ? secret_encrypt($app_secret) : null), 'verify_token'=>$verify,
             'ai_enabled'=>$ai_enabled, 'status'=>'1', 'created_at'=>date('Y-m-d H:i:s'),
         ));
         $this->session->set_flashdata('success','WhatsApp number connected. Configure the webhook in Meta with the callback URL and verify token shown.');
@@ -54,13 +56,14 @@ class Whatsapp_bot extends Home
 
     public function delete($id=0)
     {
+        if (!hash_equals((string)$this->session->userdata('csrf_token_session'), (string)$this->input->get('t'))) show_error('Invalid token', 403);
         $this->db->where(['id'=>(int)$id, 'user_id'=>$this->uid])->delete('whatsapp_accounts');
         redirect('whatsapp_bot');
     }
 
     public function webhook($account_id=0)
     {
-        $acc = $this->basic->get_data('whatsapp_accounts', ['where'=>['id'=>(int)$account_id]]);
+        $acc = $this->basic->get_data('whatsapp_accounts', ['where'=>['id'=>(int)$account_id, 'status'=>'1']]);
         // GET: Meta verification handshake
         if ($this->input->method() === 'get') {
             $mode = $this->input->get('hub_mode') ?: $this->input->get('hub.mode');
@@ -76,8 +79,16 @@ class Whatsapp_bot extends Home
         try {
             if (empty($acc)) { echo json_encode(['ok'=>false]); return; }
             $acc = $acc[0];
+            $raw_body = file_get_contents('php://input');
+            // review I1: verify Meta signature when an app secret is configured
+            $app_secret = isset($acc['app_secret']) && $acc['app_secret'] !== null ? secret_decrypt($acc['app_secret']) : '';
+            if ($app_secret !== '') {
+                $sig = isset($_SERVER['HTTP_X_HUB_SIGNATURE_256']) ? $_SERVER['HTTP_X_HUB_SIGNATURE_256'] : '';
+                $expected = 'sha256=' . hash_hmac('sha256', $raw_body, $app_secret);
+                if (!hash_equals($expected, (string)$sig)) { $this->output->set_status_header(403); echo json_encode(['ok'=>false]); return; }
+            }
             $token = secret_decrypt($acc['access_token']);
-            $body = json_decode(file_get_contents('php://input'), true);
+            $body = json_decode($raw_body, true);
             $entries = $body['entry'] ?? array();
             foreach ($entries as $entry) {
                 foreach (($entry['changes'] ?? array()) as $change) {

@@ -38,7 +38,7 @@
       <div class="col-lg-8">
         <div class="card"><div class="card-header"><h4>Services</h4></div><div class="card-body">
           <table class="table table-sm"><thead><tr><th>Name</th><th>Duration</th><th>Price</th><th></th></tr></thead><tbody>
-          <?php foreach($services as $s): ?><tr><td><?php echo htmlspecialchars($s['name']); ?></td><td><?php echo $s['duration_min']; ?>m</td><td><?php echo number_format($s['price'],2).' '.$s['currency']; ?></td><td><a href="<?php echo base_url('appointment_booking/delete_service/'.$s['id']); ?>" class="btn btn-sm btn-danger">×</a></td></tr><?php endforeach; ?>
+          <?php foreach($services as $s): ?><tr><td><?php echo htmlspecialchars($s['name']); ?></td><td><?php echo $s['duration_min']; ?>m</td><td><?php echo number_format($s['price'],2).' '.htmlspecialchars($s['currency']); ?></td><td><a href="<?php echo base_url('appointment_booking/delete_service/'.$s['id'].'?t='.$this->session->userdata('csrf_token_session')); ?>" class="btn btn-sm btn-danger" onclick="return confirm('Delete service?')">×</a></td></tr><?php endforeach; ?>
           </tbody></table>
         </div></div>
         <div class="card"><div class="card-header"><h4>Appointments</h4></div><div class="card-body">
@@ -47,9 +47,10 @@
             <tr><td><?php echo $a['starts_at']; ?></td><td><?php echo htmlspecialchars($a['customer_name']); ?><br><small><?php echo htmlspecialchars($a['customer_phone']); ?></small></td>
             <td><span class="badge badge-<?php echo $a['status']=='confirmed'?'success':($a['status']=='cancelled'?'danger':($a['status']=='done'?'info':'warning')); ?>"><?php echo $a['status']; ?></span></td>
             <td>
-              <a href="<?php echo base_url('appointment_booking/set_status/'.$a['id'].'/confirmed'); ?>" class="btn btn-sm btn-outline-success">Confirm</a>
-              <a href="<?php echo base_url('appointment_booking/set_status/'.$a['id'].'/done'); ?>" class="btn btn-sm btn-outline-info">Done</a>
-              <a href="<?php echo base_url('appointment_booking/set_status/'.$a['id'].'/cancelled'); ?>" class="btn btn-sm btn-outline-danger">Cancel</a>
+<?php $tk=$this->session->userdata('csrf_token_session'); ?>
+              <a href="<?php echo base_url('appointment_booking/set_status/'.$a['id'].'/confirmed?t='.$tk); ?>" class="btn btn-sm btn-outline-success">Confirm</a>
+              <a href="<?php echo base_url('appointment_booking/set_status/'.$a['id'].'/done?t='.$tk); ?>" class="btn btn-sm btn-outline-info">Done</a>
+              <a href="<?php echo base_url('appointment_booking/set_status/'.$a['id'].'/cancelled?t='.$tk); ?>" class="btn btn-sm btn-outline-danger">Cancel</a>
             </td></tr>
           <?php endforeach; ?>
           </tbody></table>

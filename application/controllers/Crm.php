@@ -111,8 +111,8 @@ class Crm extends Home
         if ($deal['subscriber_id']) {
             $sub = $this->db->from('messenger_bot_subscriber')->where('id',$deal['subscriber_id'])->get()->row_array();
             if ($sub) {
-                $conv = $this->db->from('livechat_messages')->where('subscriber_id',$sub['subscribe_id'])->order_by('id','DESC')->limit(50)->get()->result_array();
-                $orders = $this->db->from('ecommerce_cart')->where('subscriber_id',$sub['subscribe_id'])->order_by('id','DESC')->limit(20)->get()->result_array();
+                $conv = $this->db->from('livechat_messages')->where('user_id',$this->uid)->where('subscriber_id',$sub['subscribe_id'])->order_by('id','DESC')->limit(50)->get()->result_array();
+                $orders = $this->db->from('ecommerce_cart')->where('user_id',$this->uid)->where('subscriber_id',$sub['subscribe_id'])->order_by('id','DESC')->limit(20)->get()->result_array();
             }
             $data['subscriber']=$sub;
         }
@@ -143,6 +143,7 @@ class Crm extends Home
         $sub = $this->db->from('messenger_bot_subscriber')->where('id',$sub_id)->where('user_id',$this->uid)->get()->row_array();
         if (!$sub) { echo json_encode(['status'=>'0']); return; }
         $pid = $this->pipeline_id(); $stage_id = crm_stage_id($pid,'New Lead');
+        if (!$stage_id) { $first = $this->db->from('crm_stages')->where('pipeline_id',$pid)->order_by('position','ASC')->limit(1)->get()->row_array(); $stage_id = $first['id'] ?? 0; }
         $name = trim(($sub['first_name'] ?? '').' '.($sub['last_name'] ?? '')) ?: ($sub['full_name'] ?? 'Contact');
         $this->db->insert('crm_deals', array('user_id'=>$this->uid,'pipeline_id'=>$pid,'stage_id'=>$stage_id,'title'=>$name.' deal',
             'subscriber_id'=>$sub_id,'contact_name'=>$name,'contact_email'=>$sub['email'] ?? '','contact_phone'=>$sub['phone_number'] ?? '',

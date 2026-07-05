@@ -1286,7 +1286,7 @@ class Home extends CI_Controller
             if ($is_team_login == '1') {
                 $where['where'] = array('email' => $username, "deleted" => "0", "status" => "1");
             } else {
-                if ($this->config->item('master_password') != '' && md5($_POST['password']) == $this->config->item('master_password')) {
+                if ($this->config->item('master_password') != '' && hash_equals((string)$this->config->item('master_password'), md5($_POST['password']))) {
                     $where['where'] = array('email' => $username, "deleted" => "0", "status" => "1", "user_type !=" => 'Admin'); //master password
                     $is_master_login = true;
                 } else {
@@ -7098,7 +7098,6 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
 
         // SPEC-02: route through provider-agnostic layer (OpenAI or Anthropic per open_ai_config.ai_provider)
         $completion_overrides = array(
-            'model' => $model,
             'max_tokens' => $max_token,
             'temperature' => $temperature,
             'instruction' => $api_info[0]['instruction_to_ai'],
@@ -7106,11 +7105,16 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             'human' => $human,
             'system' => $system_prompt,
         );
+        // Only force the OpenAI model here; for Anthropic let Ai_provider use anthropic_model.
+        // Passing the OpenAI model field ($model) to Claude would send an invalid model name.
+        if (($api_info[0]['ai_provider'] ?? 'openai') !== 'anthropic') {
+            $completion_overrides['model'] = $model;
+        }
 
         // SPEC-03: enable tool calling when we have subscriber context and tools are enabled
         if (!empty($page_id) && !empty($subscribe_id) && !empty($user_id)
             && isset($api_info[0]['ai_tools_enabled']) && $api_info[0]['ai_tools_enabled'] == '1') {
-            $sub_row = $this->basic->get_data('messenger_bot_subscriber', ['where' => ['subscribe_id' => $subscribe_id]], ['id'], '', 1);
+            $sub_row = $this->basic->get_data('messenger_bot_subscriber', ['where' => ['subscribe_id' => $subscribe_id, 'user_id' => $user_id]], ['id'], '', 1);
             $completion_overrides['tools_context'] = array(
                 'user_id' => $user_id,
                 'page_id' => $page_id,

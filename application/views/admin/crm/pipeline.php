@@ -17,7 +17,7 @@
               <div class="card-body p-2">
                 <a href="<?php echo base_url('crm/deal_detail/'.$d['id']); ?>" style="font-weight:600"><?php echo htmlspecialchars($d['title']); ?></a>
                 <div class="text-muted small"><?php echo htmlspecialchars($d['contact_name']); ?></div>
-                <div class="small"><b><?php echo number_format($d['value'],2).' '.$d['currency']; ?></b> <span class="badge badge-light float-right"><?php echo $d['source']; ?></span></div>
+                <div class="small"><b><?php echo number_format($d['value'],2).' '.htmlspecialchars($d['currency']); ?></b> <span class="badge badge-light float-right"><?php echo htmlspecialchars($d['source']); ?></span></div>
               </div>
             </div>
             <?php endforeach; ?>

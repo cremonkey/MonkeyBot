@@ -47,6 +47,7 @@ class Appointment_booking extends Home
 
     public function delete_service($id=0)
     {
+        if (!hash_equals((string)$this->session->userdata('csrf_token_session'), (string)$this->input->get('t'))) show_error('Invalid token', 403);
         $this->db->where(['id'=>(int)$id,'user_id'=>$this->uid])->delete('ab_services');
         redirect('appointment_booking');
     }
@@ -69,6 +70,7 @@ class Appointment_booking extends Home
 
     public function set_status($id=0, $status='')
     {
+        if (!hash_equals((string)$this->session->userdata('csrf_token_session'), (string)$this->input->get('t'))) show_error('Invalid token', 403);
         $allowed = array('pending','confirmed','cancelled','done');
         if (in_array($status,$allowed)) $this->db->where(['id'=>(int)$id,'user_id'=>$this->uid])->update('ab_appointments', array('status'=>$status));
         redirect('appointment_booking');
@@ -103,14 +105,18 @@ class Appointment_booking extends Home
         $weekday = (int)date('w', strtotime($date));
         $avail = $this->db->from('ab_availability')->where('user_id',$uid)->where('weekday',$weekday)->get()->result_array();
         $dur = (int)$svc['duration_min'];
+        // existing appointments as [start_ts, end_ts] intervals (any duration/service)
         $taken = $this->db->from('ab_appointments')->where('user_id',$uid)->where('DATE(starts_at)',$date)->where_in('status',array('pending','confirmed'))->get()->result_array();
-        $taken_times = array(); foreach ($taken as $t) $taken_times[date('H:i',strtotime($t['starts_at']))]=true;
+        $intervals = array();
+        foreach ($taken as $t) $intervals[] = array(strtotime($t['starts_at']), strtotime($t['ends_at']));
         $slots = array();
         foreach ($avail as $a) {
             $t = strtotime($date.' '.$a['start_time']); $end = strtotime($date.' '.$a['end_time']);
             while ($t + $dur*60 <= $end) {
-                $hm = date('H:i',$t);
-                if (empty($taken_times[$hm]) && $t > time()) $slots[] = $hm;
+                $slot_start = $t; $slot_end = $t + $dur*60;
+                $overlap = false;
+                foreach ($intervals as $iv) { if ($slot_start < $iv[1] && $slot_end > $iv[0]) { $overlap = true; break; } }
+                if (!$overlap && $t > time()) $slots[] = date('H:i',$t);
                 $t += $dur*60;
             }
         }
@@ -129,8 +135,10 @@ class Appointment_booking extends Home
         if (!$svc) { echo json_encode(['status'=>'0','message'=>'Invalid service']); return; }
         $starts = date('Y-m-d H:i:s', strtotime($date.' '.$time));
         $ends = date('Y-m-d H:i:s', strtotime($starts.' +'.$svc['duration_min'].' minutes'));
-        // prevent double-book
-        $clash = $this->db->from('ab_appointments')->where('user_id',$uid)->where('starts_at',$starts)->where_in('status',array('pending','confirmed'))->count_all_results();
+        // prevent double-book via interval overlap (not just exact start)
+        $clash = $this->db->from('ab_appointments')->where('user_id',$uid)
+            ->where('starts_at <', $ends)->where('ends_at >', $starts)
+            ->where_in('status',array('pending','confirmed'))->count_all_results();
         if ($clash) { echo json_encode(['status'=>'0','message'=>'That slot was just taken.']); return; }
         $key = substr(md5(uniqid('bk',true)),0,16);
         $this->basic->insert_data('ab_appointments', array('user_id'=>$uid,'service_id'=>$service_id,'customer_name'=>$name,'customer_phone'=>$phone,'customer_email'=>$email,'starts_at'=>$starts,'ends_at'=>$ends,'status'=>'pending','booking_key'=>$key,'source'=>'web','created_at'=>date('Y-m-d H:i:s')));
@@ -138,6 +146,7 @@ class Appointment_booking extends Home
     }
 
     // cron: appointment_booking/reminder/<api_key>
+    // NOTE: like all cron endpoints in this app, auth relies on the platform's api_key mechanism.
     public function reminder($api_key='')
     {
         // marks upcoming confirmed appointments as reminded (messenger push added when subscriber_id linked)

@@ -5444,19 +5444,28 @@ public function proceed_checkout()
 
   }
 
-  // SPEC-07: lead scoring on checkout (strong purchase intent)
+  // SPEC-07/12: checkout INITIATION (not yet paid) — dedupe per cart, score checkout intent,
+  // and create/keep an OPEN CRM deal (Negotiation). True 'purchase'/Won is reserved for payment success.
   if($subscriber_id!=""){
     $this->load->helper("lead_scoring");
     $ls_sub = $this->basic->get_data("messenger_bot_subscriber", ["where"=>["subscribe_id"=>$subscriber_id]], ["id","user_id","full_name","email","phone_number","social_media"], "", 1);
     if(isset($ls_sub[0]["id"])){
-      lead_add_score($ls_sub[0]["id"], "purchase", "checkout cart ".$cart_id);
-      if(file_exists(APPPATH."helpers/crm_helper.php")){ // SPEC-12 auto Won deal
-        $this->load->helper("crm");
-        crm_auto_deal($ls_sub[0]["user_id"], $ls_sub[0]["id"], "purchase", array(
-          "title"=>($ls_sub[0]["full_name"]?:"Customer")." order",
-          "contact_name"=>$ls_sub[0]["full_name"], "contact_email"=>$ls_sub[0]["email"],
-          "contact_phone"=>$ls_sub[0]["phone_number"], "source"=>$ls_sub[0]["social_media"] ?: "manual", "cart_id"=>$cart_id,
-        ));
+      // dedupe: only score/create once per cart
+      $already = $this->basic->get_data("lead_scoring_events", ["where"=>["subscriber_id"=>$ls_sub[0]["id"],"event_type"=>"add_to_cart","event_data"=>"checkout cart ".$cart_id]], ["id"], "", 1);
+      if(empty($already)){
+        lead_add_score($ls_sub[0]["id"], "add_to_cart", "checkout cart ".$cart_id);
+        if(file_exists(APPPATH."helpers/crm_helper.php")){ // SPEC-12 open Negotiation deal with real cart value
+          $this->load->helper("crm");
+          $cart_row = $this->basic->get_data("ecommerce_cart", ["where"=>["id"=>$cart_id]], ["payment_amount","subtotal","currency"], "", 1);
+          $val = 0; $cur = "USD";
+          if(isset($cart_row[0])){ $val = $cart_row[0]["payment_amount"] > 0 ? $cart_row[0]["payment_amount"] : $cart_row[0]["subtotal"]; $cur = $cart_row[0]["currency"] ?: "USD"; }
+          crm_auto_deal($ls_sub[0]["user_id"], $ls_sub[0]["id"], "checkout", array(
+            "title"=>($ls_sub[0]["full_name"]?:"Customer")." order",
+            "value"=>$val, "currency"=>$cur,
+            "contact_name"=>$ls_sub[0]["full_name"], "contact_email"=>$ls_sub[0]["email"],
+            "contact_phone"=>$ls_sub[0]["phone_number"], "source"=>$ls_sub[0]["social_media"] ?: "manual", "cart_id"=>$cart_id,
+          ));
+        }
       }
     }
   }

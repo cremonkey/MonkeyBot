@@ -27,7 +27,7 @@ class Webchat extends Home
         $s = $this->basic->get_data('webchat_settings', ['where'=>['user_id'=>$this->uid]]);
         if (empty($s)) {
             $key = substr(md5(uniqid('wc'.$this->uid, true)), 0, 24);
-            $this->basic->insert_data('webchat_settings', array('user_id'=>$this->uid, 'widget_key'=>$key, 'created_at'=>date('Y-m-d H:i:s')));
+            $this->basic->insert_data('webchat_settings', array('user_id'=>$this->uid, 'widget_key'=>$key));
             $s = $this->basic->get_data('webchat_settings', ['where'=>['user_id'=>$this->uid]]);
         }
         $data['settings'] = $s[0];
@@ -126,7 +126,7 @@ JS;
             $reply_text = $reply['choices'][0]['text'] ?? '';
             if ($reply_text !== '') $this->log_msg($s['user_id'], $sk, 'bot', $reply_text);
         }
-        $last = $this->db->select('MAX(id) mid')->from('livechat_messages')->where('subscriber_id',$sk)->get()->row_array();
+        $last = $this->db->select('MAX(id) mid')->from('livechat_messages')->where('user_id',$s['user_id'])->where('subscriber_id',$sk)->get()->row_array();
         echo json_encode(['session_key'=>$sk, 'reply'=>$reply_text, 'last_id'=>(int)($last['mid'] ?? 0)]);
     }
 
@@ -140,7 +140,7 @@ JS;
         $sk = $this->input->get('session_key');
         $since = (int) $this->input->get('since_id');
         $rows = $this->db->select('id, sender, message_content')->from('livechat_messages')
-            ->where('subscriber_id', $sk)->where('platform','web')->where('id >', $since)
+            ->where('user_id', $s['user_id'])->where('subscriber_id', $sk)->where('platform','web')->where('id >', $since)
             ->order_by('id','ASC')->limit(50)->get()->result_array();
         echo json_encode(['messages'=>$rows]);
     }

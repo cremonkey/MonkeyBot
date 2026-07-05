@@ -15,7 +15,7 @@ button{margin-top:16px;width:100%;padding:12px;background:#0084ff;color:#fff;bor
   <h2>Book an Appointment</h2>
   <label>Service</label>
   <select id="svc"><option value="">Select...</option>
-    <?php foreach($services as $s): ?><option value="<?php echo $s['id']; ?>" data-dur="<?php echo $s['duration_min']; ?>"><?php echo htmlspecialchars($s['name']).' ('.$s['duration_min'].'m'.($s['price']>0?(' · '.number_format($s['price'],2).' '.$s['currency']):'').')'; ?></option><?php endforeach; ?>
+    <?php foreach($services as $s): ?><option value="<?php echo (int)$s['id']; ?>" data-dur="<?php echo (int)$s['duration_min']; ?>"><?php echo htmlspecialchars($s['name']).' ('.(int)$s['duration_min'].'m'.($s['price']>0?(' · '.number_format($s['price'],2).' '.htmlspecialchars($s['currency'])):'').')'; ?></option><?php endforeach; ?>
   </select>
   <label>Date</label><input type="date" id="date" min="<?php echo date('Y-m-d'); ?>">
   <label>Available times</label><div class="slots" id="slots"><small style="color:#999">Pick a service and date.</small></div>
@@ -26,7 +26,7 @@ button{margin-top:16px;width:100%;padding:12px;background:#0084ff;color:#fff;bor
   <div id="msg"></div>
 </div>
 <script>
-var H="<?php echo $uid_hash; ?>", BASE="<?php echo base_url(); ?>", sel='';
+var H="<?php echo preg_replace('/[^a-f0-9]/','',$uid_hash); ?>", BASE="<?php echo base_url(); ?>", sel='';
 function loadSlots(){
   var sid=document.getElementById('svc').value, d=document.getElementById('date').value;
   var box=document.getElementById('slots'); sel='';

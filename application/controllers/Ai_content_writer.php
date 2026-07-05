@@ -47,6 +47,7 @@ class Ai_content_writer extends Home
     {
         header('Content-Type: application/json');
         if ($this->input->method() !== 'post') { echo json_encode(['status'=>'0','message'=>'POST required']); return; }
+        $this->csrf_token_check();
         $type = $this->input->post('content_type', true);
         $topic = trim((string) $this->input->post('topic', true));
         $tone = $this->input->post('tone', true) ?: 'professional';
@@ -93,6 +94,7 @@ class Ai_content_writer extends Home
     public function delete_history()
     {
         header('Content-Type: application/json');
+        $this->csrf_token_check();
         $id = (int) $this->input->post('id', true);
         if ($id > 0) $this->db->where(['id'=>$id, 'user_id'=>$this->uid])->delete('ai_content_history');
         echo json_encode(['status'=>'1']);

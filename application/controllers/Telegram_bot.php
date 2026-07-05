@@ -52,6 +52,7 @@ class Telegram_bot extends Home
 
     public function delete($id=0)
     {
+        if (!hash_equals((string)$this->session->userdata('csrf_token_session'), (string)$this->input->get('t'))) show_error('Invalid token', 403);
         $this->db->where(['id'=>(int)$id, 'user_id'=>$this->uid])->delete('telegram_accounts');
         redirect('telegram_bot');
     }
@@ -65,7 +66,7 @@ class Telegram_bot extends Home
             $acc = $acc[0];
             // verify secret header
             $hdr = isset($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN']) ? $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] : '';
-            if (!hash_equals($acc['webhook_secret'], $hdr)) { echo json_encode(['ok'=>false]); return; }
+            if (empty($acc['webhook_secret']) || !hash_equals($acc['webhook_secret'], $hdr)) { echo json_encode(['ok'=>false]); return; }
 
             $update = json_decode(file_get_contents('php://input'), true);
             $msg = $update['message'] ?? ($update['edited_message'] ?? null);
