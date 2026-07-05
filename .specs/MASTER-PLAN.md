@@ -37,7 +37,7 @@
 | 06 | SPEC-06-coupon-autogen-cart-ai.md | 2.2 | PENDING |
 | 07 | SPEC-07-lead-scoring.md | 2.3 | DONE (schema+helper+2 hooks+decay+badge; msg/postback hooks deferred) |
 | 08 | SPEC-08-channel-enum-migration.md | 3.0 | DONE (15 enums extended, row counts intact) |
-| 09 | SPEC-09-human-handoff-pause.md | 3.3 | PENDING |
+| 09 | SPEC-09-human-handoff-pause.md | 3.3 | DONE (messenger gate + agent-assign pause + toggle endpoint; IG DM gate deferred) |
 | 10 | SPEC-10-whatsapp-cloud-api.md | 3.1 | PENDING |
 | 11 | SPEC-11-webchat-widget.md | 3.2 | PENDING |
 | 12 | SPEC-12-crm-module.md | 4.1 | PENDING |
