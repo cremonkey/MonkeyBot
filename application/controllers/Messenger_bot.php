@@ -311,16 +311,16 @@ class Messenger_bot extends Home
             //Insert or update subscriber information
 
                 $subscribe_id = $sender_id;
-                $first_name = isset($user_data['first_name']) ? $this->db->escape($user_data['first_name']):"";
-                $last_name = isset($user_data['last_name']) ? $this->db->escape($user_data['last_name']):"";
-                $profile_pic = isset($user_data['profile_pic']) ? $this->db->escape($user_data['profile_pic']): "";
+                $first_name = isset($user_data['first_name']) ? $this->db->escape($user_data['first_name']):"''";
+                $last_name = isset($user_data['last_name']) ? $this->db->escape($user_data['last_name']):"''";
+                $profile_pic = isset($user_data['profile_pic']) ? $this->db->escape($user_data['profile_pic']): "''";
                 $locale = isset($user_data['locale']) ? $user_data['locale']:"";
                 $timezone = isset($user_data['timezone']) ? $user_data['timezone']:"";
                 $gender = isset($user_data['gender']) ? $user_data['gender']:"";
                 $subscribed_at = date('Y-m-d H:i:s');
                 $page_table_id=$page_access_token_array[0]['id'];
 
-                $full_name= isset($user_data['name']) ? $this->db->escape($user_data['name']):""; // for instagram
+                $full_name= isset($user_data['name']) ? $this->db->escape($user_data['name']):"''"; // for instagram
 
                 if($social_media_type=="fb"){
                     
