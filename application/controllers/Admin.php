@@ -1042,7 +1042,8 @@ class Admin extends Home
                 $name=strip_tags($this->input->post('name',true));
                 $email=strip_tags($this->input->post('email',true));
                 $mobile=strip_tags($this->input->post('mobile',true));
-                $password=md5($this->input->post('password',true));
+                $this->load->helper('password'); // SPEC-00 Task A
+                $password=pw_hash($this->input->post('password',true));
                 $confirm_password=$this->input->post('confirm_password',true);
                 $address=strip_tags($this->input->post('address',true));
                 $user_type=$this->input->post('user_type',true);
@@ -1256,9 +1257,10 @@ class Admin extends Home
             $new_password = $this->input->post('password',true);
             $new_confirm_password = $this->input->post('confirm_password',true);
 
+            $this->load->helper('password'); // SPEC-00 Task A
             $table_change_password = 'users';
             $where_change_passwor = array('id' => $id);
-            $data = array('password' => md5($new_password));
+            $data = array('password' => pw_hash($new_password));
             $this->basic->update_data($table_change_password, $where_change_passwor, $data);
 
             $where['where'] = array('id' => $id);

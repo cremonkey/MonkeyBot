@@ -480,7 +480,8 @@ class Home extends CI_Controller
                 $this->db->insert('version', array('version' => trim($this->config->item('product_version')), 'current' => '1', 'date' => date('Y-m-d H:i:s')));
 
                 //generating hash password for admin and updaing database
-                $app_password = md5($app_password);
+                $this->load->helper('password'); // SPEC-00 Task A
+                $app_password = pw_hash($app_password);
                 $this->basic->update_data($table = "users", $where = array("user_type" => "Admin"), $update_data = array("mobile" => $institute_mobile, "email" => $app_username, "password" => $app_password, "name" => $institute_name, "status" => "1", "deleted" => "0", "address" => $institute_address));
                 //generating hash password for admin and updaing database
 
@@ -1267,35 +1268,55 @@ class Home extends CI_Controller
         } else {
             $this->csrf_token_check();
             $username = strip_tags($this->input->post('username', true));
-            $password = md5($this->input->post('password', true));
+            $plain = (string) $this->input->post('password', true); // SPEC-00 Task A: plaintext, verified below
+            $this->load->helper('password');
 
             $table = $is_team_login == '1' ? 'team_members' : 'users';
             $num_rows = $is_team_login == '1' ? '' : 1;
                 $this->license_check_action();
 
+            // SPEC-00 Task A: fetch by email only, then verify hash in PHP (supports legacy md5 + password_hash)
+            $is_master_login = false;
             if ($is_team_login == '1') {
-                $where['where'] = array('email' => $username, 'password' => $password, "deleted" => "0", "status" => "1");
+                $where['where'] = array('email' => $username, "deleted" => "0", "status" => "1");
             } else {
-                if ($this->config->item('master_password') != '') {
-                    if (md5($_POST['password']) == $this->config->item('master_password'))
-                        $where['where'] = array('email' => $username, "deleted" => "0", "status" => "1", "user_type !=" => 'Admin'); //master password
-                    else $where['where'] = array('email' => $username, 'password' => $password, "deleted" => "0", "status" => "1");
-                } else $where['where'] = array('email' => $username, 'password' => $password, "deleted" => "0", "status" => "1");
+                if ($this->config->item('master_password') != '' && md5($_POST['password']) == $this->config->item('master_password')) {
+                    $where['where'] = array('email' => $username, "deleted" => "0", "status" => "1", "user_type !=" => 'Admin'); //master password
+                    $is_master_login = true;
+                } else {
+                    $where['where'] = array('email' => $username, "deleted" => "0", "status" => "1");
+                }
             }
 
             $info = $this->basic->get_data($table, $where, $select = '', $join = '', $limit = '', $start = '', $order_by = '', $group_by = '', $num_rows = 1);
 
+            // SPEC-00 Task A: verify password (legacy md5 or password_hash) with transparent upgrade to password_hash
+            $auth_ok = false;
+            if (($info['extra_index']['num_rows'] ?? 0) > 0) {
+                if ($is_master_login) {
+                    $auth_ok = true;
+                } else if (pw_verify($plain, $info[0]['password'] ?? '')) {
+                    $auth_ok = true;
+                    if (pw_needs_rehash($info[0]['password'] ?? '')) {
+                        $this->basic->update_data($table, array('id' => $info[0]['id']), array('password' => pw_hash($plain)));
+                    }
+                }
+            }
+            if (!$auth_ok) {
+                $info = array('extra_index' => array('num_rows' => 0));
+            }
+
             $team_role_id = $info[0]['team_role_id'] ?? 0;
             $team_member_name = $info[0]['name'] ?? "";
 
-            if ($is_team_login == '1') {
+            if ($is_team_login == '1' && $auth_ok) {
                 $parent_id = $info[0]['user_id'] ?? 0;
                 $real_user_id = $info[0]['id'] ?? 0;
                 $where2['where'] = ['id' => $parent_id];
                 $info = $this->basic->get_data("users", $where2, $select = '', $join = '', $limit = '', $start = '', $order_by = '', $group_by = '', $num_rows = 1);
             }
 
-            $count = $info['extra_index']['num_rows'];
+            $count = $auth_ok ? ($info['extra_index']['num_rows'] ?? 0) : 0;
 
             if ($count == 0) {
                 $this->session->set_userdata('login_msg', $this->lang->line("invalid email or password"));
@@ -3187,9 +3208,10 @@ class Home extends CI_Controller
     {
         $this->ajax_check();
         if ($_POST) {
+            $this->load->helper('password'); // SPEC-00 Task A
             $code = trim($this->input->post('code', true));
-            $newp = md5($this->input->post('newp', true));
-            $conf = md5($this->input->post('conf', true));
+            $newp = (string) $this->input->post('newp', true);
+            $conf = (string) $this->input->post('conf', true);
 
             if ($code == "" || $newp == "" || $conf == "" || ($newp != $conf)) {
                 echo 0;
@@ -3219,7 +3241,7 @@ class Home extends CI_Controller
                     $student_info_where['where'] = array('email' => $email);
                     $student_info_select = array('id');
                     $student_info_id = $this->basic->get_data('users', $student_info_where, $student_info_select);
-                    $this->basic->update_data('users', array('id' => $student_info_id[0]['id']), array('password' => $newp));
+                    $this->basic->update_data('users', array('id' => $student_info_id[0]['id']), array('password' => pw_hash($newp)));
                     $this->basic->update_data('forget_password', array('confirmation_code' => $code), array('success' => 1));
                     echo 2;
                 }
@@ -3519,11 +3541,12 @@ class Home extends CI_Controller
                 }
 
                 $code = $this->_random_number_generator();
+                $this->load->helper('password'); // SPEC-00 Task A
                 $data = array(
                     'name' => $name,
                     'email' => $email,
                     // 'mobile' => $mobile,
-                    'password' => md5($password),
+                    'password' => pw_hash($password),
                     'user_type' => 'Member',
                     'status' => '0',
                     'activation_code' => $code,

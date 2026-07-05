@@ -47,21 +47,17 @@ class Change_password extends Home
         if ($this->form_validation->run() == false) {
             $this->reset_password_form();
         } else {
+            $this->load->helper('password'); // SPEC-00 Task A
             $user_id = $this->real_user_id;
-            $password = $this->input->post('old_password', true);
-            $new_password = $this->input->post('new_password', true);
+            $password = (string) $this->input->post('old_password', true);
+            $new_password = (string) $this->input->post('new_password', true);
             $table = $this->is_manager!=1 ? 'users' : 'team_members';
-            $where['where'] = array(
-                'id' => $user_id,
-                'password' => md5($password)
-                );
+            $where['where'] = array('id' => $user_id);
             $select = array('');
-            if ($this->basic->get_data($table, $where, $select)) {
-                $where = array(
-                    'id' => $user_id,
-                    'password' => md5($password)
-                    );
-                $data = array('password' => md5($new_password));
+            $current = $this->basic->get_data($table, $where, $select);
+            if (!empty($current) && pw_verify($password, $current[0]['password'] ?? '')) {
+                $where = array('id' => $user_id);
+                $data = array('password' => pw_hash($new_password));
                 $this->basic->update_data($table, $where, $data);
                 $this->session->sess_destroy();
                 $this->session->set_flashdata('reset_success', $this->lang->line('Please login with new password'));
