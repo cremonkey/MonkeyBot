@@ -7079,8 +7079,17 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
         // Add current user message
         $messages[] = ["role" => "user", "content" => $human];
 
-        $this->load->library('Openai_api');
-        $response = $this->openai_api->open_ai_completion($api_key, $messages, $model, $max_token, $api_info[0]['instruction_to_ai'], $description, $human, $temperature);
+        // SPEC-02: route through provider-agnostic layer (OpenAI or Anthropic per open_ai_config.ai_provider)
+        $this->load->library('Ai_provider');
+        $response = $this->ai_provider->completion($api_info[0], $messages, array(
+            'model' => $model,
+            'max_tokens' => $max_token,
+            'temperature' => $temperature,
+            'instruction' => $api_info[0]['instruction_to_ai'],
+            'description' => $description,
+            'human' => $human,
+            'system' => $system_prompt,
+        ));
         $response = json_decode($response, true);
 
         // Save conversation pair

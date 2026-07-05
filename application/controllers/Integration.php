@@ -318,8 +318,13 @@ class Integration extends Home
 			} 
 			else{
 				$this->csrf_token_check();
+				$this->load->helper('secret'); // SPEC-00/02
 				$user_id=$this->session->userdata('user_id');
 				$open_ai_secret_key=strip_tags($this->input->post('open_ai_secret_key',true));
+				$anthropic_secret_key=strip_tags($this->input->post('anthropic_secret_key',true));
+				$ai_provider=$this->input->post('ai_provider',true) === 'anthropic' ? 'anthropic' : 'openai';
+				$anthropic_model=strip_tags($this->input->post('anthropic_model',true));
+				if($anthropic_model=='') $anthropic_model='claude-haiku-4-5';
 				$instruction_to_ai=strip_tags($this->input->post('instruction_to_ai',true));
 				$models=strip_tags($this->input->post('models',true));
 				$maximum_token=strip_tags($this->input->post('maximum_token',true));
@@ -335,8 +340,11 @@ class Integration extends Home
 				if($temperature > 2) $temperature = 2;
 				if($memory_ttl_hours < 1) $memory_ttl_hours = 1;
 
+				$get_data = $this->basic->get_data("open_ai_config",array("where"=>array('user_id'=>$user_id)));
+
 				$update_data = array(
-					'open_ai_secret_key'=>$open_ai_secret_key,
+					'ai_provider'=>$ai_provider,
+					'anthropic_model'=>$anthropic_model,
 					'instruction_to_ai'=>$instruction_to_ai,
 					'models'=>$models,
 					'maximum_token'=>$maximum_token,
@@ -347,17 +355,38 @@ class Integration extends Home
 					'memory_ttl_hours'=>$memory_ttl_hours,
 					'user_id'=>$user_id
 				);
-				$get_data = $this->basic->get_data("open_ai_config",array("where"=>array('user_id'=>$user_id)));
+				// keep-if-blank: only overwrite a secret key when a new value is submitted
+				if($open_ai_secret_key !== '') $update_data['open_ai_secret_key']=secret_encrypt($open_ai_secret_key);
+				elseif(empty($get_data)) $update_data['open_ai_secret_key']='';
+				if($anthropic_secret_key !== '') $update_data['anthropic_secret_key']=secret_encrypt($anthropic_secret_key);
+
 				if(!empty($get_data))
 				$this->basic->update_data("open_ai_config",array("user_id"=>$user_id),$update_data);
-				else $this->basic->insert_data("open_ai_config",$update_data);      
+				else $this->basic->insert_data("open_ai_config",$update_data);
 				                         
 				$this->session->set_flashdata('success_message', 1);
 				redirect('integration/open_ai_api_credentials', 'location');
 			}
 		}
 		else redirect('home/access_forbidden', 'location');
-		
+
+	}
+
+	// SPEC-02: connectivity test for the configured AI provider (session-authenticated JSON endpoint)
+	public function ai_provider_ping()
+	{
+		header('Content-Type: application/json');
+		if($this->session->userdata('logged_in') != 1){ echo json_encode(array('status'=>'0','message'=>'Not authenticated')); return; }
+		$user_id=$this->session->userdata('user_id');
+		$cfg = $this->basic->get_data("open_ai_config",array("where"=>array('user_id'=>$user_id)));
+		if(empty($cfg)){ echo json_encode(array('status'=>'0','message'=>'AI is not configured yet.')); return; }
+		$this->load->library('Ai_provider');
+		$messages = array(array('role'=>'user','content'=>'Reply with the single word: OK'));
+		$raw = $this->ai_provider->completion($cfg[0], $messages, array('max_tokens'=>10,'temperature'=>0,'system'=>'You are a health check. Reply with OK.'));
+		$dec = json_decode($raw, true);
+		if(isset($dec['error'])){ echo json_encode(array('status'=>'0','provider'=>$cfg[0]['ai_provider'],'message'=>$dec['error']['message'])); return; }
+		$text = isset($dec['choices'][0]['text']) ? trim($dec['choices'][0]['text']) : '';
+		echo json_encode(array('status'=>'1','provider'=>$cfg[0]['ai_provider'],'reply'=>$text));
 	}
 
 }

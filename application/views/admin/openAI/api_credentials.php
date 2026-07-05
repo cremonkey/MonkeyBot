@@ -48,18 +48,20 @@
         'ada'];
 
     $chat_completions = [
-      'gpt-4-1106-preview',
-      'gpt-4-vision-preview',
-      'gpt-4',
-      'gpt-4-32k',
-      'gpt-4-0613',
-      'gpt-4-32k-0613',
-      'gpt-3.5-turbo',
-      'gpt-3.5-turbo-0301',
       'gpt-4o',
-      'gpt-4o-mini'
+      'gpt-4o-mini',
+      'gpt-4.1',
+      'gpt-4.1-mini',
+      'gpt-3.5-turbo'
     ];
-    
+
+    // SPEC-02: provider + Anthropic Claude
+    $ai_provider = isset($xvalue['ai_provider']) && $xvalue['ai_provider'] === 'anthropic' ? 'anthropic' : 'openai';
+    $anthropic_models = ['claude-sonnet-4-5', 'claude-haiku-4-5'];
+    $anthropic_model = isset($xvalue['anthropic_model']) && $xvalue['anthropic_model'] != '' ? $xvalue['anthropic_model'] : 'claude-haiku-4-5';
+    $this->load->helper('secret');
+    $openai_hint = (isset($xvalue['open_ai_secret_key']) && $xvalue['open_ai_secret_key'] !== '') ? secret_mask(secret_decrypt($xvalue['open_ai_secret_key'])) : '';
+    $anthropic_hint = (isset($xvalue['anthropic_secret_key']) && $xvalue['anthropic_secret_key'] !== '') ? secret_mask(secret_decrypt($xvalue['anthropic_secret_key'])) : '';
 
    ?>
   <div class="section-body">
@@ -73,12 +75,46 @@
                 <div class="row">
                   <div class="col-12 col-md-12">
                     <div class="form-group">
+                      <label for="ai_provider"><i class="fas fa-microchip"></i> <?php echo $this->lang->line("AI Provider") ?: 'AI Provider'; ?></label>
+                      <select class="form-control" name="ai_provider" id="ai_provider" onchange="toggleAiProvider()">
+                        <option value="openai" <?php echo $ai_provider=='openai'?'selected':''; ?>>OpenAI (GPT)</option>
+                        <option value="anthropic" <?php echo $ai_provider=='anthropic'?'selected':''; ?>>Anthropic (Claude)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="row provider-openai">
+                  <div class="col-12 col-md-12">
+                    <div class="form-group">
                       <label for=""><i class="fas fa-key"></i>  <?php echo $this->lang->line("Open AI secret key");?></label>
-                      <input name="open_ai_secret_key" value="<?php echo isset($xvalue['open_ai_secret_key']) ? $xvalue['open_ai_secret_key'] :""; ?>" class="form-control" type="text">  
+                      <input name="open_ai_secret_key" value="" autocomplete="off" placeholder="<?php echo $openai_hint !== '' ? 'Saved ('.$openai_hint.') — leave blank to keep' : 'sk-...'; ?>" class="form-control" type="password">
+                      <small class="form-text text-muted">Leave blank to keep the existing key.</small>
                       <span class="red"><?php echo form_error('open_ai_secret_key'); ?></span>
                     </div>
                   </div>
-                </div>   
+                </div>
+
+                <div class="row provider-anthropic">
+                  <div class="col-12 col-md-12">
+                    <div class="form-group">
+                      <label for=""><i class="fas fa-key"></i> Anthropic API key</label>
+                      <input name="anthropic_secret_key" value="" autocomplete="off" placeholder="<?php echo $anthropic_hint !== '' ? 'Saved ('.$anthropic_hint.') — leave blank to keep' : 'sk-ant-...'; ?>" class="form-control" type="password">
+                      <small class="form-text text-muted">Leave blank to keep the existing key.</small>
+                      <span class="red"><?php echo form_error('anthropic_secret_key'); ?></span>
+                    </div>
+                  </div>
+                  <div class="col-12 col-md-12">
+                    <div class="form-group">
+                      <label for="anthropic_model"><i class="fas fa-paper-plane"></i> Claude Model</label>
+                      <select class="form-control" name="anthropic_model">
+                        <?php foreach ($anthropic_models as $am): ?>
+                          <option value="<?php echo $am ?>" <?php echo $am==$anthropic_model?'selected':''; ?>><?php echo $am ?></option>
+                        <?php endforeach ?>
+                      </select>
+                    </div>
+                  </div>
+                </div>
                 <div class="row">
                   <div class="col-12 col-md-12">
                     <div class="form-group">
@@ -88,17 +124,12 @@
                     </div>
                   </div>
                 </div>  
-                <div class="row">
+                <div class="row provider-openai">
                     <div class="col-12 col-md-12">
                       <div class="form-group">
                         <label for="models"><i class="fas fa-paper-plane"></i>  <?php echo $this->lang->line("Models");?></label>
                         <select class="select2 w-100" name="models">
                           <option value=""><?php echo $this->lang->line("Select Models"); ?></option>
-                          <optgroup label="Text Completions">
-                          <?php foreach ($text_completions as  $value): ?>
-                            <option value="<?php echo $value ?>" <?php if(isset($xvalue['models']) && $value == $xvalue['models']) echo 'selected'; ?> ><?php echo $value?></option>
-                          <?php endforeach ?>
-                          </optgroup>
                           <optgroup label="Chat Completions">
                           <?php foreach ($chat_completions as  $value): ?>
                             <option value="<?php echo $value ?>" <?php if(isset($xvalue['models']) && $value == $xvalue['models']) echo 'selected'; ?> ><?php echo $value?></option>
@@ -108,7 +139,7 @@
                         <span class="red"><?php echo form_error('models'); ?></span>
                      </div>
                     </div>
-                </div> 
+                </div>
                <div class="row">
                   <div class="col-12 col-md-12">
                     <div class="form-group">
@@ -178,3 +209,11 @@
     </div>
   </div>
 </section>
+<script>
+function toggleAiProvider(){
+  var p = document.getElementById('ai_provider').value;
+  document.querySelectorAll('.provider-openai').forEach(function(el){ el.style.display = (p==='openai')?'':'none'; });
+  document.querySelectorAll('.provider-anthropic').forEach(function(el){ el.style.display = (p==='anthropic')?'':'none'; });
+}
+document.addEventListener('DOMContentLoaded', toggleAiProvider);
+</script>

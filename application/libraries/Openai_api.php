@@ -26,17 +26,9 @@ class Openai_api
             "text-ada-001", "davinci", "curie", "babbage", "ada"
         );
 
-        $chat_completion_model = array(
-            "gpt-4", "gpt-4-0314", "gpt-4-32k", "gpt-4-32k-0314", 
-            "gpt-3.5-turbo", "gpt-3.5-turbo-0301", "gpt-4o", "gpt-4o-mini"
-        );
-
-        $completion = "text";
-        if (in_array($model, $text_completion_model)) {
-            $completion = "text";
-        } else if (in_array($model, $chat_completion_model)) {
-            $completion = "chat";
-        }
+        // Legacy /v1/completions models are an explicit allow-list; everything else
+        // (gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, future models) uses /v1/chat/completions.
+        $completion = in_array($model, $text_completion_model) ? "text" : "chat";
 
         if ($completion == "text") {
             $data['model'] = $model;
