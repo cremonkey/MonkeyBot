@@ -272,6 +272,11 @@ class Home extends CI_Controller
             $this->db->where(['subscribe_id' => $subscriber_id, 'page_table_id' => $page_table_id]);
             $this->db->update('messenger_bot_subscriber', ["assigned_used_id" => $team_member_id]);
 
+            // SPEC-07: lead scoring on human handoff
+            $this->load->helper('lead_scoring');
+            $ls_row = $this->basic->get_data('messenger_bot_subscriber', ['where' => ['subscribe_id' => $subscriber_id, 'page_table_id' => $page_table_id]], ['id'], '', 1);
+            if (isset($ls_row[0]['id'])) lead_add_score($ls_row[0]['id'], 'human_handoff');
+
             $agent_name = "Bot";
             $message_content = "Conversation was assigned to {$team_member_name}";
             $this->system_message_insert_into_conversation($subscriber_id, $page_table_id, $agent_name, $message_content, $social_media_type);

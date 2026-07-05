@@ -862,6 +862,13 @@ class Subscriber_manager extends Home
 
             if($info[$key]['birthdate'] != '0000-00-00') $info[$key]['gender'] .= "&nbsp;&nbsp;<i class='fas fa-birthday-cake blue' style='font-size:18px;' title='".$this->lang->line('Birthday')."' data-toggle='tooltip' data-placement='bottom'></i>";
 
+            // SPEC-07: lead score badge (hot/warm/cold)
+            if(isset($info[$key]['lead_score'])){
+                $this->load->helper('lead_scoring');
+                $ls = (int)$info[$key]['lead_score'];
+                $info[$key]['gender'] .= "&nbsp;&nbsp;<span class='".lead_band_badge($ls)."' title='Lead score (".lead_band($ls).")' data-toggle='tooltip'>".$ls."</span>";
+            }
+
             $info[$key]['social_media'] = $info[$key]['social_media']=='fb' ? "Facebook" : "Instagram";
 
         }

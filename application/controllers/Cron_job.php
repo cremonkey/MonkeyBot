@@ -3048,6 +3048,18 @@ class Cron_job extends Home
         }        
 
     }
+    // SPEC-07: decay stale lead scores. Cron URL: cron_job/lead_score_decay/<api_key>
+    public function lead_score_decay($api_key="")
+    {
+        $this->api_key_check($api_key);
+        $cutoff = date("Y-m-d H:i:s", strtotime("-7 days"));
+        $this->db->set('lead_score', 'GREATEST(0, lead_score-1)', false)
+                 ->where('last_subscriber_interaction_time <', $cutoff)
+                 ->where('lead_score >', 0)
+                 ->update('messenger_bot_subscriber');
+        echo "lead_score_decay done: ".$this->db->affected_rows()." rows";
+    }
+
     public function delete_junk_data($api_key="") //membership_alert_delete_junk_data
     {
         // $this->api_key_check($api_key);

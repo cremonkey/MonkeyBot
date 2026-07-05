@@ -5444,6 +5444,13 @@ public function proceed_checkout()
 
   }
 
+  // SPEC-07: lead scoring on checkout (strong purchase intent)
+  if($subscriber_id!=""){
+    $this->load->helper("lead_scoring");
+    $ls_sub = $this->basic->get_data("messenger_bot_subscriber", ["where"=>["subscribe_id"=>$subscriber_id]], ["id"], "", 1);
+    if(isset($ls_sub[0]["id"])) lead_add_score($ls_sub[0]["id"], "purchase", "checkout cart ".$cart_id);
+  }
+
   if($subscriber_id=="")
 
   {
