@@ -54,3 +54,10 @@ Statuses: PENDING → IN-PROGRESS → REVIEW → DONE (or BLOCKED:<reason>)
 - 08 (enum migration) MUST complete before 10, 11, 15.
 - 02 MUST complete before 03, 04, 16.
 - Never run two specs that both touch Home.php, Messenger_bot.php, or Ecommerce.php concurrently.
+
+## CODE REVIEW (2026-07-05, 4 parallel read-only subagents)
+Reviewed full diff e2014e9..HEAD. Findings fixed & verified:
+- CRITICAL: (a) Anthropic replies sent OpenAI model name → fixed (per-provider model). (b) webchat_settings insert used nonexistent created_at → fixed (verified page 200 for new user). (c) checkout hook made phantom $0 Won deals pre-payment → now open Negotiation deal w/ real value, deduped per cart.
+- IMPORTANT: WhatsApp webhook HMAC signature verify (app_secret added); get_order_status excludes non-checkout carts; CSRF on GET deletes + AJAX; telegram bot_token→TEXT; webchat poll/send scoped by user_id; appointment interval-overlap guard (verified 403 on CSRF).
+- MINOR: master_password hash_equals; subscriber lookup user_id-scoped; tool rounds 3→2; CRM deal_detail user_id-scoped; null-stage fallbacks; XSS escaping.
+Known/accepted: api_key_check() is an app-wide no-op (pre-existing); enum MODIFY lacks ALGORITHM=INPLACE (ran instant on near-empty tables); ADD COLUMN migrations not idempotent (runner tracks). encryption_key still weak (Task E, needs user).
