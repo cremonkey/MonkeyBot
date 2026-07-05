@@ -37,7 +37,9 @@ class Ai_provider
             $system = isset($overrides['system']) ? $overrides['system'] : '';
             $CI->load->library('Anthropic_api');
             if ($tools_on) return $this->anthropic_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $system, $temperature, $tools_context);
-            return $CI->anthropic_api->anthropic_completion($api_key, $messages, $model, $max_tokens, $system, $temperature);
+            $raw = $CI->anthropic_api->anthropic_completion($api_key, $messages, $model, $max_tokens, $system, $temperature);
+            $this->log_usage($CI, $cfg, 'anthropic', $model, $raw, isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply');
+            return $raw;
         }
 
         // OpenAI
@@ -49,7 +51,26 @@ class Ai_provider
         $human = isset($overrides['human']) ? $overrides['human'] : '';
         $CI->load->library('Openai_api');
         if ($tools_on) return $this->openai_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $tools_context);
-        return $CI->openai_api->open_ai_completion($api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature);
+        $raw = $CI->openai_api->open_ai_completion($api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature);
+        $this->log_usage($CI, $cfg, 'openai', $model, $raw, isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply');
+        return $raw;
+    }
+
+    // SPEC-13: record token usage; never disrupt the reply on logging failure.
+    protected function log_usage($CI, $cfg, $provider, $model, $raw, $purpose)
+    {
+        try {
+            if (!$CI->db->table_exists('ai_usage_log')) return;
+            $dec = json_decode($raw, true);
+            if (!is_array($dec) || isset($dec['error'])) return;
+            $in = 0; $out = 0;
+            if (isset($dec['usage']['prompt_tokens'])) { $in = (int) $dec['usage']['prompt_tokens']; $out = (int) ($dec['usage']['completion_tokens'] ?? 0); }
+            elseif (isset($dec['usage']['input_tokens'])) { $in = (int) $dec['usage']['input_tokens']; $out = (int) ($dec['usage']['output_tokens'] ?? 0); }
+            $CI->db->insert('ai_usage_log', array(
+                'user_id' => (int) ($cfg['user_id'] ?? 0), 'provider' => $provider, 'model' => $model,
+                'input_tokens' => $in, 'output_tokens' => $out, 'purpose' => $purpose, 'created_at' => date('Y-m-d H:i:s'),
+            ));
+        } catch (Exception $e) { /* ignore */ }
     }
 
     protected function openai_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $context)
