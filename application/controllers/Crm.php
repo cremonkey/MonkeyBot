@@ -129,6 +129,35 @@ class Crm extends Home
         $this->_viewcontroller($data);
     }
 
+    public function tasks()
+    {
+        $data['tasks'] = $this->db->query(
+            "SELECT a.id, a.type, a.subject, a.description, a.due_date, a.status, a.created_at, a.deal_id,
+                    d.title AS deal_title, d.contact_phone, d.contact_email, d.source,
+                    COALESCE(NULLIF(d.contact_name,''), NULLIF(TRIM(CONCAT(COALESCE(m.first_name,''),' ',COALESCE(m.last_name,''))),''), NULLIF(m.full_name,''), d.title) AS customer_name,
+                    COALESCE(NULLIF(d.contact_phone,''), NULLIF(m.phone_number,''), '') AS customer_phone,
+                    COALESCE(NULLIF(d.contact_email,''), NULLIF(m.email,''), '') AS customer_email
+             FROM crm_activities a
+             LEFT JOIN crm_deals d ON d.id = a.deal_id
+             LEFT JOIN messenger_bot_subscriber m ON m.id = a.subscriber_id
+             WHERE a.user_id = ? AND a.status = 'pending'
+             ORDER BY a.due_date ASC, a.id ASC", array($this->uid)
+        )->result_array();
+        $data['page_title']='Tasks'; $data['body']='admin/crm/tasks';
+        $this->_viewcontroller($data);
+    }
+
+    public function task_complete()
+    {
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        $id = (int)$this->input->post('id', true);
+        $task = $this->db->from('crm_activities')->where('id',$id)->where('user_id',$this->uid)->get()->row_array();
+        if (!$task) { echo json_encode(['status'=>'0']); return; }
+        $this->db->where('id',$id)->update('crm_activities', array('status'=>'completed','completed_at'=>date('Y-m-d H:i:s')));
+        echo json_encode(['status'=>'1']);
+    }
+
     public function contacts()
     {
         $data['page_title']='Contacts'; $data['body']='admin/crm/contacts';
