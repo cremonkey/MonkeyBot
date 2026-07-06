@@ -61,6 +61,20 @@ class Ai_tools
                 'description' => "Escalate the conversation to a human agent. Use when the customer is angry, asks for a human, or the request is beyond your ability.",
                 'params' => array('type' => 'object', 'properties' => new stdClass()),
             ),
+            array(
+                'name' => 'save_lead_to_crm',
+                'description' => "Register the customer as a lead in the CRM. Call this IMMEDIATELY whenever the customer shares a phone/WhatsApp number or an email address, or confirms they want to order. Always include request_summary: 1-2 sentences, in the customer's own language, describing what they want (service/product, quantity, deadline, budget if mentioned).",
+                'params' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'name' => array('type' => 'string', 'description' => "Customer's name if they mentioned it."),
+                        'phone' => array('type' => 'string', 'description' => 'Phone or WhatsApp number the customer shared.'),
+                        'email' => array('type' => 'string', 'description' => 'Email address the customer shared.'),
+                        'request_summary' => array('type' => 'string', 'description' => "Short summary of the customer's request, in the customer's language."),
+                    ),
+                    'required' => array('request_summary'),
+                ),
+            ),
         );
     }
 
@@ -100,6 +114,7 @@ class Ai_tools
                 case 'get_order_status':  return $this->t_order_status($user_id, $args);
                 case 'create_discount_code': return $this->t_create_coupon($user_id, $args);
                 case 'handoff_to_human':  return $this->t_handoff($context);
+                case 'save_lead_to_crm':  return $this->t_save_lead($user_id, $args, $context);
                 default: return 'Error: unknown tool.';
             }
         } catch (Exception $e) {
@@ -174,6 +189,86 @@ class Ai_tools
             'product_ids' => '', 'max_usage_limit' => 1, 'used' => 0, 'status' => '1',
         ));
         return 'Discount code '.$code.' for '.$percent.'% off, valid 7 days (single use).';
+    }
+
+    protected function t_save_lead($user_id, $args, $context)
+    {
+        $name    = trim((string) ($args['name'] ?? ''));
+        $phone   = trim((string) ($args['phone'] ?? ''));
+        $email   = trim((string) ($args['email'] ?? ''));
+        $summary = trim((string) ($args['request_summary'] ?? ''));
+        if ($phone === '' && $email === '') {
+            return 'No contact info to save yet: ask the customer for their phone/WhatsApp number or email first.';
+        }
+
+        $db  = $this->CI->db;
+        $now = date('Y-m-d H:i:s');
+        $source = in_array(($context['social_media'] ?? ''), array('fb','ig','wa','web','tg')) ? $context['social_media'] : 'manual';
+        $sub_id = (int) ($context['subscriber_row_id'] ?? 0);
+
+        $pipe = $db->select('id')->from('crm_pipelines')->where('user_id', $user_id)->where('status', '1')
+                   ->order_by('is_default', 'DESC')->order_by('id', 'ASC')->limit(1)->get()->row_array();
+        if (empty($pipe)) return 'Could not save: CRM has no pipeline configured.';
+        $stage = $db->select('id')->from('crm_stages')->where('pipeline_id', $pipe['id'])->where('stage_type', 'open')
+                    ->order_by('position', 'ASC')->limit(1)->get()->row_array();
+        if (empty($stage)) return 'Could not save: CRM pipeline has no open stage.';
+
+        // one open deal per customer: match by subscriber, else by the shared phone/email
+        $db->from('crm_deals')->where('user_id', $user_id)->where('status', 'open');
+        if ($sub_id > 0) {
+            $db->where('subscriber_id', $sub_id);
+        } else {
+            $db->group_start();
+            if ($phone !== '') $db->where('contact_phone', $phone);
+            if ($email !== '') $db->or_where('contact_email', $email);
+            $db->group_end();
+        }
+        $existing = $db->order_by('id', 'DESC')->limit(1)->get()->row_array();
+
+        if (!empty($existing)) {
+            $update = array('updated_at' => $now);
+            if ($name !== ''  && empty($existing['contact_name']))  $update['contact_name']  = $name;
+            if ($phone !== '' && empty($existing['contact_phone'])) $update['contact_phone'] = $phone;
+            if ($email !== '' && empty($existing['contact_email'])) $update['contact_email'] = $email;
+            $db->where('id', $existing['id'])->update('crm_deals', $update);
+            $deal_id = (int) $existing['id'];
+            $result  = 'Customer already registered in the CRM (deal #'.$deal_id.'); their info and new request were added.';
+        } else {
+            $title = $name !== '' ? $name : ($phone !== '' ? $phone : $email);
+            $db->insert('crm_deals', array(
+                'user_id' => $user_id, 'pipeline_id' => $pipe['id'], 'stage_id' => $stage['id'],
+                'title' => 'Lead: '.$title, 'subscriber_id' => ($sub_id > 0 ? $sub_id : null),
+                'contact_name' => ($name !== '' ? $name : null),
+                'contact_email' => ($email !== '' ? $email : null),
+                'contact_phone' => ($phone !== '' ? $phone : null),
+                'source' => $source, 'status' => 'open', 'created_at' => $now, 'updated_at' => $now,
+            ));
+            $deal_id = (int) $db->insert_id();
+            $db->insert('crm_deal_timeline', array(
+                'deal_id' => $deal_id, 'user_id' => $user_id, 'action' => 'created',
+                'new_value' => 'Lead captured by AI from '.$source, 'created_at' => $now,
+            ));
+            $result = 'Lead saved to the CRM (deal #'.$deal_id.'). Tell the customer the team will contact them soon.';
+        }
+
+        $details = array();
+        if ($name !== '')  $details[] = 'Name: '.$name;
+        if ($phone !== '') $details[] = 'Phone: '.$phone;
+        if ($email !== '') $details[] = 'Email: '.$email;
+        $db->insert('crm_activities', array(
+            'deal_id' => $deal_id, 'subscriber_id' => ($sub_id > 0 ? $sub_id : null), 'user_id' => $user_id,
+            'type' => 'note', 'subject' => 'AI captured lead ('.$source.')',
+            'description' => $summary.($details ? "\n".implode(' | ', $details) : ''),
+            'status' => 'completed', 'completed_at' => $now, 'created_at' => $now,
+        ));
+
+        // SPEC-07: score the lead for sharing contact info, if the helper is available
+        if ($sub_id > 0 && file_exists(APPPATH.'helpers/lead_scoring_helper.php')) {
+            $this->CI->load->helper('lead_scoring');
+            if (function_exists('lead_add_score')) @lead_add_score($sub_id, 'contact_info_shared');
+        }
+
+        return $result;
     }
 
     protected function t_handoff($context)
