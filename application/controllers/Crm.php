@@ -105,6 +105,7 @@ class Crm extends Home
         $deal = $this->owns_deal($id);
         if (!$deal) { show_404(); return; }
         $data['deal'] = $deal;
+        $data['activities'] = $this->db->from('crm_activities')->where('deal_id',$id)->order_by('id','DESC')->get()->result_array();
         $data['timeline'] = $this->db->from('crm_deal_timeline')->where('deal_id',$id)->order_by('id','DESC')->get()->result_array();
         $data['stages'] = $this->db->from('crm_stages')->where('pipeline_id',$deal['pipeline_id'])->order_by('position','ASC')->get()->result_array();
         $conv = array(); $orders = array();

@@ -12,6 +12,14 @@
           <p><b>Contact:</b> <?php echo htmlspecialchars($deal['contact_name']); ?><br><?php echo htmlspecialchars($deal['contact_email']); ?> <?php echo htmlspecialchars($deal['contact_phone']); ?></p>
           <?php if(!empty($subscriber)): ?><p><b>Lead score:</b> <?php echo (int)($subscriber['lead_score'] ?? 0); ?></p><?php endif; ?>
         </div></div>
+        <div class="card"><div class="card-header"><h4>Notes &amp; Activities</h4></div><div class="card-body" style="max-height:300px;overflow-y:auto">
+          <?php if(!empty($activities)): foreach($activities as $a): ?>
+            <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #f0f0f0">
+              <small class="text-muted"><?php echo $a['created_at']; ?> — <?php echo htmlspecialchars($a['subject']); ?></small>
+              <div style="white-space:pre-line"><?php echo htmlspecialchars($a['description']); ?></div>
+            </div>
+          <?php endforeach; else: ?><p class="text-muted">No notes yet.</p><?php endif; ?>
+        </div></div>
         <div class="card"><div class="card-header"><h4>Timeline</h4></div><div class="card-body">
           <ul class="list-unstyled">
           <?php foreach($timeline as $t): ?><li><small class="text-muted"><?php echo $t['created_at']; ?></small> — <?php echo htmlspecialchars($t['action']); ?></li><?php endforeach; ?>
