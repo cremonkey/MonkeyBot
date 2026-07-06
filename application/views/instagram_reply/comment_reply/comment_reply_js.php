@@ -723,6 +723,7 @@
 		  	if ($("input[name=full_message_type]:checked").val() == "generic") {
 		        $("#full_generic_message_div").show();
 		        $("#full_filter_message_div").hide();
+		        $("#full_ai_message_div").hide();
 
 		        /*** Load Emoji for generic message when clicked ***/
 		        $("#full_generic_message").emojioneArea({
@@ -730,8 +731,14 @@
 		            pickerPosition: "bottom"
 		        });
 		    }
+		    else if ($("input[name=full_message_type]:checked").val() == "ai_reply") {
+		        $("#full_generic_message_div").hide();
+		        $("#full_filter_message_div").hide();
+		        $("#full_ai_message_div").show();
+		    }
 	        else {
 	            $("#full_generic_message_div").hide();
+	            $("#full_ai_message_div").hide();
 	            $("#full_filter_message_div").show();
 
 	            /*** Load Emoji When Filter word click , by defualt first textarea are loaded & No match found field****/
@@ -750,15 +757,21 @@
 		  	if ($("input[name=full_edit_message_type]:checked").val() == "generic") {
 		    	$("#full_edit_generic_message_div").show();
 		    	$("#full_edit_filter_message_div").hide();
+		    	$("#full_edit_ai_message_div").hide();
 
 		    	$("#full_edit_generic_message").emojioneArea({
 	          		autocomplete: false,
 	          		pickerPosition: "bottom"
 		       	});
 
+		  	} else if ($("input[name=full_edit_message_type]:checked").val() == "ai_reply") {
+		    	$("#full_edit_generic_message_div").hide();
+		    	$("#full_edit_filter_message_div").hide();
+		    	$("#full_edit_ai_message_div").show();
 		  	} else {
 
 		    	$("#full_edit_generic_message_div").hide();
+		    	$("#full_edit_ai_message_div").hide();
 		    	$("#full_edit_filter_message_div").show();
 
 		    	/*** Load Emoji When Filter word click during Edit , by defualt first textarea are loaded & No match found field****/
@@ -923,6 +936,7 @@
 
 		      $("#full_edit_private_message_offensive_words").html(response.postbacks);
 		      $("#full_edit_generic_message_private").html(response.postbacks);
+		      $("#full_edit_ai_message_private").html(response.postbacks);
 		      $("#full_edit_nofilter_word_found_text_private").html(response.postbacks);
 
 		      $("#full_edit_private_message_offensive_words").val(response.private_message_offensive_words).change();
@@ -953,10 +967,20 @@
 		        $("#full_edit_multiple_reply").attr('checked', 'checked');
 
 
-		      if (response.reply_type == 'generic') {
+		      if (response.reply_type == 'ai_reply') {
+
+		        $("#full_edit_ai_message_div").show();
+		        $("#full_edit_generic_message_div").hide();
+		        $("#full_edit_filter_message_div").hide();
+
+		        $("#full_edit_ai_training_data").val(response.ai_training_data);
+		        $("#full_edit_ai_message_private").val(response.auto_reply_text).change();
+
+		      } else if (response.reply_type == 'generic') {
 
 		        $("#full_edit_generic_message_div").show();
 		        $("#full_edit_filter_message_div").hide();
+		        $("#full_edit_ai_message_div").hide();
 		        var i = 1;
 		        full_edit_content_counter = i;
 		        var auto_reply_text_array_json = JSON.stringify(response.auto_reply_text);
@@ -985,6 +1009,7 @@
 
 		        $("#full_edit_filter_message_div").show();
 		        $("#full_edit_generic_message_div").hide();
+		        $("#full_edit_ai_message_div").hide();
 		        var auto_reply_text_array = JSON.stringify(response.auto_reply_text);
 		        auto_reply_text_array = JSON.parse(auto_reply_text_array, 'true');
 		        for (var i = 0; i < auto_reply_text_array.length; i++) {

@@ -1736,7 +1736,14 @@ class Instagram_reply extends Home
         $facebook_rx_fb_user_info = $this->session->userdata("facebook_rx_fb_user_info");
 
         $report_type = "full";
-        if($full_message_type == 'generic')
+        if($full_message_type == 'ai_reply')
+        {
+            $ai_training_data = $this->db->escape($this->input->post('full_ai_training_data',true));
+            $auto_reply_text = $this->db->escape($this->input->post('full_ai_message_private',true));
+            $sql = "INSERT INTO instagram_reply_autoreply (facebook_rx_fb_user_info_id,autoreply_type,user_id,auto_reply_campaign_name,page_info_table_id,page_name,post_id,post_created_at,post_description,reply_type,report_type,hide_comment_after_comment_reply,is_delete_offensive,offensive_words,private_message_offensive_words,multiple_reply,auto_reply_text,last_updated_at,
+            nofilter_word_found_text,ai_reply_enabled,ai_training_data) VALUES ('$facebook_rx_fb_user_info','account_autoreply','$this->user_id','$full_auto_campaign_name','$full_auto_reply_page_id',$page_name,'','','','$full_message_type','$report_type','$full_hide_comment_after_comment_reply','$is_delete_offensive',$offensive_words,$private_message_offensive_words,'$full_multiple_reply',$auto_reply_text,'$date_time',$nofilter_word_found_text,'1',$ai_training_data)";
+        }
+        else if($full_message_type == 'generic')
         {
             $generic_message_array['comment_reply'] = trim($full_generic_message);
             $generic_message_array['private_reply'] = trim($full_generic_message_private);
@@ -1799,6 +1806,8 @@ class Instagram_reply extends Home
                 $reply_content[0]['comment_reply'] = '';
                 $reply_content[0]['private_reply'] = $info[0]['auto_reply_text'];
             }
+        } else if ($info[0]['reply_type'] == 'ai_reply') {
+            $reply_content = $info[0]['auto_reply_text'];
         } else {
             $reply_content = json_decode($info[0]['auto_reply_text'],true);
         }
@@ -1808,6 +1817,8 @@ class Instagram_reply extends Home
             $nofilter_word_text[0]['private_reply'] = $info[0]['nofilter_word_found_text'];
         }
         $respnse['reply_type'] = $info[0]['reply_type'];
+        $respnse['ai_reply_enabled'] = $info[0]['ai_reply_enabled'];
+        $respnse['ai_training_data'] = $info[0]['ai_training_data'];
         $respnse['trigger_matching_type'] = $info[0]['trigger_matching_type'];
         $respnse['multiple_reply'] = $info[0]['multiple_reply'];
         $respnse['auto_reply_text'] = $reply_content;
@@ -1864,7 +1875,9 @@ class Instagram_reply extends Home
         if($full_edit_hide_comment_after_comment_reply == '') $full_edit_hide_comment_after_comment_reply = 'no';
 
         $return = array();
-        if ($full_edit_message_type == 'generic') {
+        if ($full_edit_message_type == 'ai_reply') {
+            $auto_reply_text = $this->input->post('full_edit_ai_message_private',true);
+        } else if ($full_edit_message_type == 'generic') {
             $generic_message_array['comment_reply'] = trim($full_edit_generic_message);
             $generic_message_array['private_reply'] = trim($full_edit_generic_message_private);
             $generic_array = array();
@@ -1902,6 +1915,8 @@ class Instagram_reply extends Home
 
         if ($full_edit_message_type == 'generic'){
             $message_type = 'generic';
+        } else if ($full_edit_message_type == 'ai_reply'){
+            $message_type = 'ai_reply';
         } else {
             $message_type = 'filter';
         }
@@ -1916,7 +1931,9 @@ class Instagram_reply extends Home
             'offensive_words' => trim($full_edit_delete_offensive_comment_keyword),
             'hide_comment_after_comment_reply' => $full_edit_hide_comment_after_comment_reply,
             'private_message_offensive_words' => trim($full_edit_private_message_offensive_words),
-            'trigger_matching_type' => $full_edit_trigger_matching_type
+            'trigger_matching_type' => $full_edit_trigger_matching_type,
+            'ai_reply_enabled' => ($message_type == 'ai_reply' ? '1' : '0'),
+            'ai_training_data' => $this->input->post('full_edit_ai_training_data',true)
         );
 
         $where = array('id' => $autoreply_table_id,'user_id'=>$this->user_id);
