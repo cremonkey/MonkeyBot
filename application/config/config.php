@@ -295,7 +295,7 @@ $config['global_xss_filtering'] = FALSE;
 | 'csrf_cookie_name' = The cookie name
 | 'csrf_expire' = The number in seconds the token should expire.
 */
-$config['csrf_protection'] = TRUE;
+$config['csrf_protection'] = FALSE;
 $config['csrf_regenerate'] = FALSE;
 $config['csrf_exclude_uris'] = array(
 	'home/central_webhook_callback',
