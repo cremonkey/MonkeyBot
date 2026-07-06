@@ -101,9 +101,9 @@ $selected_global_media_type = $this->using_media_type;
 
   </form>
 
-  <ul class="navbar-nav navbar-right">    
+  <ul class="navbar-nav navbar-right">
     <?php include(FCPATH.'application/views/admin/theme/notification.php'); ?>
-    <?php include(FCPATH.'application/views/admin/theme/usermenu.php'); ?>      
+    <?php include(FCPATH.'application/views/admin/theme/usermenu.php'); ?>
   </ul>
 
 </nav>
