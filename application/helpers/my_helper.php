@@ -10,35 +10,69 @@
  * @link         www.al-amin.me
  */
 
-//===================== PHP 8 string polyfills (container runs PHP 7.4) ======================
+//===================== PHP 8 string polyfills for PHP 7.4 ======================
 if (!function_exists('str_starts_with')) {
-    function str_starts_with($haystack, $needle) {
-        return strncmp((string) $haystack, (string) $needle, strlen((string) $needle)) === 0;
-    }
+  function str_starts_with($haystack, $needle) {
+    return (string) $needle !== '' && strncmp($haystack, $needle, strlen($needle)) === 0;
+  }
 }
 
 if (!function_exists('str_ends_with')) {
-    function str_ends_with($haystack, $needle) {
-        $needle = (string) $needle;
-        return $needle === '' || substr((string) $haystack, -strlen($needle)) === $needle;
-    }
+  function str_ends_with($haystack, $needle) {
+    return (string) $needle !== '' && substr($haystack, -strlen($needle)) === (string) $needle;
+  }
 }
 
 if (!function_exists('str_contains')) {
-    function str_contains($haystack, $needle) {
-        $needle = (string) $needle;
-        return $needle === '' || strpos((string) $haystack, $needle) !== false;
-    }
+  function str_contains($haystack, $needle) {
+    return (string) $needle !== '' && strpos($haystack, (string) $needle) !== false;
+  }
 }
 
+if (!function_exists('get_media_type')) {
+  function get_media_type() {
+    $ci = &get_instance();
+    $media_type = $ci->session->userdata('selected_global_media_type');
+    if (empty($media_type)) {
+      $media_type = 'fb';
+    }
+    return in_array($media_type, array('fb', 'ig')) ? $media_type : 'fb';
+  }
+}
 
+//===================== password hashing (bcrypt with transparent legacy MD5 upgrade) ======================
+if (!function_exists('hash_password')) {
+  function hash_password($plain_password) {
+    return password_hash($plain_password, PASSWORD_DEFAULT);
+  }
+}
+
+if (!function_exists('verify_password')) {
+  // Verifies $plain_password against $stored_hash. Accepts both password_hash()
+  // output and legacy 32-char MD5 hashes so existing accounts keep working.
+  function verify_password($plain_password, $stored_hash) {
+    if ($stored_hash === '' || $stored_hash === null) return false;
+    if (password_get_info($stored_hash)['algo'] !== null) {
+      return password_verify($plain_password, $stored_hash);
+    }
+    return hash_equals($stored_hash, md5($plain_password));
+  }
+}
+
+if (!function_exists('needs_password_rehash')) {
+  function needs_password_rehash($stored_hash) {
+    if ($stored_hash === '' || $stored_hash === null) return false;
+    if (password_get_info($stored_hash)['algo'] === null) return true; // legacy MD5
+    return password_needs_rehash($stored_hash, PASSWORD_DEFAULT);
+  }
+}
 
 //=====================converts a number to word======================
 //====================================================================
 if ( ! function_exists('numtowords'))
 
 { function numtowords($number) {
-
+   
     $hyphen      = '-';
     $conjunction = '  ';
     $separator   = ' ';
@@ -81,11 +115,11 @@ if ( ! function_exists('numtowords'))
         1000000000000000    => 'Quadrillion',
         1000000000000000000 => 'Quintillion'
     );
-
+   
     if (!is_numeric($number)) {
         return false;
     }
-
+   
     if (($number >= 0 && (int) $number < 0) || (int) $number < 0 - PHP_INT_MAX) {
         // overflow
         trigger_error(
@@ -98,13 +132,13 @@ if ( ! function_exists('numtowords'))
     if ($number < 0) {
         return $negative . numtowords(abs($number));
     }
-
+   
     $string = $fraction = null;
-
+   
     if (strpos($number, '.') !== false) {
         list($number, $fraction) = explode('.', $number);
     }
-
+   
     switch (true) {
         case $number < 21:
             $string = $dictionary[$number];
@@ -136,7 +170,7 @@ if ( ! function_exists('numtowords'))
             }
             break;
     }
-
+   
     if (null !== $fraction && is_numeric($fraction)) {
         $string .= $decimal;
         $words = array();
@@ -145,20 +179,20 @@ if ( ! function_exists('numtowords'))
         }
         $string .= implode(' ', $words);
     }
-
+   
    return  $string;
   }
 }
-//=====================converts a number to word======================
+//=====================converts a number to word====================== 
 //====================================================================
 
 
-//=====================converts a number to phrase======================
+//=====================converts a number to phrase====================== 
 //======================================================================
 if ( ! function_exists('numtophrase'))
-{
+{   
   function numtophrase($num) {
-
+   
    if (!in_array(($num % 100),array(11,12,13))){
       switch ($num % 10) {
         // Handle 1st, 2nd, 3rd
@@ -171,7 +205,7 @@ if ( ! function_exists('numtophrase'))
   }
 }
 
-//=====================converts a number to phrase======================
+//=====================converts a number to phrase====================== 
 //======================================================================
 
 
@@ -179,19 +213,19 @@ if ( ! function_exists('numtophrase'))
 //======================================================================
 
 // if ( ! function_exists('calculate_date_differece'))
-// {
-//   function calculate_date_differece($end,$start,$out_in_array=false){
-//     $intervalo = date_diff(date_create($start), date_create($end));
-//     $out = $intervalo->format("<b>%Y</b>&nbsp Years &nbsp<b>%M</b>&nbsp Months &nbsp<b>%d</b> &nbspDays");
-//     if(!$out_in_array)
-//       return $out;
-//     $a_out = array();
-//     array_walk(explode(',',$out),
-//       function($val,$key) use(&$a_out){
-//         $v=explode(':',$val);
-//         $a_out[$v[0]] = $v[1];
-//       });
-//     return $a_out;
+// {   
+//   function calculate_date_differece($end,$start,$out_in_array=false){ 
+//     $intervalo = date_diff(date_create($start), date_create($end)); 
+//     $out = $intervalo->format("<b>%Y</b>&nbsp Years &nbsp<b>%M</b>&nbsp Months &nbsp<b>%d</b> &nbspDays"); 
+//     if(!$out_in_array) 
+//       return $out; 
+//     $a_out = array(); 
+//     array_walk(explode(',',$out), 
+//       function($val,$key) use(&$a_out){ 
+//         $v=explode(':',$val); 
+//         $a_out[$v[0]] = $v[1]; 
+//       }); 
+//     return $a_out; 
 //   }
 // }
 
@@ -199,21 +233,19 @@ if ( ! function_exists('numtophrase'))
 
 if ( ! function_exists('date_time_calculator'))
 {
-  function date_time_calculator($input_datetime, $format=false,$current_datetime=null,$return_ago_text=true)
+  function date_time_calculator($input_datetime, $formate=false)
   {
-    // pass current_datetime you want subtracted result
-    // expected date format YYY-MM-DD H:i:s
     $ci = &get_instance();
-    if(empty($current_datetime)) $current_datetime = date('Y-m-d H:i:s');
+    $current_datetime = strtotime(date("Y-m-d H:i:s")); 
+    $input_datetime = strtotime($input_datetime);
 
-    $difference = !empty($current_datetime) ? abs(strtotime($current_datetime) - strtotime($input_datetime)) : strtotime($input_datetime);
-    $ago_text = $return_ago_text ? ' '.$ci->lang->line('ago') : '';
+    $difference = abs($current_datetime - $input_datetime); 
 
-    $years   = floor($difference / (365*60*60*24));
-    $months  = floor(($difference - $years * 365*60*60*24) / (30*60*60*24));
-    $days    = floor(($difference - $years * 365*60*60*24 - $months*30*60*60*24)/ (60*60*24));
-    $hours   = floor(($difference - $years * 365*60*60*24 - $months*30*60*60*24 - $days*60*60*24) / (60*60));
-    $minutes = floor(($difference - $years * 365*60*60*24 - $months*30*60*60*24 - $days*60*60*24 - $hours*60*60)/ 60);
+    $years   = floor($difference / (365*60*60*24)); 
+    $months  = floor(($difference - $years * 365*60*60*24) / (30*60*60*24)); 
+    $days    = floor(($difference - $years * 365*60*60*24 - $months*30*60*60*24)/ (60*60*24)); 
+    $hours   = floor(($difference - $years * 365*60*60*24 - $months*30*60*60*24 - $days*60*60*24) / (60*60)); 
+    $minutes = floor(($difference - $years * 365*60*60*24 - $months*30*60*60*24 - $days*60*60*24 - $hours*60*60)/ 60); 
     $seconds = floor(($difference - $years * 365*60*60*24 - $months*30*60*60*24 - $days*60*60*24 - $hours*60*60 - $minutes*60));
 
     $result = array(
@@ -225,7 +257,7 @@ if ( ! function_exists('date_time_calculator'))
       "seconds" => $seconds
     );
 
-    if ($format == true) {
+    if ($formate == true) {
 
       $years_plular=$months_plular=$days_plular=$hours_plular=$minutes_plular=$seconds_plular="";
       if($result['years']!="" && $result['years']>1) $years_plular='s';
@@ -235,31 +267,32 @@ if ( ! function_exists('date_time_calculator'))
       if($result['minutes']!="" && $result['minutes']>1) $minutes_plular='s';
       if($result['seconds']!="" && $result['seconds']>1) $seconds_plular='s';
 
-      if ($result['years'] > 0)
-          return $result['years']." ".$ci->lang->line("year").$years_plular.$ago_text;
-      else if ($result['months'] > 0)
-          return $result['months']." ".$ci->lang->line("month").$months_plular.$ago_text;
-      else if ($result['days'] > 0)
-          return $result['days']." ".$ci->lang->line("day").$days_plular.$ago_text;
-      else if ($result['hours'] > 0)
-          return $result['hours']." ".$ci->lang->line("hour").$hours_plular.$ago_text;
-      else if ($result['minutes'] > 0)
-          return $result['minutes']." ".$ci->lang->line("minute").$minutes_plular.$ago_text;
-      else if ($result['seconds'] > 0)
-          return $result['seconds']." ".$ci->lang->line("second").$seconds_plular.$ago_text;
+        if ($result['years'] != '')
+            return $result['years']." ".$ci->lang->line("year").$years_plular." ".$ci->lang->line("ago");
+        else if ($result['months'] != '') 
+            return $result['months']." ".$ci->lang->line("month").$months_plular." ".$ci->lang->line("ago");
+        else if ($result['days'] != '') 
+            return $result['days']." ".$ci->lang->line("day").$days_plular." ".$ci->lang->line("ago");
+        else if ($result['hours'] != '') 
+            return $result['hours']." ".$ci->lang->line("hour").$hours_plular." ".$ci->lang->line("ago");
+        else if ($result['minutes'] != '') 
+            return $result['minutes']." ".$ci->lang->line("minute").$minutes_plular." ".$ci->lang->line("ago");
+        else if ($result['seconds'] != '') 
+            return $result['seconds']." ".$ci->lang->line("second").$seconds_plular." ".$ci->lang->line("ago");
     }
-    else return $result;
+    else
+      return $result;
 
   }
 }
 
 if ( ! function_exists('calculate_date_differece'))
-{
+{   
   function calculate_date_differece($end,$start)
   {
-  $diff = abs(strtotime($end) - strtotime($start));
-  $years = floor($diff / (365*60*60*24));
-  $months = floor(($diff - $years * 365*60*60*24) / (30*60*60*24));
+  $diff = abs(strtotime($end) - strtotime($start)); 
+  $years = floor($diff / (365*60*60*24)); 
+  $months = floor(($diff - $years * 365*60*60*24) / (30*60*60*24)); 
   $days = floor(($diff - $years * 365*60*60*24 - $months*30*60*60*24)/ (60*60*24));
   return $years." Years ".$months." Months ".$days. " Days";
   }
@@ -269,31 +302,31 @@ if ( ! function_exists('calculate_date_differece'))
 //=========================== end of age calculator ====================
 //======================================================================
 
-//=====================converts a phrase to number======================
+//=====================converts a phrase to number====================== 
 //======================================================================
 if ( ! function_exists('phrasetonumber'))
-{
-  function phrasetonumber($phrase) {
+{   
+  function phrasetonumber($phrase) {   
    if(strlen($phrase)==4)
    return substr($phrase,0,2);
    else
    return substr($phrase,0,1);
   }
 }
-//=====================converts a phrase to number======================
+//=====================converts a phrase to number====================== 
 
 
 
 //======================get data=================================
 //===============================================================
 if ( ! function_exists('get_data_helper'))
-{
-  function get_data_helper($table,$where='',$select='',$join='',$limit='',$start='',$order_by='',$group_by='',$num_rows=1,$single_value=1)
+{   
+  function get_data_helper($table,$where='',$select='',$join='',$limit='',$start='',$order_by='',$group_by='',$num_rows=1,$single_value=1) 
   {
        $ci = &get_instance();
-       $ci->load->model('basic');
+       $ci->load->model('basic');  
        $results=$ci->basic->get_data($table,$where,$select,$join,$limit,$start,$order_by,$group_by,$num_rows);
-
+     
        if($single_value==1) return $results[0];
        else return $results;
 
@@ -303,8 +336,8 @@ if ( ! function_exists('get_data_helper'))
 
 /*date Time Formating*/
  if ( ! function_exists('date_time_formating'))
-{
-  function date_time_formating($date)
+{   
+  function date_time_formating($date) 
   {
        return date('d/m/Y h:i:s a',strtotime($date));
   }
@@ -314,8 +347,8 @@ if ( ! function_exists('get_data_helper'))
 
 /**Date Time formating**/
  if ( ! function_exists('date_formating'))
-{
-  function date_formating($date)
+{   
+  function date_formating($date) 
   {
        return date('d/m/Y',strtotime($date));
   }
@@ -329,8 +362,8 @@ if ( ! function_exists('format_data_dropdown'))
   {
     $ci = &get_instance();
     $map_array = array();
-    foreach ($result as $key => $value)
-    {
+    foreach ($result as $key => $value) 
+    {      
       $map_array[$value[$index]] = $value[$display];
     }
     if($empty_index) $map_array[''] = $ci->lang->line("Select");
@@ -351,26 +384,26 @@ if ( ! function_exists('convertDataTableResult'))
           $indexof = array_search("CHECKBOX",$columns);
           unset($columns[$indexof]);
         }
-
+        
         $final_result = array();
 
         $sl = $start+1;
 
         foreach ($result as $key => $single_row) {
-
+            
             $temp = array(0=>$sl);
             $sl++;
 
-            if($have_checkbox)
+            if($have_checkbox) 
             {
               $primary_val = isset($single_row[$primary_key]) ? $single_row[$primary_key] : 0;
               $str ='<input  name="datatableCheckboxRow[]" id="datatableCheckboxRow'.$primary_val.'" class="datatableCheckboxRow regular-checkbox"  type="checkbox" value="'.$primary_val.'"/> <label for="datatableCheckboxRow'.$primary_val.'" style="cursor:pointer;"></label>';
               $temp[1] = $str;
             }
 
-            foreach ($columns as $key1 => $column_name)
+            foreach ($columns as $key1 => $column_name) 
                 array_push($temp, $single_row[$column_name]);
-
+            
             array_push($final_result, $temp);
         }
 
@@ -381,7 +414,7 @@ if ( ! function_exists('convertDataTableResult'))
 
 
 if ( ! function_exists('calcutate_age'))
-{
+{ 
   function calcutate_age($dob)
   {
 
@@ -400,11 +433,11 @@ if ( ! function_exists('calcutate_age'))
 /**This function to take the original site url . Because we are using subdomain for same site.So for facebook page like we need to do a universal url**/
 
 if ( ! function_exists('get_current_url_without_subdomain'))
-{
+{ 
   function get_current_url_without_subdomain()
   {
   		$CI =& get_instance();
-
+		
 		$url=current_url();
 		$info = parse_url($url);
 		$url_without_subdomain=$CI->config->item('fb_like_doamin').$info['path'];
@@ -418,7 +451,7 @@ if ( ! function_exists('get_current_url_without_subdomain'))
 
 
 if ( ! function_exists('random_value_from_array'))
-{
+{ 
  	 function random_value_from_array($array, $default=null)
 		{
 		    $k = mt_rand(0, count($array) - 1);
@@ -429,61 +462,61 @@ if ( ! function_exists('random_value_from_array'))
 
 
 if ( ! function_exists('addHttp'))
-{
+{ 
 function addHttp( $url ){
-
+	
 	    if ( !preg_match("~^(?:f|ht)tps?://~i", $url) )
 	    {
 	        $url = "http://" . $url;
 	    }
-
+	
 	    return $url;
 	}
 }
 
 
 if ( ! function_exists('get_domain_only'))
-{
+{ 
 	function get_domain_only($url) {
 		$url=str_replace("www.","",$url);
 		$url=str_replace("WWW.","",$url);
-
+		
 	    if (!preg_match("@^https?://@i", $url) && !preg_match("@^ftps?://@i", $url)) {
 	        $url = "http://" . $url;
 	    }
-
-
+		
+		
 	  	$parsed=@parse_url($url);
-
+		
 		return $parsed['host'];
-
+	  
 	}
 }
 
 
 if ( ! function_exists('get_domain_only_with_http'))
-{
+{ 
   function get_domain_only_with_http($url) {
-
+  
     $result = @parse_url($url);
 
     if(isset($result['scheme']) && isset($result['host']))
       return  $result['scheme']."://".$result['host'];
     else
-      return $url;
+      return $url; 
   }
 }
 
 
 
 if ( ! function_exists('is_web_page'))
-{
+{ 
 	function is_web_page($domain)
         {
             $ext=explode(".", $domain);
             $extension=array_pop($ext);
             $allowed_extension=array("html","htm","php","asp","jsp","py");
-
+            
             if (in_array($extension, $allowed_extension)) {
                 return 1;
             } else {
@@ -493,12 +526,12 @@ if ( ! function_exists('is_web_page'))
 }
 
 
-//add query string to url  Example: add_query_string_to_url("https://xeroneit.net/support","from","value") , If query index is already availabe, it doesn't update the value.
+//add query string to url  Example: add_query_string_to_url("https://xeroneit.net/support","from","value") , If query index is already availabe, it doesn't update the value. 
 
 if ( ! function_exists('add_query_string_to_url')){
 
     function add_query_string_to_url($url,$query_index,$query_value){
-
+        
         $parameters_str = parse_url($url, PHP_URL_QUERY);
         parse_str($parameters_str, $parameters_array);
 
@@ -508,12 +541,12 @@ if ( ! function_exists('add_query_string_to_url')){
 
             if ($parameters_str)  $url .= "&{$query_param}";
             else  $url .= "?{$query_param}";
-        }
+        } 
 
         return $url;
 
         }
-
+        
 }
 
 
@@ -629,7 +662,7 @@ function convert_to_ascii($url)
     $parts = parse_url($url);
     if (!isset($parts['host']))
       return $url; // missing http? makes parse_url fails
-
+   
     if (mb_detect_encoding($parts['host']) != 'ASCII'  && function_exists("idn_to_ascii") ){
       $parts['host'] = idn_to_ascii($parts['host']);
       return $parts['scheme']."://".$parts['host'];
@@ -638,7 +671,7 @@ function convert_to_ascii($url)
   }
 
 if ( ! function_exists('array_add'))
-{
+{ 
 
   function array_add($array1,$array2){
       $array_1=$array1;
@@ -655,18 +688,18 @@ if ( ! function_exists('array_add'))
 
 
 if ( ! function_exists('convert_to_grid_data'))
-{
-  function convert_to_grid_data($total_info,$total_result=10)
+{   
+  function convert_to_grid_data($total_info,$total_result=10) 
   {
        $result["total"] = $total_result;
     $items = array();
-
+    
     foreach($total_info as $index=>$info){
       if($index!=='extra_index'){
         $info_obj=(object)$info;
         array_push($items, $info_obj);
       }
-
+      
     }
     $result["rows"] = $items;
     return json_encode($result);
@@ -706,7 +739,7 @@ function SecToHHmmSSms( $input=0 )
   $minutes = $input % 60;
   $minutes=str_pad($minutes,2,"0",STR_PAD_LEFT);
 
-  $input = floor($input / 60);
+  $input = floor($input / 60); 
   $input = str_pad($input,2,"0",STR_PAD_LEFT);
 
   $out= "{$input}:{$minutes}:{$seconds},{$uSec}";
@@ -725,14 +758,14 @@ function custom_number_format($n, $precision = 2) {
     {
         // Anything less than a million
         $n_format = number_format($n / 1000, $precision) . 'K';
-    }
+    } 
     else if ($n < 1000000000)
     {
         // Anything less than a billion
         $n_format = number_format($n / 1000000, $precision) . 'M';
-    }
+    } 
     else if ($n < 1000000000000)
-    {
+    {        
         // Anything less than a trillion
         $n_format = number_format($n / 1000000000, $precision) . 'B';
     }
@@ -740,7 +773,7 @@ function custom_number_format($n, $precision = 2) {
     {
         // At least a trillion
         $n_format = number_format($n / 1000000000000, $precision) . 'T';
-    }
+    }    
 
     return $n_format;
 }
@@ -748,69 +781,55 @@ function custom_number_format($n, $precision = 2) {
 
 
 function ultraresponse_addon_module_exist(){
-
+	
 	$ci = &get_instance();
-    $ci->load->model('basic');
-
-
+    $ci->load->model('basic');  
+	   
+	   
 	$addon_id="29";
 	$module_id="88";
 	$addon_unique_name="comment_reply_enhancers";
-
+	
 	$is_module_access=0;  // initially no module access
 	$is_addon_installed=0; // Initially ad on not installed
-
+	
 	$package_info = $ci->session->userdata("package_info");
 	$module_acces= isset($package_info['module_ids']) ? $package_info['module_ids'] : "";
 	$module_acces=explode(",",$module_acces);
-
+	
 	/* Check if the memeber have the module access*/
 	if(in_array($module_id,$module_acces))
-		 $is_module_access=1;
-
+		 $is_module_access=1; 
+		
 	/**Check if the addon is installed **/
 	$where['where']=array("unique_name"=>$addon_unique_name);
 	$addon_info = $ci->basic->get_data("add_ons", $where);
-
+	
 	if(isset($addon_info[0]['id']))
-		 $is_addon_installed=1;
-
-
+		 $is_addon_installed=1; 
+		
+		
 	/**If admin and have module installed, then return true***/
 	if($ci->session->userdata("user_type")=="Admin" && $is_addon_installed==1)
 		return TRUE;
 	/**If member and have module installed and have module access, then true***/
 	if($ci->session->userdata("user_type")=="Member" && $is_addon_installed==1 && $is_module_access==1)
 		return TRUE;
-
+	
 	return FALSE;
 }
 
 function ai_reply_exist()
 {
     $ci = &get_instance();
-
+    
     $package_info = $ci->session->userdata("package_info");
     $module_acces= isset($package_info['module_ids']) ? $package_info['module_ids'] : "";
     $module_acces=explode(",",$module_acces);
 
-    $ci->load->model('basic');
+    $ci->load->model('basic'); 
     if($ci->session->userdata('user_type') == 'Admin' && $ci->basic->is_exist("add_ons",array("project_id"=>67))) return true;
     if($ci->session->userdata('user_type') == 'Member' && in_array(340,$module_acces)) return true;
-    return false;
-}
-
-function http_api_exist()
-{
-    $ci = &get_instance();
-
-    $package_info = $ci->session->userdata("package_info");
-    $module_acces= isset($package_info['module_ids']) ? $package_info['module_ids'] : "";
-    $module_acces=explode(",",$module_acces);
-
-    $ci->load->model('basic');
-    if($ci->session->userdata('user_type') == 'Admin' && $ci->basic->is_exist("add_ons",array("project_id"=>71))) return true;
-    if($ci->session->userdata('user_type') == 'Member' && in_array(352,$module_acces)) return true;
     return false;
 }
 
@@ -851,18 +870,18 @@ function adjustBrightness($hexCode, $adjustPercent) {
 }
 
 function hex2rgba($color, $opacity = false) {
-
+ 
   $default = 'rgb(0,0,0)';
-
+ 
   //Return default if no color provided
   if(empty($color))
-          return $default;
-
-  //Sanitize $color if "#" is provided
+          return $default; 
+ 
+  //Sanitize $color if "#" is provided 
         if ($color[0] == '#' ) {
           $color = substr( $color, 1 );
         }
-
+ 
         //Check if color has 6 or 3 characters and get values
         if (strlen($color) == 6) {
                 $hex = array( $color[0] . $color[1], $color[2] . $color[3], $color[4] . $color[5] );
@@ -871,10 +890,10 @@ function hex2rgba($color, $opacity = false) {
         } else {
                 return $default;
         }
-
+ 
         //Convert hexadec to rgb
         $rgb =  array_map('hexdec', $hex);
-
+ 
         //Check if opacity is set(rgba or rgb)
         if($opacity){
           if(abs($opacity) > 1)
@@ -883,13 +902,13 @@ function hex2rgba($color, $opacity = false) {
         } else {
           $output = 'rgb('.implode(",",$rgb).')';
         }
-
+ 
         //Return rgb(a) color string
         return $output;
 }
 
 
-if ( ! function_exists('youtube_time_to_time_duratio')) {
+if ( ! function_exists('youtube_time_to_time_duratio')) { 
 
     function youtube_time_to_time_duration($string) {
 
@@ -904,7 +923,7 @@ if ( ! function_exists('youtube_time_to_time_duratio')) {
 }
 
 
-if ( ! function_exists('is_mobile')) {
+if ( ! function_exists('is_mobile')) { 
 
   function is_mobile() {
 
@@ -918,7 +937,7 @@ if ( ! function_exists('is_mobile')) {
 
 
 if ( ! function_exists('pre'))
-{
+{ 
   function pre($val)
         {
             echo "<pre>";
@@ -927,46 +946,12 @@ if ( ! function_exists('pre'))
         }
 }
 
-if (! function_exists('dd')) {
-    /**
-     * Dump the passed variables and end the script.
-     *
-     * @param  mixed
-     * @return void
-     */
-    function dd()
-    {
-        array_map(function ($value) {
-            if (class_exists(vendor\Symfony\Component\VarDumper\Dumper\CliDumper::class)) {
-                $dumper = 'cli' === PHP_SAPI ?
-                    new vendor\Symfony\Component\VarDumper\Dumper\CliDumper :
-                    new vendor\Symfony\Component\VarDumper\Dumper\HtmlDumper;
-                $dumper->dump((new vendor\Symfony\Component\VarDumper\Cloner\VarCloner)->cloneVar($value));
-            } else {
-                var_dump($value);
-            }
-        }, func_get_args());
-        die(1);
-    }
-}
-
-if (! function_exists('get_media_type')) {
-    function get_media_type(){
-        $ci =& get_instance();
-        $media_type = $ci->input->get("media_type");
-        if(empty($media_type)) $media_type = $ci->input->post("media_type");
-        if(!in_array($media_type, ['fb','ig'])) $media_type='fb';
-        return $media_type;
-    }
-}
-
-
 if (! function_exists('sanitize_json_string')) {
     function sanitize_json_string($json_string_data) {
         $patterns = ["'", "\\", "\n", "\r", "\t", "\f", "\b"];
         $replacements = ["", "\\\\", "\\\\n", "\\\\r", "\\\\t", "\\\\f", "\\\\b"];
 
-        return str_replace($patterns, $replacements, $json_string_data);
+        return str_replace($patterns, $replacements, $json_string_data);        
     }
 }
 
@@ -1025,15 +1010,15 @@ function condition_check($variable,$value,$operator){
 
         if($pos!==FALSE) return true;
         else return false;
-
+              
     case 'in_array':
 
-      if(in_array($value, $variable)) return true;
-      else return false;
+      if(in_array($value, $variable)) return true; 
+      else return false; 
 
     case 'start_with':
 
-      if (preg_match("#^{$value}#i", $variable) === 1) return true;
+      if (preg_match("#^{$value}#i", $variable) === 1) return true; 
       else return false;
 
     case 'end_with':
@@ -1090,6 +1075,50 @@ function is_email($email)
 }
 
 
+
+
+
+//===================== restored core helpers (module access, http api, dd) ======================
+if (!function_exists('http_api_exist')) {
+function http_api_exist()
+{
+    $ci = &get_instance();
+
+    $package_info = $ci->session->userdata("package_info");
+    $module_acces= isset($package_info['module_ids']) ? $package_info['module_ids'] : "";
+    $module_acces=explode(",",$module_acces);
+
+    $ci->load->model('basic');
+    if($ci->session->userdata('user_type') == 'Admin' && $ci->basic->is_exist("add_ons",array("project_id"=>71))) return true;
+    if($ci->session->userdata('user_type') == 'Member' && in_array(352,$module_acces)) return true;
+    return false;
+}
+}
+
+if (! function_exists('dd')) {
+    /**
+     * Dump the passed variables and end the script.
+     *
+     * @param  mixed
+     * @return void
+     */
+    function dd()
+    {
+        array_map(function ($value) {
+            if (class_exists(vendor\Symfony\Component\VarDumper\Dumper\CliDumper::class)) {
+                $dumper = 'cli' === PHP_SAPI ?
+                    new vendor\Symfony\Component\VarDumper\Dumper\CliDumper :
+                    new vendor\Symfony\Component\VarDumper\Dumper\HtmlDumper;
+                $dumper->dump((new vendor\Symfony\Component\VarDumper\Cloner\VarCloner)->cloneVar($value));
+            } else {
+                var_dump($value);
+            }
+        }, func_get_args());
+        die(1);
+    }
+}
+
+if (!function_exists('check_module_action_access')) {
 /* 
 @$response_type
 check=>return true/false
@@ -1151,8 +1180,9 @@ function check_module_action_access($module_id='',$actions=[],$response_type='js
     }
     return true;
 }
+}
 
-
+if (!function_exists('check_module_access')) {
 function check_module_access($module_id='',$return_boolen=false){
     $ci = &get_instance();
     $logged_in  = $ci->session->userdata('logged_in');
@@ -1179,4 +1209,4 @@ function check_module_access($module_id='',$return_boolen=false){
         exit();
     }
     return true;
-}
+}}
