@@ -7001,6 +7001,10 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
         $media_type = $this->using_media_type;
         $new_media_type = $media_type == 'fb' ? 'ig' : 'fb';
         $this->using_media_type = $new_media_type;
+        // persist: get_media_type() reads the session, so without this the
+        // toggle only lasted for this single ajax request and pages kept
+        // filtering by the stale platform (fb pages showing ig data)
+        $this->session->set_userdata('selected_global_media_type', $new_media_type);
         echo "1";
     }
 
@@ -7015,7 +7019,12 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
         $page_id = $explode_page_id['page_id'];
         $social_media = $explode_page_id['social_media'];
         $this->session->set_userdata('selected_global_page_table_id', $page_id);
-        if ($return_social_media_by_force) $this->using_media_type = $social_media;
+        if ($return_social_media_by_force) {
+            $this->using_media_type = $social_media;
+            if (in_array($social_media, array('fb', 'ig'))) {
+                $this->session->set_userdata('selected_global_media_type', $social_media);
+            }
+        }
         echo "1";
     }
 
