@@ -46,7 +46,7 @@ class Home extends CI_Controller
     {
         parent::__construct();
         set_time_limit(0);
-        $this->load->helpers(array('my_helper', 'addon_helper', 'bot_helper'));
+        $this->load->helpers(array('my_helper', 'addon_helper', 'bot_helper', 'ai_knowledge'));
 
         $is_rtl = $this->config->item("is_rtl");
         if (!empty($is_rtl) && $is_rtl == '1') $this->is_rtl = TRUE;
@@ -4551,11 +4551,20 @@ class Home extends CI_Controller
 
         if ($url == '') exit;
 
+        // ACK Meta before dispatching: AI processing can exceed Meta's ~5s webhook
+        // timeout, which made Meta re-deliver the event and the bot reply twice.
+        ignore_user_abort(true);
+        if (function_exists('fastcgi_finish_request')) {
+            echo 'ok';
+            session_write_close();
+            fastcgi_finish_request();
+        }
+
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_POST, 1);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $json_response);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
         $reply_response = curl_exec($ch);
@@ -7075,6 +7084,20 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             $system_prompt .= "\n\nAfter your reply, on a new final line output exactly one of [[SENTIMENT:positive]] [[SENTIMENT:neutral]] [[SENTIMENT:negative]] for the customer's mood. Put nothing after that marker.";
         }
 
+        // SPEC-05: inject relevant knowledge-base excerpts as RAG context
+        if (!empty($user_id) && !empty($human)) {
+            $kb_page_id = 0;
+            if (!empty($page_id)) {
+                $page_row = $this->basic->get_data('facebook_rx_fb_page_info', array('where' => array('page_id' => $page_id, 'user_id' => $user_id)), array('id'), '', 1);
+                $kb_page_id = isset($page_row[0]['id']) ? (int) $page_row[0]['id'] : 0;
+            }
+            $knowledge_context = ai_get_knowledge_context($user_id, $human, $kb_page_id, 5);
+            if (!empty($knowledge_context)) {
+                $system_prompt .= "\n\nUse the following knowledge-base excerpts to answer the customer's question when relevant. If the answer is not in the excerpts, rely on your general instructions and do not mention the knowledge base.\n\n";
+                $system_prompt .= "--- KNOWLEDGE BASE START ---\n" . $knowledge_context . "\n--- KNOWLEDGE BASE END ---";
+            }
+        }
+
         $messages = [];
         $messages[] = ["role" => "system", "content" => $system_prompt];
 
@@ -7334,15 +7357,15 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
     {
         if (!empty($subscriber_id) && $subscriber_id != 0) {
             $curtime = date('Y-m-d H:i:s');
-            $update_data = 'last_communicated_at="' . $curtime . '"';
-            if ($update_interaction) $update_data .= ',last_subscriber_interaction_time="' . $curtime . '"';
+            $update_data = "last_communicated_at='" . $curtime . "'";
+            if ($update_interaction) $update_data .= ",last_subscriber_interaction_time='" . $curtime . "'";
 
             if (!empty($message_content) || !empty($last_conversation_message)) {
                 if (empty($last_conversation_message)) $last_conversation_message = make_message_preview($message_content);
-                $update_data .= ',last_conversation_message="' . $last_conversation_message . '"';
+                $update_data .= ',last_conversation_message=' . $this->db->escape($last_conversation_message);
                 if ($update_unseen) $update_data .= ',unseen_count=unseen_count+1';
             }
-            $update_interaction_sql = 'UPDATE messenger_bot_subscriber SET ' . $update_data . ' WHERE subscribe_id="' . $subscriber_id . '"';
+            $update_interaction_sql = 'UPDATE messenger_bot_subscriber SET ' . $update_data . ' WHERE subscribe_id=' . $this->db->escape($subscriber_id);
             $this->basic->execute_complex_query($update_interaction_sql);
         }
     }
