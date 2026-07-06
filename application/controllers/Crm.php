@@ -32,6 +32,13 @@ class Crm extends Home
         $data['won_month'] = (int) $this->db->from('crm_deals')->where('user_id',$uid)->where('status','won')->where('won_at >=', date('Y-m-01 00:00:00'))->count_all_results();
         $data['tasks_today'] = (int) $this->db->from('crm_activities')->where('user_id',$uid)->where('status','pending')->where('due_date <=', date('Y-m-d 23:59:59'))->count_all_results();
         $data['hot_leads'] = (int) $this->db->from('messenger_bot_subscriber')->where('user_id',$uid)->where('lead_score >=',50)->count_all_results();
+        $data['new_leads_7d'] = (int) $this->db->from('crm_deals')->where('user_id',$uid)->where('created_at >=', date('Y-m-d H:i:s', strtotime('-7 days')))->count_all_results();
+        $data['latest_leads'] = $this->db->select("d.id, d.title, d.contact_name, d.contact_phone, d.contact_email, d.source, d.created_at, s.name AS stage_name, TRIM(CONCAT(COALESCE(m.first_name,''),' ',COALESCE(m.last_name,''))) AS subscriber_name")
+            ->from('crm_deals d')
+            ->join('crm_stages s','s.id=d.stage_id','left')
+            ->join('messenger_bot_subscriber m','m.id=d.subscriber_id','left')
+            ->where('d.user_id',$uid)->where('d.status','open')
+            ->order_by('d.created_at','DESC')->limit(8)->get()->result_array();
         // source breakdown
         $data['by_source'] = $this->db->select('source, COUNT(*) c')->from('crm_deals')->where('user_id',$uid)->group_by('source')->get()->result_array();
         // won/lost last 6 months
@@ -131,8 +138,19 @@ class Crm extends Home
     public function contacts_data()
     {
         header('Content-Type: application/json');
-        $rows = $this->db->select('id, subscribe_id, first_name, last_name, full_name, email, phone_number, social_media, lead_score, last_subscriber_interaction_time')
-            ->from('messenger_bot_subscriber')->where('user_id',$this->uid)->order_by('lead_score','DESC')->limit(200)->get()->result_array();
+        // contact info: subscriber row first, else what the AI captured on their latest CRM deal
+        $rows = $this->db->query(
+            "SELECT m.id, m.subscribe_id, m.first_name, m.last_name, m.full_name,
+                    COALESCE(NULLIF(m.email,''), d.contact_email, '') AS email,
+                    COALESCE(NULLIF(m.phone_number,''), d.contact_phone, '') AS phone_number,
+                    m.social_media, m.lead_score, m.last_subscriber_interaction_time
+             FROM messenger_bot_subscriber m
+             LEFT JOIN (SELECT subscriber_id, MAX(id) AS mid FROM crm_deals WHERE user_id = ? AND subscriber_id IS NOT NULL AND (COALESCE(contact_phone,'') <> '' OR COALESCE(contact_email,'') <> '') GROUP BY subscriber_id) x ON x.subscriber_id = m.id
+             LEFT JOIN crm_deals d ON d.id = x.mid
+             WHERE m.user_id = ?
+             ORDER BY m.lead_score DESC
+             LIMIT 200", array($this->uid, $this->uid)
+        )->result_array();
         echo json_encode(['data'=>$rows]);
     }
 

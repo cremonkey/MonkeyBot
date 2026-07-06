@@ -58,8 +58,14 @@ class Ai_tools
             ),
             array(
                 'name' => 'handoff_to_human',
-                'description' => "Escalate the conversation to a human agent. Use when the customer is angry, asks for a human, or the request is beyond your ability.",
-                'params' => array('type' => 'object', 'properties' => new stdClass()),
+                'description' => "Escalate the conversation to a human agent. Use when the customer is angry, asks for a human, or the request is beyond your ability. The team gets an urgent follow-up task, so always pass the reason.",
+                'params' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'reason' => array('type' => 'string', 'description' => "One short sentence, in the customer's language, explaining why they need a human (complaint, anger, special request)."),
+                    ),
+                    'required' => array('reason'),
+                ),
             ),
             array(
                 'name' => 'save_lead_to_crm',
@@ -113,7 +119,7 @@ class Ai_tools
                 case 'search_products':   return $this->t_search_products($user_id, $args);
                 case 'get_order_status':  return $this->t_order_status($user_id, $args);
                 case 'create_discount_code': return $this->t_create_coupon($user_id, $args);
-                case 'handoff_to_human':  return $this->t_handoff($context);
+                case 'handoff_to_human':  return $this->t_handoff($context, $args);
                 case 'save_lead_to_crm':  return $this->t_save_lead($user_id, $args, $context);
                 default: return 'Error: unknown tool.';
             }
@@ -206,6 +212,15 @@ class Ai_tools
         $source = in_array(($context['social_media'] ?? ''), array('fb','ig','wa','web','tg')) ? $context['social_media'] : 'manual';
         $sub_id = (int) ($context['subscriber_row_id'] ?? 0);
 
+        // customer didn't state a name -> fall back to their social profile name
+        if ($name === '' && $sub_id > 0) {
+            $sub = $db->select('first_name, last_name, full_name')->from('messenger_bot_subscriber')->where('id', $sub_id)->get()->row_array();
+            if (!empty($sub)) {
+                $name = trim((string) ($sub['full_name'] ?? ''));
+                if ($name === '') $name = trim(trim((string) ($sub['first_name'] ?? '')).' '.trim((string) ($sub['last_name'] ?? '')));
+            }
+        }
+
         $pipe = $db->select('id')->from('crm_pipelines')->where('user_id', $user_id)->where('status', '1')
                    ->order_by('is_default', 'DESC')->order_by('id', 'ASC')->limit(1)->get()->row_array();
         if (empty($pipe)) return 'Could not save: CRM has no pipeline configured.';
@@ -230,11 +245,16 @@ class Ai_tools
             if ($name !== ''  && empty($existing['contact_name']))  $update['contact_name']  = $name;
             if ($phone !== '' && empty($existing['contact_phone'])) $update['contact_phone'] = $phone;
             if ($email !== '' && empty($existing['contact_email'])) $update['contact_email'] = $email;
+            // name learned after the deal was created: refresh a bare "Lead: <phone>" title
+            if ($name !== '' && empty($existing['contact_name']) && strpos((string) $existing['title'], 'Lead: ') === 0) {
+                $best_phone = $phone !== '' ? $phone : (string) $existing['contact_phone'];
+                $update['title'] = 'Lead: '.$name.($best_phone !== '' ? ' ('.$best_phone.')' : '');
+            }
             $db->where('id', $existing['id'])->update('crm_deals', $update);
             $deal_id = (int) $existing['id'];
             $result  = 'Customer already registered in the CRM (deal #'.$deal_id.'); their info and new request were added.';
         } else {
-            $title = $name !== '' ? $name : ($phone !== '' ? $phone : $email);
+            $title = $name !== '' ? $name.($phone !== '' ? ' ('.$phone.')' : '') : ($phone !== '' ? $phone : $email);
             $db->insert('crm_deals', array(
                 'user_id' => $user_id, 'pipeline_id' => $pipe['id'], 'stage_id' => $stage['id'],
                 'title' => 'Lead: '.$title, 'subscriber_id' => ($sub_id > 0 ? $sub_id : null),
@@ -262,6 +282,15 @@ class Ai_tools
             'status' => 'completed', 'completed_at' => $now, 'created_at' => $now,
         ));
 
+        // mirror the captured contact info onto the subscriber record so it
+        // shows up everywhere (CRM contacts, live chat), not only on the deal
+        if ($sub_id > 0 && ($phone !== '' || $email !== '')) {
+            $sub_update = array();
+            if ($phone !== '') $sub_update['phone_number'] = $phone;
+            if ($email !== '') $sub_update['email'] = $email;
+            $db->where('id', $sub_id)->update('messenger_bot_subscriber', $sub_update);
+        }
+
         // SPEC-07: score the lead for sharing contact info, if the helper is available
         if ($sub_id > 0 && file_exists(APPPATH.'helpers/lead_scoring_helper.php')) {
             $this->CI->load->helper('lead_scoring');
@@ -271,16 +300,69 @@ class Ai_tools
         return $result;
     }
 
-    protected function t_handoff($context)
+    protected function t_handoff($context, $args = array())
     {
-        $sub_id = (int) ($context['subscriber_row_id'] ?? 0);
+        $db      = $this->CI->db;
+        $now     = date('Y-m-d H:i:s');
+        $sub_id  = (int) ($context['subscriber_row_id'] ?? 0);
+        $user_id = (int) ($context['user_id'] ?? 0);
+        $reason  = trim((string) ($args['reason'] ?? ''));
+        $source  = in_array(($context['social_media'] ?? ''), array('fb','ig','wa','web','tg')) ? $context['social_media'] : 'manual';
+
         if ($sub_id > 0) {
             // pause the bot if SPEC-09 column exists
-            $fields = $this->CI->db->list_fields('messenger_bot_subscriber');
+            $fields = $db->list_fields('messenger_bot_subscriber');
             if (in_array('bot_paused_until', $fields)) {
-                $this->CI->db->where('id', $sub_id)->update('messenger_bot_subscriber', array('bot_paused_until' => date('Y-m-d H:i:s', strtotime('+6 hours'))));
+                $db->where('id', $sub_id)->update('messenger_bot_subscriber', array('bot_paused_until' => date('Y-m-d H:i:s', strtotime('+6 hours'))));
             }
         }
+
+        // Surface the handoff in the CRM: an urgent pending follow-up task
+        // (counts in the dashboard "Tasks Due" card) attached to the
+        // customer's open deal, creating the deal if they don't have one.
+        if ($user_id > 0) {
+            $deal_id = null;
+            if ($sub_id > 0) {
+                $deal = $db->from('crm_deals')->where('user_id', $user_id)->where('subscriber_id', $sub_id)
+                           ->where('status', 'open')->order_by('id', 'DESC')->limit(1)->get()->row_array();
+                if (!empty($deal)) $deal_id = (int) $deal['id'];
+            }
+            if ($deal_id === null) {
+                $pipe = $db->select('id')->from('crm_pipelines')->where('user_id', $user_id)->where('status', '1')
+                           ->order_by('is_default', 'DESC')->order_by('id', 'ASC')->limit(1)->get()->row_array();
+                $stage = empty($pipe) ? null : $db->select('id')->from('crm_stages')->where('pipeline_id', $pipe['id'])
+                            ->where('stage_type', 'open')->order_by('position', 'ASC')->limit(1)->get()->row_array();
+                if (!empty($pipe) && !empty($stage)) {
+                    $name = '';
+                    if ($sub_id > 0) {
+                        $sub = $db->select('first_name, last_name, full_name')->from('messenger_bot_subscriber')->where('id', $sub_id)->get()->row_array();
+                        if (!empty($sub)) {
+                            $name = trim((string) ($sub['full_name'] ?? ''));
+                            if ($name === '') $name = trim(trim((string) ($sub['first_name'] ?? '')).' '.trim((string) ($sub['last_name'] ?? '')));
+                        }
+                    }
+                    $db->insert('crm_deals', array(
+                        'user_id' => $user_id, 'pipeline_id' => $pipe['id'], 'stage_id' => $stage['id'],
+                        'title' => 'Handoff: '.($name !== '' ? $name : 'customer'),
+                        'subscriber_id' => ($sub_id > 0 ? $sub_id : null),
+                        'contact_name' => ($name !== '' ? $name : null),
+                        'source' => $source, 'status' => 'open', 'created_at' => $now, 'updated_at' => $now,
+                    ));
+                    $deal_id = (int) $db->insert_id();
+                    $db->insert('crm_deal_timeline', array(
+                        'deal_id' => $deal_id, 'user_id' => $user_id, 'action' => 'created',
+                        'new_value' => 'Human handoff requested via '.$source, 'created_at' => $now,
+                    ));
+                }
+            }
+            $db->insert('crm_activities', array(
+                'deal_id' => $deal_id, 'subscriber_id' => ($sub_id > 0 ? $sub_id : null), 'user_id' => $user_id,
+                'type' => 'follow_up', 'subject' => 'URGENT: customer needs a human ('.$source.')',
+                'description' => ($reason !== '' ? $reason : 'Customer requested human assistance.'),
+                'due_date' => $now, 'status' => 'pending', 'created_at' => $now,
+            ));
+        }
+
         return 'A human agent will take over shortly. Please hold on.';
     }
 }
