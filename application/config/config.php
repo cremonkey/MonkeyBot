@@ -132,6 +132,7 @@ $config['subclass_prefix'] = 'MY_';
 
 $config['permitted_uri_chars'] = 'a-z 0-9~%.:_+\-';
 
+
 /*
 |--------------------------------------------------------------------------
 | Enable Query Strings
@@ -227,7 +228,7 @@ $config['cache_path'] = '';
 | MUST set an encryption key.  See the user guide for info.
 |
 */
-$config['encryption_key'] = '12345';
+$config['encryption_key'] = 'PLACEHOLDER-REAL-KEY-LIVES-IN-DOCKER-CONFIG-VOLUME';
 
 /*
 |--------------------------------------------------------------------------
@@ -248,7 +249,7 @@ $config['encryption_key'] = '12345';
 |
 */
 $config['sess_cookie_name']		= 'ci_session';
-$config['sess_expiration']		= 14400;
+$config['sess_expiration']		= 0;
 $config['sess_expire_on_close']	= TRUE;
 $config['sess_encrypt_cookie']	= FALSE;
 $config['sess_match_ip']		= FALSE;
@@ -270,7 +271,6 @@ $config['cookie_prefix']	= "";
 $config['cookie_domain']	= "";
 $config['cookie_path']		= "/";
 $config['cookie_secure']	= TRUE;
-$config['cookie_httponly']	= TRUE;
 
 /*
 |--------------------------------------------------------------------------
@@ -295,7 +295,19 @@ $config['global_xss_filtering'] = FALSE;
 | 'csrf_cookie_name' = The cookie name
 | 'csrf_expire' = The number in seconds the token should expire.
 */
-$config['csrf_protection'] = FALSE;
+$config['csrf_protection'] = TRUE;
+$config['csrf_regenerate'] = FALSE;
+$config['csrf_exclude_uris'] = array(
+	'home/central_webhook_callback',
+	'messenger_bot/webhook_callback',
+	'messenger_bot/webhook_callback_main',
+	'comment_automation/webhook_callback_main',
+	'instagram_reply/webhook_callback',
+	'paypal_ipn/ipn_notify',
+	'paypal_ipn/ipn_notify_main',
+	'stripe_action/(.*)',
+	'tiktok_cron/(.*)',
+);
 $config['csrf_token_name'] = 'csrf_test_name';
 $config['csrf_cookie_name'] = 'csrf_cookie_name';
 $config['csrf_expire'] = 7200;
@@ -359,7 +371,6 @@ $config['rewrite_short_tags'] = FALSE;
 */
 $config['proxy_ips'] = '';
 
-$config['composer_autoload'] = FCPATH . 'vendor/autoload.php';
 
 /* End of file config.php */
 /* Location: ./application/config/config.php */
