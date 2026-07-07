@@ -77,6 +77,7 @@ class Ai_tools
                         'phone' => array('type' => 'string', 'description' => 'Phone or WhatsApp number the customer shared.'),
                         'email' => array('type' => 'string', 'description' => 'Email address the customer shared.'),
                         'request_summary' => array('type' => 'string', 'description' => "Short summary of the customer's request, in the customer's language."),
+                        'customer_profile' => array('type' => 'string', 'description' => "One line for the sales team, in the customer's language: buyer personality (decisive / analytical / hesitant / social / price-focused), their key needs, and any objection raised. Example: 'متردد - محتاج 500 كارت شخصي قبل الخميس - اعترض على السعر مرة'."),
                     ),
                     'required' => array('request_summary'),
                 ),
@@ -203,6 +204,7 @@ class Ai_tools
         $phone   = trim((string) ($args['phone'] ?? ''));
         $email   = trim((string) ($args['email'] ?? ''));
         $summary = trim((string) ($args['request_summary'] ?? ''));
+        $profile = trim((string) ($args['customer_profile'] ?? ''));
         if ($phone === '' && $email === '') {
             return 'No contact info to save yet: ask the customer for their phone/WhatsApp number or email first.';
         }
@@ -275,10 +277,13 @@ class Ai_tools
         if ($name !== '')  $details[] = 'Name: '.$name;
         if ($phone !== '') $details[] = 'Phone: '.$phone;
         if ($email !== '') $details[] = 'Email: '.$email;
+        $note = $summary
+            .($profile !== '' ? "\n\u{1F464} ".$profile : '')
+            .($details ? "\n".implode(' | ', $details) : '');
         $db->insert('crm_activities', array(
             'deal_id' => $deal_id, 'subscriber_id' => ($sub_id > 0 ? $sub_id : null), 'user_id' => $user_id,
             'type' => 'note', 'subject' => 'AI captured lead ('.$source.')',
-            'description' => $summary.($details ? "\n".implode(' | ', $details) : ''),
+            'description' => $note,
             'status' => 'completed', 'completed_at' => $now, 'created_at' => $now,
         ));
 
