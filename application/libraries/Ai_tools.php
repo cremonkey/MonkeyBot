@@ -297,6 +297,22 @@ class Ai_tools
             if (function_exists('lead_add_score')) @lead_add_score($sub_id, 'contact_info_shared');
         }
 
+        // mirror the lead onto the user's Google Sheet, if configured (never blocks the reply)
+        if (file_exists(APPPATH.'helpers/crm_sheet_helper.php')) {
+            $this->CI->load->helper('crm_sheet');
+            if (function_exists('crm_sheet_append_lead')) {
+                crm_sheet_append_lead($user_id, array(
+                    'source'      => $source,
+                    'name'        => $name !== '' ? $name : (string) ($existing['contact_name'] ?? ''),
+                    'phone'       => $phone !== '' ? $phone : (string) ($existing['contact_phone'] ?? ''),
+                    'email'       => $email !== '' ? $email : (string) ($existing['contact_email'] ?? ''),
+                    'summary'     => $summary,
+                    'deal_id'     => $deal_id,
+                    'lead_status' => !empty($existing) ? 'updated' : 'new',
+                ));
+            }
+        }
+
         return $result;
     }
 

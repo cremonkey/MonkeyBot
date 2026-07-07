@@ -183,6 +183,129 @@ class Crm extends Home
         echo json_encode(['data'=>$rows]);
     }
 
+    public function sheet_settings()
+    {
+        $this->load->helper('crm_sheet');
+        $config = $this->db->table_exists('crm_sheet_config')
+            ? $this->db->from('crm_sheet_config')->where('user_id', $this->uid)->get()->row_array()
+            : null;
+        $sa_email = '';
+        if (!empty($config['service_account_json'])) {
+            $sa = crm_sheet_parse_sa($config['service_account_json']);
+            $sa_email = $sa['client_email'] ?? '';
+        }
+        $data['config'] = $config;
+        $data['sa_email'] = $sa_email;
+        $data['page_title'] = 'Google Sheet Sync';
+        $data['body'] = 'admin/crm/sheet_settings';
+        $this->_viewcontroller($data);
+    }
+
+    public function sheet_settings_save()
+    {
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        $this->load->helper('crm_sheet');
+
+        $sa_json        = trim((string) $this->input->post('service_account_json', false));
+        $spreadsheet_id = trim(strip_tags((string) $this->input->post('spreadsheet_id', true)));
+        $sheet_tab      = trim(strip_tags((string) $this->input->post('sheet_tab', true))) ?: 'Sheet1';
+        $status         = $this->input->post('status', true) === '1' ? '1' : '0';
+
+        // accept a full Google Sheets URL and pull the ID out of it
+        if (preg_match('~/spreadsheets/d/([a-zA-Z0-9_-]+)~', $spreadsheet_id, $m)) $spreadsheet_id = $m[1];
+
+        $existing = $this->db->from('crm_sheet_config')->where('user_id', $this->uid)->get()->row_array();
+
+        // blank JSON on an existing config means "keep the stored key"
+        if ($sa_json === '' && !empty($existing['service_account_json'])) {
+            $sa_json = $existing['service_account_json'];
+        }
+        if ($sa_json !== '' && !crm_sheet_parse_sa($sa_json)) {
+            echo json_encode(['status' => '0', 'message' => 'Invalid service account JSON (needs type=service_account, client_email, private_key).']);
+            return;
+        }
+        if ($spreadsheet_id === '') {
+            echo json_encode(['status' => '0', 'message' => 'Spreadsheet ID or URL is required.']);
+            return;
+        }
+
+        $fields = array(
+            'service_account_json' => $sa_json,
+            'spreadsheet_id'       => $spreadsheet_id,
+            'sheet_tab'            => $sheet_tab,
+            'status'               => $status,
+            'access_token'         => null,
+            'token_expires_at'     => null,
+            'updated_at'           => date('Y-m-d H:i:s'),
+        );
+        if ($existing) {
+            $this->db->where('id', $existing['id'])->update('crm_sheet_config', $fields);
+        } else {
+            $fields['user_id'] = $this->uid;
+            $fields['created_at'] = date('Y-m-d H:i:s');
+            $this->db->insert('crm_sheet_config', $fields);
+        }
+        echo json_encode(['status' => '1', 'message' => 'Settings saved. Use "Test Connection" to verify.']);
+    }
+
+    public function sheet_test()
+    {
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        $this->load->helper('crm_sheet');
+        $config = $this->db->from('crm_sheet_config')->where('user_id', $this->uid)->get()->row_array();
+        if (empty($config) || empty($config['service_account_json']) || empty($config['spreadsheet_id'])) {
+            echo json_encode(['status' => '0', 'message' => 'Save the service account JSON and spreadsheet ID first.']);
+            return;
+        }
+        list($ok, $message) = crm_sheet_test($config);
+        echo json_encode(['status' => $ok ? '1' : '0', 'message' => $message]);
+    }
+
+    public function sheet_backfill()
+    {
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        $this->load->helper('crm_sheet');
+        $config = crm_sheet_get_config($this->uid);
+        if (!$config) {
+            echo json_encode(['status' => '0', 'message' => 'Sheet sync is not configured/enabled. Save and test the settings first.']);
+            return;
+        }
+
+        $deals = $this->db->query(
+            "SELECT d.id, d.source, d.status, d.created_at,
+                    COALESCE(NULLIF(d.contact_name,''), NULLIF(TRIM(CONCAT(COALESCE(m.first_name,''),' ',COALESCE(m.last_name,''))),''), NULLIF(m.full_name,''), '') AS name,
+                    COALESCE(NULLIF(d.contact_phone,''), NULLIF(m.phone_number,''), '') AS phone,
+                    COALESCE(NULLIF(d.contact_email,''), NULLIF(m.email,''), '') AS email,
+                    (SELECT a.description FROM crm_activities a WHERE a.deal_id = d.id AND a.type='note' ORDER BY a.id ASC LIMIT 1) AS summary
+             FROM crm_deals d
+             LEFT JOIN messenger_bot_subscriber m ON m.id = d.subscriber_id
+             WHERE d.user_id = ?
+             ORDER BY d.id ASC LIMIT 500", array($this->uid)
+        )->result_array();
+
+        if (empty($deals)) {
+            echo json_encode(['status' => '0', 'message' => 'No deals found to export.']);
+            return;
+        }
+
+        $rows = array();
+        foreach ($deals as $d) {
+            $rows[] = array(
+                $d['created_at'], $d['source'], $d['name'], $d['phone'], $d['email'],
+                (string) $d['summary'], '#' . $d['id'], $d['status'],
+            );
+        }
+        $result = crm_sheet_append_rows($config, $rows);
+        if ($result === true) {
+            echo json_encode(['status' => '1', 'message' => count($rows) . ' deals exported to the sheet.']);
+        } else {
+            echo json_encode(['status' => '0', 'message' => 'Export failed: ' . $result]);
+        }
+    }
+
     public function create_deal_from_contact()
     {
         $this->csrf_token_check();
