@@ -100,6 +100,17 @@ class Whatsapp_bot extends Home
                         $from = $m['from'] ?? '';
                         if ($from === '') continue;
                         $text = isset($m['text']['body']) ? $m['text']['body'] : '';
+
+                        // voice notes: transcribe so the AI answers them like text
+                        if ($text === '' && isset($m['type']) && in_array($m['type'], array('audio', 'voice')) && !empty($m['audio']['id'])) {
+                            $this->load->helper('ai_voice');
+                            $media_url = wa_media_url($m['audio']['id'], $token);
+                            if ($media_url !== '') {
+                                $voice_text = ai_transcribe_audio($acc['user_id'], $media_url, $token);
+                                if ($voice_text !== false && $voice_text !== '') $text = $voice_text;
+                            }
+                        }
+
                         $this->log_msg($acc['user_id'], $from, $account_id, 'user', $text !== '' ? $text : '[non-text message]');
 
                         $paused = $this->basic->get_data('messenger_bot_subscriber', ['where'=>['subscribe_id'=>$from,'social_media'=>'wa']], ['bot_paused_until'], '', 1);

@@ -224,6 +224,7 @@ class Messenger_bot extends Home
 
 
     public function append_data_on_google_sheet ($google_sheet_ids_array=[],$append_data = []){
+        if (!$this->db->table_exists('google_sheets')) return false;
         $login_config=$this->basic->get_data("login_config",array("where"=>array("status"=>"1")));
         if(isset($login_config[0]))
 		{			
@@ -347,7 +348,7 @@ class Messenger_bot extends Home
                     $mail_service_id = $page_info[0]['mail_service_id'];
                     $settings_array = json_decode($mail_service_id, TRUE);
 
-                    if ($this->basic->is_exist("add_ons", array("project_id" => 70))){
+                    if ($this->basic->is_exist("add_ons", array("project_id" => 70)) && $this->db->table_exists('google_sheets')){
                         
                         if (isset($settings_array['google_sheet']) && !empty($settings_array['google_sheet'])) {
     
@@ -1314,6 +1315,26 @@ class Messenger_bot extends Home
             }
             $ig_info_from_page_info=$this->basic->get_data("facebook_rx_fb_page_info",$where,"page_id");
             $page_id=$ig_info_from_page_info[0]['page_id'] ?? "";
+        }
+
+        // Voice messages (fb + ig): transcribe the audio and inject it as the
+        // message text, so the entire existing pipeline (keyword match, AI
+        // reply, input flows, livechat) handles it like a typed message.
+        if(!isset($response['entry'][0]['messaging'][0]['message']['text'])
+            && !isset($response['entry'][0]['messaging'][0]['message']['is_echo'])
+            && isset($response['entry'][0]['messaging'][0]['message']['attachments'][0]['type'])
+            && $response['entry'][0]['messaging'][0]['message']['attachments'][0]['type']==="audio"
+            && !empty($response['entry'][0]['messaging'][0]['message']['attachments'][0]['payload']['url']))
+        {
+            $voice_page = $this->basic->get_data("facebook_rx_fb_page_info", array("where"=>array("page_id"=>$page_id)), array("user_id"), '', 1);
+            if(!empty($voice_page[0]['user_id'])){
+                $this->load->helper('ai_voice');
+                $voice_text = ai_transcribe_audio($voice_page[0]['user_id'], $response['entry'][0]['messaging'][0]['message']['attachments'][0]['payload']['url']);
+                if($voice_text !== false && $voice_text !== ''){
+                    $response['entry'][0]['messaging'][0]['message']['text'] = $voice_text;
+                    unset($response['entry'][0]['messaging'][0]['message']['attachments']);
+                }
+            }
         }
         //if it's optin from checkbox plugin, then tese action is not needed. As not information can be found for that.
         if(!isset($response['entry'][0]['messaging'][0]['optin']['user_ref']))
