@@ -49,8 +49,10 @@
                   <td><?php echo htmlspecialchars($p['agent_name']); ?></td>
                   <td><?php echo $p['sales_mode_enabled']=='1'?'<span class="badge badge-success">Sales</span>':'<span class="badge badge-secondary">Chat</span>'; ?></td>
                   <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick='crmEdit(<?php echo json_encode($p); ?>,false)'>Edit</button>
-                    <button class="btn btn-sm btn-outline-info" onclick='crmEdit(<?php echo json_encode($p); ?>,true)'>Copy</button>
+                    <?php // JSON must be HTML-encoded: a raw apostrophe in any field ends the attribute and kills the handler
+                          $p_json = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8'); ?>
+                    <button class="btn btn-sm btn-outline-primary" onclick="crmEdit(<?php echo $p_json; ?>,false)">Edit</button>
+                    <button class="btn btn-sm btn-outline-info" onclick="crmEdit(<?php echo $p_json; ?>,true)">Copy</button>
                     <a class="btn btn-sm btn-outline-danger" href="<?php echo base_url('ai_agents/delete_profile/'.$p['id'].'?t='.$tk); ?>" onclick="return confirm('Delete profile?')">×</a>
                   </td>
                 </tr>
