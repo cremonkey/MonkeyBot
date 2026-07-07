@@ -1,0 +1,9 @@
+# MonkeyBot scheduled jobs — install once on the host with:
+#   sudo cp docker/cron/monkeybot /etc/cron.d/ && sudo chmod 644 /etc/cron.d/monkeybot
+# (replaces the older monkeybot-tiktok file; remove it if present)
+
+# Sales automation: silent-lead follow-ups + daily digest
+*/5 * * * * root /usr/bin/docker exec monkeybot-web-1 curl -s -o /dev/null --max-time 280 http://127.0.0.1/cron_hub/run
+
+# TikTok bot: poll comments for active campaigns
+*/5 * * * * root /usr/bin/docker exec monkeybot-web-1 curl -s -o /dev/null --max-time 280 http://127.0.0.1/tiktok_bot/tiktok_cron/poll_comments
