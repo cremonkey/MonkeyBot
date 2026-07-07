@@ -1,0 +1,3 @@
+# MonkeyBot TikTok bot: poll comments for active campaigns every 5 minutes.
+# Install on the host with:  sudo cp docker/cron/monkeybot-tiktok /etc/cron.d/ && sudo chmod 644 /etc/cron.d/monkeybot-tiktok
+*/5 * * * * root /usr/bin/docker exec monkeybot-web-1 curl -s -o /dev/null --max-time 280 http://127.0.0.1/tiktok_bot/tiktok_cron/poll_comments
