@@ -20,6 +20,44 @@
       <?php endforeach; ?>
     </div>
     <div class="row">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header"><h4><i class="fas fa-filter"></i> Sales Funnel (30d): Conversations &rarr; Leads &rarr; Won</h4></div>
+          <div class="card-body">
+            <?php
+              $ft = $funnel['totals'];
+              $lead_rate = $ft['conversations'] > 0 ? round($ft['leads'] / $ft['conversations'] * 100, 1) : 0;
+              $won_rate  = $ft['leads'] > 0 ? round($ft['won'] / $ft['leads'] * 100, 1) : 0;
+            ?>
+            <div class="row text-center mb-3">
+              <div class="col-4"><h3 class="mb-0"><?php echo number_format($ft['conversations']); ?></h3><small class="text-muted">Conversations</small></div>
+              <div class="col-4"><h3 class="mb-0"><?php echo number_format($ft['leads']); ?> <small class="text-success" style="font-size:.55em"><?php echo $lead_rate; ?>%</small></h3><small class="text-muted">Leads captured</small></div>
+              <div class="col-4"><h3 class="mb-0"><?php echo number_format($ft['won']); ?> <small class="text-success" style="font-size:.55em"><?php echo $won_rate; ?>%</small></h3><small class="text-muted">Deals won</small></div>
+            </div>
+            <?php if(!empty($funnel['by_platform'])): ?>
+            <div class="table-responsive"><table class="table table-sm mb-0">
+              <thead><tr><th>Platform</th><th>Conversations</th><th>Leads</th><th>Conv&rarr;Lead</th><th>Won</th><th>Lead&rarr;Won</th></tr></thead>
+              <tbody>
+              <?php foreach($funnel['by_platform'] as $plat => $f):
+                $lr = $f['conversations'] > 0 ? round($f['leads'] / $f['conversations'] * 100, 1) : 0;
+                $wr = $f['leads'] > 0 ? round($f['won'] / $f['leads'] * 100, 1) : 0; ?>
+                <tr>
+                  <td><span class="badge badge-primary"><?php echo htmlspecialchars($plat); ?></span></td>
+                  <td><?php echo $f['conversations']; ?></td>
+                  <td><?php echo $f['leads']; ?></td>
+                  <td><div class="progress" style="height:16px;min-width:90px"><div class="progress-bar bg-info" style="width:<?php echo min(100,$lr); ?>%"><?php echo $lr; ?>%</div></div></td>
+                  <td><?php echo $f['won']; ?></td>
+                  <td><div class="progress" style="height:16px;min-width:90px"><div class="progress-bar bg-success" style="width:<?php echo min(100,$wr); ?>%"><?php echo $wr; ?>%</div></div></td>
+                </tr>
+              <?php endforeach; ?>
+              </tbody>
+            </table></div>
+            <?php endif; ?>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="row">
       <div class="col-lg-8"><div class="card"><div class="card-header"><h4>New Subscribers (30d)</h4></div><div class="card-body"><canvas id="chSubs" height="90"></canvas></div></div></div>
       <div class="col-lg-4"><div class="card"><div class="card-header"><h4>Lead Bands</h4></div><div class="card-body"><canvas id="chLeads" height="180"></canvas></div></div></div>
     </div>

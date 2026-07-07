@@ -27,9 +27,45 @@ class Analytics_hub extends Home
         $data['orders_series'] = $this->orders_series($since);
         $data['lead_bands'] = $this->lead_bands();
         $data['ai_cost'] = $this->ai_cost($since);
+        $data['funnel'] = $this->funnel($since);
         $data['page_title'] = 'Analytics Hub';
         $data['body'] = 'admin/analytics_hub/index';
         $this->_viewcontroller($data);
+    }
+
+    /**
+     * Sales funnel (30d): conversations -> leads -> won deals, per platform.
+     */
+    private function funnel($since)
+    {
+        $uid = $this->uid;
+        $conv = $this->db->query(
+            "SELECT platform, COUNT(DISTINCT subscriber_id) c FROM livechat_messages
+             WHERE user_id=? AND sender='user' AND conversation_time >= ? GROUP BY platform",
+            array($uid, $since))->result_array();
+        $leads = $this->db->query(
+            "SELECT source, COUNT(*) c, SUM(status='won') won FROM crm_deals
+             WHERE user_id=? AND created_at >= ? GROUP BY source",
+            array($uid, $since))->result_array();
+
+        $by = array();
+        foreach ($conv as $r) {
+            $p = $r['platform'] !== '' ? $r['platform'] : 'other';
+            $by[$p] = array('conversations' => (int) $r['c'], 'leads' => 0, 'won' => 0);
+        }
+        foreach ($leads as $r) {
+            $p = $r['source'] !== '' ? $r['source'] : 'manual';
+            if (!isset($by[$p])) $by[$p] = array('conversations' => 0, 'leads' => 0, 'won' => 0);
+            $by[$p]['leads'] = (int) $r['c'];
+            $by[$p]['won'] = (int) $r['won'];
+        }
+        $totals = array('conversations' => 0, 'leads' => 0, 'won' => 0);
+        foreach ($by as $row) {
+            $totals['conversations'] += $row['conversations'];
+            $totals['leads'] += $row['leads'];
+            $totals['won'] += $row['won'];
+        }
+        return array('by_platform' => $by, 'totals' => $totals);
     }
 
     private function cards($since)
