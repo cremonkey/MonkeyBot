@@ -783,6 +783,12 @@
                         <br/><br/>
 
                         <div class="col-12">
+                          <?php if(ai_reply_exist()) : ?>
+                          <div class="custom-control custom-radio">
+                            <input type="radio" name="mentions_message_type" value="ai_reply" id="mentions_ai_reply" class="custom-control-input radio_button">
+                            <label class="custom-control-label" for="mentions_ai_reply"><?php echo $this->lang->line("automated reply by AI") ?></label>
+                          </div>
+                          <?php endif; ?>
                           <div class="custom-control custom-radio">
                         	<input type="radio" name="mentions_message_type" value="generic" id="mentions_generic" class="custom-control-input radio_button">
                         	<label class="custom-control-label" for="mentions_generic"><?php echo $this->lang->line("generic comment reply for all") ?></label>
@@ -800,6 +806,15 @@
                                 </label>
 
                                 <input class="form-control" type="text" name="mentions_auto_campaign_name" id="mentions_auto_campaign_name" placeholder="<?php echo $this->lang->line("write your auto reply campaign name here") ?>">
+                            </div>
+                        </div>
+
+                        <div class="col-12 d_none" id="mentions_ai_message_div">
+                            <div class="form-group e4e6fc_border_dashed clearfix">
+                                <label>
+                                    <i class="fa fa-robot"></i> <?php echo $this->lang->line("AI training data") ?> <span class="red">*</span>
+                                </label>
+                                <textarea class="form-control" name="mentions_ai_training_data" id="mentions_ai_training_data" placeholder="<?php echo $this->lang->line("type your message here...") ?>" style="height:170px !important;"></textarea>
                             </div>
                         </div>
 

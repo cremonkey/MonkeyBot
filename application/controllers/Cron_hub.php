@@ -26,8 +26,63 @@ class Cron_hub extends Home
     {
         $out = array();
         $out['followups'] = $this->_run_followups();
+        $out['coupon_reminders'] = $this->_run_coupon_reminders();
         $out['digest'] = $this->_run_digest();
         echo json_encode($out) . "\n";
+    }
+
+    /**
+     * SPEC-06 (deferred part): remind customers about unused AI-issued
+     * coupons expiring within 48h. The recipient is recovered from the AI
+     * conversation where the coupon code was handed out. One reminder per
+     * coupon (unique key).
+     */
+    protected function _run_coupon_reminders()
+    {
+        if (!$this->db->table_exists('ecommerce_coupon')) return array('sent' => 0);
+        $coupons = $this->db->query(
+            "SELECT c.user_id, c.coupon_code, c.coupon_amount, c.expiry_date
+             FROM ecommerce_coupon c
+             WHERE c.used = 0 AND c.status = '1' AND c.coupon_code LIKE 'AI%'
+               AND c.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 48 HOUR)
+               AND NOT EXISTS (SELECT 1 FROM ai_coupon_reminders r WHERE r.coupon_code = c.coupon_code)
+             LIMIT 100"
+        )->result_array();
+
+        $sent = 0; $failed = 0; $no_recipient = 0;
+        foreach ($coupons as $cp) {
+            $conv = $this->db->query(
+                "SELECT page_id, subscribe_id, social_media, ai_reply FROM ai_conversation_history
+                 WHERE user_id = ? AND ai_reply LIKE ? ORDER BY id DESC LIMIT 1",
+                array((int) $cp['user_id'], '%' . $cp['coupon_code'] . '%')
+            )->row_array();
+
+            $row = array(
+                'user_id' => (int) $cp['user_id'], 'coupon_code' => $cp['coupon_code'],
+                'created_at' => date('Y-m-d H:i:s'),
+            );
+            if (empty($conv) || $conv['social_media'] === 'tiktok') {
+                $row['status'] = 'no_recipient';
+                $this->basic->insert_data('ai_coupon_reminders', $row);
+                $no_recipient++;
+                continue;
+            }
+
+            $is_arabic = preg_match('/[\x{0600}-\x{06FF}]/u', (string) $conv['ai_reply']);
+            $expires = date('Y-m-d', strtotime($cp['expiry_date']));
+            $message = $is_arabic
+                ? 'تذكير سريع 😊 كوبون الخصم ' . $cp['coupon_code'] . ' (' . (int) $cp['coupon_amount'] . '%) لسه متستخدمش وهينتهي يوم ' . $expires . '. تحب تكمل طلبك قبل ما يخلص؟'
+                : 'Quick reminder 😊 your ' . (int) $cp['coupon_amount'] . '% coupon ' . $cp['coupon_code'] . ' is still unused and expires on ' . $expires . '. Want to complete your order before it runs out?';
+
+            list($ok, $err) = channel_send_text($cp['user_id'], $conv['social_media'], $conv['subscribe_id'], $message, (string) $conv['page_id']);
+            $row['social_media'] = $conv['social_media'];
+            $row['subscribe_id'] = (string) $conv['subscribe_id'];
+            $row['status'] = $ok ? 'sent' : 'failed';
+            $row['error'] = $ok ? null : $err;
+            $this->basic->insert_data('ai_coupon_reminders', $row);
+            if ($ok) $sent++; else $failed++;
+        }
+        return array('sent' => $sent, 'failed' => $failed, 'no_recipient' => $no_recipient);
     }
 
     /**

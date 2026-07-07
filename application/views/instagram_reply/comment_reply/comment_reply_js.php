@@ -1281,6 +1281,7 @@
 		  	if ($("input[name=mentions_message_type]:checked").val() == "generic") {
 		        $("#mentions_generic_message_div").show();
 		        $("#mentions_filter_message_div").hide();
+		        $("#mentions_ai_message_div").hide();
 
 		        /*** Load Emoji for generic message when clicked ***/
 		        $("#mentions_generic_message").emojioneArea({
@@ -1288,8 +1289,14 @@
 		              pickerPosition: "bottom"
 		        });
 		    }
+		    else if ($("input[name=mentions_message_type]:checked").val() == "ai_reply") {
+		        $("#mentions_generic_message_div").hide();
+		        $("#mentions_filter_message_div").hide();
+		        $("#mentions_ai_message_div").show();
+		    }
 	        else {
 	            $("#mentions_generic_message_div").hide();
+	            $("#mentions_ai_message_div").hide();
 	            $("#mentions_filter_message_div").show();
 
 	            /*** Load Emoji When Filter word click , by defualt first textarea are loaded & No match found field****/

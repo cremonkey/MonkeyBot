@@ -137,6 +137,10 @@ class Ai_tools
         if (file_exists(APPPATH.'helpers/ecommerce_catalog_helper.php')) {
             $this->CI->load->helper('ecommerce_catalog');
             $text = ecom_catalog_text($user_id, $q, 5);
+            // stash carousel cards so the fb channel can send them alongside the text reply
+            if ($text !== '' && function_exists('ecom_catalog_elements')) {
+                $this->CI->ai_last_products = ecom_catalog_elements($user_id, $q, 5);
+            }
             return $text !== '' ? ("Products found (share links with the customer):\n".$text) : ('No products matched "'.$q.'".');
         }
         $db = $this->CI->db;

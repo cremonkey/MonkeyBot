@@ -2086,7 +2086,14 @@ class Instagram_reply extends Home
         $report_type = "mention";
         $facebook_rx_fb_user_info = $this->session->userdata("facebook_rx_fb_user_info");
 
-        if($mentions_message_type == 'generic')
+        if($mentions_message_type == 'ai_reply')
+        {
+            $ai_training_data = $this->db->escape($this->input->post('mentions_ai_training_data',true));
+            $auto_reply_text = $this->db->escape('');
+            $sql = "INSERT INTO instagram_reply_autoreply (facebook_rx_fb_user_info_id,autoreply_type,user_id,auto_reply_campaign_name,page_info_table_id,page_name,post_id,post_created_at,post_description,reply_type,report_type,hide_comment_after_comment_reply,is_delete_offensive,offensive_words,private_message_offensive_words,multiple_reply,auto_reply_text,last_updated_at,
+            nofilter_word_found_text,ai_reply_enabled,ai_training_data) VALUES ('$facebook_rx_fb_user_info','mentions_autoreply','$this->user_id','$mentions_auto_campaign_name','$mentions_auto_reply_page_id',$page_name,'','','','$mentions_message_type','$report_type','$mentions_hide_comment_after_comment_reply','$is_delete_offensive',$offensive_words,$private_message_offensive_words,'$mentions_multiple_reply',$auto_reply_text,'$date_time',$nofilter_word_found_text,'1',$ai_training_data)";
+        }
+        else if($mentions_message_type == 'generic')
         {
             $generic_message_array['comment_reply'] = trim($mentions_generic_message);
             $generic_message_array['private_reply'] = trim($mentions_generic_message_private);
@@ -2767,6 +2774,15 @@ class Instagram_reply extends Home
                         $auto_reply_comment_message = str_replace('#TAG_USER#', $commenter_name_tag, $auto_reply_comment_message);
                       }
 
+                  }
+
+                  // AI reply for mention campaigns (same pattern as the
+                  // comments path at ~3382; was a deferred gap)
+                  if ($auto_reply_type == 'ai_reply') {
+                      $mention_ai_training = isset($mentions_autoreply_info[0]['ai_training_data']) ? $mentions_autoreply_info[0]['ai_training_data'] : '';
+                      $mention_ai_response = $this->get_ai_reply_open_ai($mention_ai_training, $comment_text, $mentions_autoreply_info[0]['user_id'], '', '', 'ig');
+                      $auto_reply_comment_message = $mention_ai_response['choices'][0]['text'] ?? '';
+                      $auto_reply_private_message = '';
                   }
 
                   $insert_data = array(

@@ -16,6 +16,8 @@ class Home extends CI_Controller
      * @return void
      */
     public $using_media_type = '';
+    // SPEC-05: product cards stashed by Ai_tools::t_search_products during an AI reply
+    public $ai_last_products = null;
     public $module_access;
     public $team_access = [];
     public $language;
@@ -7099,7 +7101,8 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                 . "\n6. REPLY FORMAT (mandatory): every reply is VERY short - one direct answer sentence + ONE question, two short sentences maximum. No paragraphs, no lists, no long explanations. Never dump the full catalog or full price list in one message: reveal information step by step through discovery questions, following the sales playbook stages (discover -> summarize the need -> present the one matching offer -> handle objections -> close)."
                 . "\n7. If the customer explicitly asks for a human, or becomes angry, hand off politely and stop selling.";
             if (isset($api_info[0]['ai_tools_enabled']) && $api_info[0]['ai_tools_enabled'] == '1') {
-                $system_prompt .= "\n8. The moment the customer shares a phone/WhatsApp number or email, call the save_lead_to_crm tool with their details, a short summary of their request, and customer_profile (their buyer personality per the playbook, key needs, and any objection raised) so the sales team knows how to talk to them; then confirm that the team will contact them soon.";
+                $system_prompt .= "\n8. The moment the customer shares a phone/WhatsApp number or email, call the save_lead_to_crm tool with their details, a short summary of their request, and customer_profile (their buyer personality per the playbook, key needs, and any objection raised) so the sales team knows how to talk to them; then confirm that the team will contact them soon."
+                    . "\n9. When the customer asks about a product, its price, or availability, ALWAYS call the search_products tool FIRST. Product info returned by the tool counts as written context: quote it exactly. Only if the tool finds nothing do you fall back to 'the team will confirm' plus asking for their number.";
             }
         }
 
@@ -7267,6 +7270,13 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                     $this->db->delete('ai_conversation_history');
                 }
             }
+        }
+
+        // SPEC-05: surface product cards found by the search_products AI tool
+        // so the fb channel can send a carousel alongside the text reply
+        if (!empty($this->ai_last_products)) {
+            $response['ecom_elements'] = $this->ai_last_products;
+            $this->ai_last_products = null;
         }
 
         return $response;

@@ -1142,12 +1142,15 @@ class Messenger_bot extends Home
                 $msg['messaging_type'] = "RESPONSE";
 
                 // Reply from AI .
+                $ai_ecom_elements = null;
                 if(isset($msg['message']['text_from']) && $msg['message']['text_from']=='AI'){
 
                     $description=$msg['message']['text'];
                     $human=$answer;
                     $response_from_api=$this->get_ai_reply_open_ai($description,$human,$value['user_id'],$page_id,$sender_id,$social_media_type);
                     $msg['message']['text']= $response_from_api['choices'][0]['text'] ?? "";
+                    // SPEC-05: product carousel found by the AI's search_products tool (fb only)
+                    if($social_media_type=='fb' && !empty($response_from_api['ecom_elements'])) $ai_ecom_elements = $response_from_api['ecom_elements'];
                     unset($msg['message']['text_from']);
                 }
 
@@ -1196,7 +1199,24 @@ class Messenger_bot extends Home
                     if($typing_on_delay_time>0 && $user_reference_id =="") sleep($typing_on_delay_time);
 
                     $reply_response= $this->send_reply($access_token,$reply);
-                    
+
+                    // SPEC-05: follow the AI text with a product carousel when
+                    // the search_products tool matched catalog items (fb only)
+                    if(!empty($ai_ecom_elements)){
+                        $carousel = json_encode(array(
+                            'recipient' => array('id' => $sender_id),
+                            'messaging_type' => 'RESPONSE',
+                            'message' => array('attachment' => array(
+                                'type' => 'template',
+                                'payload' => array('template_type' => 'generic', 'elements' => array_slice($ai_ecom_elements, 0, 10)),
+                            )),
+                        ));
+                        $carousel_response = $this->send_reply($access_token, $carousel);
+                        if(isset($carousel_response['error']['message']))
+                            log_message('error', 'ecom carousel send: '.$carousel_response['error']['message']);
+                        $ai_ecom_elements = null;
+                    }
+
                  /*****Insert into database messenger_bot_reply_error_log if get error****/
                  if(isset($reply_response['error']['message'])){
 
@@ -2317,6 +2337,14 @@ class Messenger_bot extends Home
             $payload_id_info = explode('::',$payload_id_unique_id);
             $payload_id = $payload_id_info[0];
             $button_unique_id = $payload_id_info[1] ?? '';
+
+            // SPEC-05: Add-to-Cart button on AI product carousels — registers
+            // the interest as a CRM note and pushes for the order/contact info
+            if(strpos($payload_id, 'ECOM_ADDCART_') === 0){
+                $this->_ecom_addcart_postback((int) substr($payload_id, 13), $sender_id, $page_id, $social_media_type, $subscriber_info);
+                exit;
+            }
+
             $table_name = "messenger_bot";
 
             $where['where'] = array('messenger_bot.fb_page_id' => $page_id,'postback_id'=>$payload_id,'facebook_rx_fb_page_info.bot_enabled' => '1','media_type'=>$social_media_type);
@@ -2592,6 +2620,67 @@ class Messenger_bot extends Home
 
 
 
+
+    /**
+     * SPEC-05: handle the ECOM_ADDCART_{product_id} postback from AI product
+     * carousels. The store checkout is unused in this deployment, so the
+     * click is treated as a strong buying signal: log a CRM note on the
+     * customer's open deal (creating one if needed) and reply pushing for
+     * the order/contact number.
+     */
+    protected function _ecom_addcart_postback($product_id, $sender_id, $page_id, $social_media_type, $subscriber_info)
+    {
+        try {
+            $page = $this->basic->get_data('facebook_rx_fb_page_info', array('where' => array('page_id' => $page_id)), array('user_id', 'page_access_token'), '', 1);
+            if (empty($page)) return;
+            $user_id = (int) $page[0]['user_id'];
+
+            $product = $this->basic->get_data('ecommerce_product', array('where' => array('id' => $product_id, 'user_id' => $user_id)), array('product_name', 'sell_price'), '', 1);
+            $product_name = $product[0]['product_name'] ?? ('#' . $product_id);
+            $price = $product[0]['sell_price'] ?? '';
+
+            // CRM note on the customer's open deal (create like save_lead does)
+            if ($this->db->table_exists('crm_deals')) {
+                $now = date('Y-m-d H:i:s');
+                $sub_id = (int) ($subscriber_info[0]['id'] ?? 0);
+                $deal = $sub_id > 0
+                    ? $this->db->from('crm_deals')->where('user_id', $user_id)->where('subscriber_id', $sub_id)->where('status', 'open')->order_by('id', 'DESC')->limit(1)->get()->row_array()
+                    : null;
+                if (empty($deal) && $sub_id > 0) {
+                    $pipe = $this->db->select('id')->from('crm_pipelines')->where('user_id', $user_id)->where('status', '1')->order_by('is_default', 'DESC')->order_by('id', 'ASC')->limit(1)->get()->row_array();
+                    $stage = !empty($pipe) ? $this->db->select('id')->from('crm_stages')->where('pipeline_id', $pipe['id'])->where('stage_type', 'open')->order_by('position', 'ASC')->limit(1)->get()->row_array() : null;
+                    if (!empty($stage)) {
+                        $name = trim((string) (($subscriber_info[0]['first_name'] ?? '') . ' ' . ($subscriber_info[0]['last_name'] ?? '')));
+                        $this->db->insert('crm_deals', array(
+                            'user_id' => $user_id, 'pipeline_id' => $pipe['id'], 'stage_id' => $stage['id'],
+                            'title' => 'Lead: ' . ($name !== '' ? $name : $sender_id),
+                            'subscriber_id' => $sub_id, 'contact_name' => ($name !== '' ? $name : null),
+                            'source' => $social_media_type, 'status' => 'open', 'created_at' => $now, 'updated_at' => $now,
+                        ));
+                        $deal = array('id' => $this->db->insert_id());
+                    }
+                }
+                if (!empty($deal['id'])) {
+                    $this->db->insert('crm_activities', array(
+                        'deal_id' => $deal['id'], 'subscriber_id' => ($sub_id > 0 ? $sub_id : null), 'user_id' => $user_id,
+                        'type' => 'note', 'subject' => '🛒 Add to cart (' . $social_media_type . ')',
+                        'description' => 'Customer clicked Add to Cart: ' . $product_name . ($price !== '' ? ' — ' . $price : ''),
+                        'status' => 'completed', 'completed_at' => date('Y-m-d H:i:s'), 'created_at' => date('Y-m-d H:i:s'),
+                    ));
+                }
+            }
+
+            $confirm = 'تمام 👌 سجلنا طلبك على "' . $product_name . '"' . ($price !== '' ? ' بسعر ' . $price : '') . '. ابعتلنا رقم موبايلك أو الواتساب والفريق يأكد الأوردر معاك.';
+            $reply = json_encode(array(
+                'recipient' => array('id' => $sender_id),
+                'messaging_type' => 'RESPONSE',
+                'message' => array('text' => $confirm),
+            ), JSON_UNESCAPED_UNICODE);
+            $this->send_reply($page[0]['page_access_token'], $reply);
+        } catch (Exception $e) {
+            log_message('error', 'ecom addcart postback: ' . $e->getMessage());
+        }
+    }
 
     public function index()
     {
