@@ -4892,10 +4892,12 @@ class Comment_automation extends Home
 
                   if($auto_reply_type == 'ai_reply')
                   {
-                    $auto_reply_comment_message = $this->get_ai_reply_open_ai($ai_training_data,$comment_text,$info['user_id'],$page_id,$commenter_id,"fb");
-                    $auto_reply_comment_message = $auto_reply_comment_message['choices'][0]['text'] ?? "";
+                    // public comment = short greeting pointing to Messenger;
+                    // the AI's full sales reply goes out as the private reply
+                    list($auto_reply_comment_message, $ai_dm_reply) = $this->ai_comment_split($ai_training_data,$comment_text,$info['user_id'],$page_id,$commenter_id,"fb","@[".$commenter_id."]");
                     $comment_image_link=$comment_video_link=$comment_gif_link='';
-                    $auto_reply_private_message = $info['auto_reply_text'];
+                    $auto_reply_private_message = $ai_dm_reply;
+                    $structured_message = 'no';
                   }
 
                   $comment_result_info=array(
@@ -5854,10 +5856,12 @@ class Comment_automation extends Home
 
                 if($auto_reply_type == 'ai_reply')
                 {
-                  $auto_reply_comment_message = $this->get_ai_reply_open_ai($ai_training_data,$comment_text,$info['user_id'],$page_id,$commenter_id,"fb");
-                  $auto_reply_comment_message = $auto_reply_comment_message['choices'][0]['text'] ?? "";
+                  // public comment = short greeting pointing to Messenger;
+                  // the AI's full sales reply goes out as the private reply
+                  list($auto_reply_comment_message, $ai_dm_reply) = $this->ai_comment_split($ai_training_data,$comment_text,$info['user_id'],$page_id,$commenter_id,"fb","@[".$commenter_id."]");
                   $comment_image_link=$comment_video_link=$comment_gif_link='';
-                  $auto_reply_private_message = $info['auto_reply_text'];
+                  $auto_reply_private_message = $ai_dm_reply;
+                  $structured_message = 'no';
                 }
 
 
@@ -6199,6 +6203,7 @@ class Comment_automation extends Home
     	$data['body'] = "comment_automation/comment_growth_tools";
       $user_type = $this->session->userdata("user_type");
       $data['media_type'] = $media_type;
+      $this->session->set_userdata('selected_global_media_type', $media_type);
 
       if($media_type == 'fb') {
 

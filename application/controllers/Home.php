@@ -7045,6 +7045,26 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
      * @param string $social_media 'fb' or 'ig'.
      * @return array Decoded OpenAI response.
      */
+    /**
+     * Comment-context AI reply, split in two:
+     *  - the PUBLIC comment gets only a short greeting pointing to the DM
+     *  - the AI's full sales reply goes to the private (DM) reply, where the
+     *    normal sales cycle continues
+     * Returns array(public_comment_text, private_ai_text).
+     */
+    protected function ai_comment_split($ai_training_data, $comment_text, $user_id, $page_id, $commenter_id, $social, $tag = '')
+    {
+        $response = $this->get_ai_reply_open_ai($ai_training_data, $comment_text, $user_id, $page_id, $commenter_id, $social);
+        $private = trim($response['choices'][0]['text'] ?? '');
+        $is_arabic = preg_match('/[\x{0600}-\x{06FF}]/u', $comment_text . ' ' . $private);
+        $dm_word = $social === 'ig' ? 'الدايركت' : 'الماسنجر';
+        $tag = $tag !== '' ? $tag . ' ' : '';
+        $public = $is_arabic
+            ? $tag . 'أهلاً بحضرتك 🌹 رددنا على استفسار حضرتك بالتفاصيل في ' . $dm_word . ' 📩'
+            : $tag . "thank you for reaching out! We've just sent you the details in a private message 📩";
+        return array($public, $private);
+    }
+
     public function get_ai_reply_open_ai($description, $human = "Human: How are you ?", $user_id = 0, $page_id = '', $subscribe_id = '', $social_media = 'fb')
     {
         $api_info = $this->basic->get_data("open_ai_config", ['where' => ['user_id' => $user_id]], $select = '', $join = '', $limit = '1', $start = 0, $order_by = 'RAND()');

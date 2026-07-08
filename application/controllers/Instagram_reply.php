@@ -2776,12 +2776,28 @@ class Instagram_reply extends Home
 
                   }
 
-                  // AI reply for mention campaigns (same pattern as the
-                  // comments path at ~3382; was a deferred gap)
+                  // AI reply for mention campaigns: short public greeting,
+                  // full AI reply as the private DM (same behavior as the
+                  // comments path). Caption mentions (comment_id=0) have no
+                  // comment to reply to privately, so the AI text stays public.
                   if ($auto_reply_type == 'ai_reply') {
                       $mention_ai_training = isset($mentions_autoreply_info[0]['ai_training_data']) ? $mentions_autoreply_info[0]['ai_training_data'] : '';
-                      $mention_ai_response = $this->get_ai_reply_open_ai($mention_ai_training, $comment_text, $mentions_autoreply_info[0]['user_id'], '', '', 'ig');
-                      $auto_reply_comment_message = $mention_ai_response['choices'][0]['text'] ?? '';
+                      if ($comment_id != 0) {
+                          list($auto_reply_comment_message, $mention_ai_dm) = $this->ai_comment_split($mention_ai_training, $comment_text, $mentions_autoreply_info[0]['user_id'], '', '', 'ig', $commenter_name_tag);
+                          if ($mention_ai_dm !== '') {
+                              $mention_private_payload = json_encode(array(
+                                  'recipient' => array('comment_id' => $comment_id),
+                                  'message'   => array('text' => $mention_ai_dm),
+                                  'tag'       => 'HUMAN_AGENT',
+                              ), JSON_UNESCAPED_UNICODE);
+                              $mention_private_send = $this->send_reply($page_access_token, $mention_private_payload);
+                              if (isset($mention_private_send['error']['message']))
+                                  log_message('error', 'ig mention AI private reply: ' . $mention_private_send['error']['message']);
+                          }
+                      } else {
+                          $mention_ai_response = $this->get_ai_reply_open_ai($mention_ai_training, $comment_text, $mentions_autoreply_info[0]['user_id'], '', '', 'ig');
+                          $auto_reply_comment_message = $mention_ai_response['choices'][0]['text'] ?? '';
+                      }
                       $auto_reply_private_message = '';
                   }
 
@@ -3397,9 +3413,22 @@ class Instagram_reply extends Home
 
                     if($auto_reply_type == 'ai_reply')
                     {
-                      $auto_reply_comment_message = $this->get_ai_reply_open_ai($ai_training_data,$comment_text,$user_id,$fb_page_id,$commenter_id,"ig");
-                      $auto_reply_comment_message = $auto_reply_comment_message['choices'][0]['text'] ?? "";
-                      $auto_reply_private_message = $autoreply_info[0]['auto_reply_text'];
+                      // public comment = short greeting pointing to the DM;
+                      // the AI's full sales reply is sent directly as the
+                      // private reply (text), replacing the template pipeline
+                      $ig_tag = isset($commenter_name_tag) ? $commenter_name_tag : (isset($commenter_name) ? '@'.$commenter_name : '');
+                      list($auto_reply_comment_message, $ig_ai_dm_reply) = $this->ai_comment_split($ai_training_data,$comment_text,$user_id,$fb_page_id,$commenter_id,"ig",$ig_tag);
+                      $auto_reply_private_message = '';
+                      $ai_private_status = 'Not Replied ! AI produced an empty reply';
+                      if($ig_ai_dm_reply !== ''){
+                          $ig_private_payload = json_encode(array(
+                              'recipient' => array('comment_id' => $comment_id),
+                              'message'   => array('text' => $ig_ai_dm_reply),
+                              'tag'       => 'HUMAN_AGENT',
+                          ), JSON_UNESCAPED_UNICODE);
+                          $ig_private_send = $this->send_reply($page_access_token, $ig_private_payload);
+                          $ai_private_status = isset($ig_private_send['error']['message']) ? $ig_private_send['error']['message'] : 'success';
+                      }
                     }
 
                     $insert_data_comment = array(
@@ -3536,7 +3565,14 @@ class Instagram_reply extends Home
                   
                       }
                       else{
-                        $insert_data_comment['reply_status']= "Not Replied ! No match found corresponding filter words";
+                        // ai_reply campaigns send the private DM directly and
+                        // report through $ai_private_status
+                        if(isset($ai_private_status)){
+                            $insert_data_comment['reply_status'] = $ai_private_status;
+                            unset($ai_private_status);
+                        } else {
+                            $insert_data_comment['reply_status']= "Not Replied ! No match found corresponding filter words";
+                        }
                         // $insert_data_comment['reply_id']="";
                       }
                     }
