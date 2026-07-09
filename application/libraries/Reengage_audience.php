@@ -110,8 +110,8 @@ class Reengage_audience
         if ($ttl_days < 1) $ttl_days = 30;
 
         $now = time();
-        $now_sql = date('Y-m-d H:i:s', $now);
-        $expires_sql = date('Y-m-d H:i:s', $now + ($ttl_days * 86400));
+        $now_sql = gmdate('Y-m-d H:i:s', $now);
+        $expires_sql = gmdate('Y-m-d H:i:s', $now + ($ttl_days * 86400));
 
         $counts = array(
             'matched' => 0, 'in_window' => 0, 'human_agent' => 0,
@@ -255,11 +255,11 @@ class Reengage_audience
         // Recency, measured on the customer's last inbound message.
         // quiet_for_days: silent at least this long. active_within_days: spoke recently.
         if (!empty($filters['quiet_for_days'])) {
-            $cut = date('Y-m-d H:i:s', time() - ((int) $filters['quiet_for_days'] * 86400));
+            $cut = gmdate('Y-m-d H:i:s', time() - ((int) $filters['quiet_for_days'] * 86400));
             $db->where('s.last_subscriber_interaction_time <=', $cut);
         }
         if (!empty($filters['active_within_days'])) {
-            $cut = date('Y-m-d H:i:s', time() - ((int) $filters['active_within_days'] * 86400));
+            $cut = gmdate('Y-m-d H:i:s', time() - ((int) $filters['active_within_days'] * 86400));
             $db->where('s.last_subscriber_interaction_time >=', $cut);
         }
 

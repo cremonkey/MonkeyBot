@@ -33,7 +33,7 @@ if (!function_exists('reengage_mark_reentry')) {
             $ci->db->where('state', 'waiting_reentry');
             $ci->db->update('reengage_recipient', array(
                 'state' => 'reentered',
-                'reentered_at' => date('Y-m-d H:i:s'),
+                'reentered_at' => gmdate('Y-m-d H:i:s'),
             ));
         } catch (Exception $e) {
             log_message('error', 'SPEC-19 reengage_mark_reentry: ' . $e->getMessage());
@@ -68,7 +68,7 @@ if (!function_exists('reengage_check_optout')) {
                 'subscribe_id' => $subscribe_id,
                 'social_media' => $social_media,
                 'source' => 'keyword',
-                'created_at' => date('Y-m-d H:i:s'),
+                'created_at' => gmdate('Y-m-d H:i:s'),
             ));
 
             // Nothing queued for them should ever go out now.

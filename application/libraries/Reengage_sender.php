@@ -67,9 +67,15 @@ class Reengage_sender
         $tz = $campaign['timezone'] !== '' ? $campaign['timezone'] : 'UTC';
         $now = time();
 
-        if (!empty($campaign['schedule_time']) && strtotime($campaign['schedule_time']) > $now) {
-            $result['reason'] = 'not yet scheduled';
-            return $result;
+        // The operator typed a wall-clock time meaning "in my timezone".
+        // strtotime() would read it in PHP's default zone, which is whatever
+        // the absent `time_zone` config falls back to (Europe/Dublin).
+        if (!empty($campaign['schedule_time'])) {
+            $scheduled = $this->parse_in($tz, $campaign['schedule_time']);
+            if ($scheduled !== null && $scheduled > $now) {
+                $result['reason'] = 'not yet scheduled';
+                return $result;
+            }
         }
 
         // Quiet hours and the daily cap are stated in the page's local time.
@@ -84,9 +90,9 @@ class Reengage_sender
 
         $allowed = reengage_rate_budget(
             $campaign['messages_per_hour'],
-            $this->sent_since($campaign_id, date('Y-m-d H:i:s', $now - 3600)),
+            $this->sent_since($campaign_id, gmdate('Y-m-d H:i:s', $now - 3600)),
             $campaign['daily_cap'],
-            $this->sent_since($campaign_id, date('Y-m-d H:i:s', $this->day_start_epoch($tz, $now)))
+            $this->sent_since($campaign_id, gmdate('Y-m-d H:i:s', $this->day_start_epoch($tz, $now)))
         );
 
         if ($allowed <= 0) {
@@ -130,7 +136,7 @@ class Reengage_sender
 
             if ($outcome['ok']) {
                 $this->finish($row['id'], 'sent', array(
-                    'sent_at' => date('Y-m-d H:i:s'),
+                    'sent_at' => gmdate('Y-m-d H:i:s'),
                     'message_sent_id' => $outcome['message_id'],
                 ));
                 $result['sent']++;
@@ -432,7 +438,7 @@ class Reengage_sender
         $this->ci->basic->update_data('reengage_campaign', array('id' => $campaign_id), array(
             'status' => 'halted',
             'halt_reason' => $reason,
-            'completed_at' => date('Y-m-d H:i:s'),
+            'completed_at' => gmdate('Y-m-d H:i:s'),
         ));
         log_message('error', 'SPEC-19 campaign ' . $campaign_id . ' halted: ' . $reason);
     }
@@ -446,7 +452,7 @@ class Reengage_sender
 
         $this->ci->basic->update_data('reengage_campaign', array('id' => $campaign_id), array(
             'status' => 'done',
-            'completed_at' => date('Y-m-d H:i:s'),
+            'completed_at' => gmdate('Y-m-d H:i:s'),
         ));
     }
 
@@ -455,8 +461,21 @@ class Reengage_sender
     {
         $this->ci->db->where_in('state', array('waiting_reentry', 'pending', 'reentered'));
         $this->ci->db->where('expires_at IS NOT NULL', null, false);
-        $this->ci->db->where('expires_at <', date('Y-m-d H:i:s'));
+        $this->ci->db->where('expires_at <', gmdate('Y-m-d H:i:s'));
         $this->ci->db->update('reengage_recipient', array('state' => 'expired'));
+    }
+
+    /** Read a wall-clock datetime as belonging to the campaign's timezone. */
+    private function parse_in($tz, $datetime)
+    {
+        if (strpos((string) $datetime, '0000-00-00') === 0) return null;
+
+        try {
+            $dt = new DateTime($datetime, new DateTimeZone($tz));
+            return $dt->getTimestamp();
+        } catch (Exception $e) {
+            return null;
+        }
     }
 
     /** Render an epoch in the campaign's timezone. */

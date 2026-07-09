@@ -143,7 +143,7 @@ class Reengage extends Home
             $this->db->where('id', $id)->where('user_id', $this->uid)->update('reengage_campaign', $row);
         } else {
             $row['status'] = 'draft';
-            $row['created_at'] = date('Y-m-d H:i:s');
+            $row['created_at'] = gmdate('Y-m-d H:i:s');
             $this->db->insert('reengage_campaign', $row);
             $id = $this->db->insert_id();
         }
@@ -254,7 +254,7 @@ class Reengage extends Home
         $this->db->insert('reengage_import_run', array(
             'user_id' => $this->uid, 'page_table_id' => $page_table_id,
             'social_media' => $social_media, 'status' => 'running',
-            'started_at' => date('Y-m-d H:i:s'),
+            'started_at' => gmdate('Y-m-d H:i:s'),
         ));
         $run_id = $this->db->insert_id();
 
@@ -267,7 +267,7 @@ class Reengage extends Home
             'thread_count' => $result['threads'],
             'imported_count' => $result['imported'],
             'updated_count' => $result['updated'],
-            'finished_at' => date('Y-m-d H:i:s'),
+            'finished_at' => gmdate('Y-m-d H:i:s'),
         ));
 
         echo json_encode(array('status' => $result['ok'] ? 'ok' : 'error', 'result' => $result));

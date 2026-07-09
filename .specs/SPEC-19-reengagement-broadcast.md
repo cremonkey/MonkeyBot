@@ -276,3 +276,28 @@ No PHPUnit in this project. Verification follows the established pattern
 - Display errors are off (`ENVIRONMENT=production`), but any PHP notice still
   corrupts AJAX JSON. Check `application/logs` first when AJAX fails.
 - Commit per task. Do not delegate production changes to subagents.
+
+## 14. Timezone correctness (found during verification, 2026-07-09)
+
+`Home::_time_zone_set()` reads `config->item('time_zone')`, which is **absent
+from the live config**, so it falls back to `Europe/Dublin` (UTC+1 in summer).
+Meanwhile `last_subscriber_interaction_time` is written as UTC explicitly.
+
+`strtotime('2026-07-09 21:00:00')` under Dublin therefore yields an epoch one
+hour early, aging every contact by an hour. A customer who wrote 23h10m ago
+classified as `human_agent` and was silently never messaged.
+
+Fixes:
+- `reengage_to_timestamp()` parses datetimes with an explicit `DateTimeZone('UTC')`.
+- Every timestamp SPEC-19 writes uses `gmdate()`, so the `reengage_*` tables are
+  uniformly UTC.
+- `schedule_time` is parsed in the campaign's own timezone, since the operator
+  typed a wall-clock time meaning "my local time".
+
+Verified: the classifier returns identical verdicts under UTC, Europe/Dublin,
+Africa/Cairo and America/New_York, at the 23h10m and 24h50m boundaries.
+
+Symptom to watch for elsewhere: `ai_conversation_history.created_at` is written
+by PHP (Dublin) but the follow-up query compares it to MySQL `NOW()` (UTC), so
+the 180-minute follow-up delay behaves like 240 minutes and the 23-hour window
+like 22. Not fixed here; out of scope for SPEC-19.

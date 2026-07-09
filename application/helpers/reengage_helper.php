@@ -72,6 +72,14 @@ if (!function_exists('reengage_to_timestamp')) {
      * Parse a MySQL datetime or unix timestamp into a unix timestamp.
      * Returns null for anything unusable, including MySQL's zero date.
      *
+     * Datetime strings are read as UTC, never as PHP's default timezone.
+     * last_subscriber_interaction_time is written as UTC (Messenger_bot forces
+     * it), while the app's default timezone is whatever `time_zone` config
+     * says -- and that key is absent from the live config, so it silently
+     * falls back to Europe/Dublin (UTC+1 in summer). Parsing with strtotime()
+     * would age every contact by an hour and drop people who are still inside
+     * the 24h window.
+     *
      * @return int|null
      */
     function reengage_to_timestamp($value)
@@ -93,9 +101,14 @@ if (!function_exists('reengage_to_timestamp')) {
                 return ($int > 0) ? $int : null;
             }
 
-            $ts = strtotime($value);
-            if ($ts === false || $ts <= 0) return null;
-            return $ts;
+            try {
+                $dt = new DateTime($value, new DateTimeZone('UTC'));
+            } catch (Exception $e) {
+                return null;
+            }
+
+            $ts = $dt->getTimestamp();
+            return ($ts > 0) ? $ts : null;
         }
 
         return null;
