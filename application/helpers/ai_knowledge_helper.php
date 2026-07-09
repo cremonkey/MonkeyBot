@@ -909,6 +909,63 @@ if (!function_exists('ai_reply_quotes_a_price')) {
     }
 }
 
+if (!function_exists('ai_reply_ties_price_to_headcount')) {
+    /**
+     * Whether the reply prices something per head or for a group.
+     *
+     * The judge is a model and misses this: it read "الداي يوز لفردين بيبدأ من
+     * 900" as grounded because 900 really is the day-use starting price - the
+     * "لفردين" slid past. But the source never says how many people 900 covers,
+     * so quoting it for two is an invented claim, and one that costs money.
+     *
+     * A headcount claim is cheap to detect and expensive to get wrong, so it
+     * gets a deterministic gate rather than a probabilistic one.
+     *
+     * @param string $reply The assistant's reply text.
+     * @return bool
+     */
+    function ai_reply_ties_price_to_headcount($reply = '')
+    {
+        if (!is_string($reply) || $reply === '') {
+            return false;
+        }
+        $patterns = array(
+            '/للشخص/u', '/للفرد/u', '/لفردين/u', '/لشخصين/u', '/للفردين/u', '/للشخصين/u',
+            '/\bلـ?\s*\d+\s*(شخص|أشخاص|اشخاص|فرد|أفراد|افراد)/u',
+            '/\b(per|each)\s+(person|guest|adult|head)\b/i',
+            '/\bfor\s+\d+\s+(people|persons|guests|adults)\b/i',
+            '/\bfor\s+two\b/i',
+        );
+        foreach ($patterns as $p) {
+            if (preg_match($p, $reply)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+if (!function_exists('ai_source_states_per_person_pricing')) {
+    /**
+     * Whether the source anywhere prices something per person.
+     *
+     * If it never does, no reply may. If it does somewhere, the claim is at
+     * least plausible and the judge decides.
+     *
+     * @param string $source Campaign instructions + knowledge base.
+     * @return bool
+     */
+    function ai_source_states_per_person_pricing($source = '')
+    {
+        if (!is_string($source) || $source === '') {
+            return false;
+        }
+        // \bpp\b, not pp\b: the latter matches the tail of "WhatsApp", which the
+        // knowledge base contains, and would silently disable this whole gate.
+        return (bool) preg_match('/(per\s+person|per\s+guest|per\s+adult|\bpp\b|للشخص|للفرد|للفرد الواحد)/iu', $source);
+    }
+}
+
 if (!function_exists('ai_get_full_knowledge')) {
     /**
      * The complete active knowledge base for a scope, as one string.
@@ -978,6 +1035,14 @@ if (!function_exists('ai_verify_price_grounding')) {
             return 'unknown';
         }
 
+        // Deterministic gate first — no model call, no ambiguity. A headcount
+        // claim the source cannot support is always wrong, and the judge misses
+        // it when the sentence also says "starts from".
+        if (ai_reply_ties_price_to_headcount($reply) && !ai_source_states_per_person_pricing($source)) {
+            log_message('error', 'SPEC21 price guard blocked a reply: headcount claim, source has no per-person pricing');
+            return 'ungrounded';
+        }
+
         $api_key = ai_openai_key($user_id);
         if ($api_key === '') {
             return 'unknown';
@@ -987,8 +1052,10 @@ if (!function_exists('ai_verify_price_grounding')) {
             . "Check every price the reply states. A price is GROUNDED only if the SOURCE attaches that exact number to the exact item the reply attaches it to.\n"
             . "Rules:\n"
             . "- 'starts from X' / 'تبدأ من X' is GROUNDED if the SOURCE says that item starts from X, or if X is the lowest price the SOURCE lists for that category.\n"
+            . "- Restating a unit the SOURCE itself gives (the SOURCE says 'From EGP 4,502/night', the reply says 'لليلة') is GROUNDED.\n"
             . "- A number that belongs to a DIFFERENT item is UNGROUNDED, even if the number appears in the SOURCE.\n"
             . "- A number the customer proposed is UNGROUNDED unless the SOURCE independently confirms it for that item.\n"
+            . "- ARITHMETIC: the bot may not multiply, add, or total. A computed figure (3 nights x the nightly rate) is UNGROUNDED unless the SOURCE states that total.\n"
             . "Reply with exactly one word, GROUNDED or UNGROUNDED, then ': ' and a short reason.";
 
         $user = "SOURCE:\n" . $source . "\n\nCUSTOMER ASKED: " . $question . "\n\nBOT REPLY: " . $reply;
