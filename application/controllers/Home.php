@@ -7274,6 +7274,46 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             }
         }
 
+        // SPEC-21: price grounding guard. The model attaches real prices to the
+        // wrong item ("الداي يوز بـ350" — 350 is the Coffee Break price) and
+        // agrees with prices the customer invents. No prompt rule stops this, and
+        // checking that the number appears in the context does not either: it
+        // does appear, against a different item. So a second model audits the
+        // reply against the full source text before it is sent.
+        //
+        // Runs only when the reply actually quotes a price, and fails OPEN: any
+        // error leaves the reply untouched. A judge outage must not silence the bot.
+        if (!empty($user_id) && isset($response['choices'][0]['text'])
+            && ai_reply_quotes_a_price($response['choices'][0]['text'])) {
+
+            $guard_source = trim((string) $description);
+            $full_kb = ai_get_full_knowledge($user_id, isset($kb_page_id) ? $kb_page_id : 0);
+            if ($full_kb !== '') {
+                $guard_source .= "\n\n" . $full_kb;
+            }
+
+            $verdict = ai_verify_price_grounding($user_id, $human, $response['choices'][0]['text'], $guard_source);
+
+            if ($verdict === 'ungrounded') {
+                $blocked = $response['choices'][0]['text'];
+                $response['choices'][0]['text'] = ai_price_deflection_text($human);
+
+                if ($this->db->table_exists('ai_price_guard_log')) {
+                    $this->basic->insert_data('ai_price_guard_log', array(
+                        'user_id'       => $user_id,
+                        'page_id'       => (string) $page_id,
+                        'social_media'  => $social_media,
+                        'subscribe_id'  => (string) $subscribe_id,
+                        'question'      => $human,
+                        'blocked_reply' => $blocked,
+                        'sent_reply'    => $response['choices'][0]['text'],
+                        'verdict'       => 'ungrounded',
+                        'created_at'    => date('Y-m-d H:i:s'),
+                    ));
+                }
+            }
+        }
+
         // Save conversation pair
         if (!empty($page_id) && !empty($subscribe_id) && !empty($user_id)) {
             $ai_reply_text = isset($response['choices'][0]['text']) ? $response['choices'][0]['text'] : '';

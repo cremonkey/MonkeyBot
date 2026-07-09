@@ -851,6 +851,218 @@ if (!function_exists('ai_build_knowledge_context')) {
     }
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * Price grounding guard (SPEC-21).
+ *
+ * The model attaches REAL prices to the WRONG item. Two live examples:
+ *   "الداي يوز بـ350؟"  -> bot agreed. 350 is the Coffee Break price;
+ *                          day use starts from 900.
+ *   "جناح الأجنحة الملكية" -> bot answered 7,800, the Junior Suite price.
+ *
+ * No prompt stops this (a dedicated rule failed; gpt-4o failed too), and a
+ * code-side "is this number in the context?" check is useless — both numbers
+ * ARE in the context, just against a different item.
+ *
+ * So a second model audits the reply against the FULL source text before it is
+ * sent. Scored 7/7 on the known failures plus four correct replies.
+ * ---------------------------------------------------------------------------
+ */
+
+if (!defined('AI_GUARD_MODEL')) {
+    define('AI_GUARD_MODEL', 'gpt-4o-mini');
+}
+if (!defined('AI_GUARD_MAX_SOURCE_CHARS')) {
+    // The judge needs the whole price list, not the retrieved excerpts: when it
+    // saw only the top-5 chunks it rejected two CORRECT replies because the
+    // confirming line was not among them. Beyond this size, fall back to
+    // excerpts and accept the lower accuracy.
+    define('AI_GUARD_MAX_SOURCE_CHARS', 60000);
+}
+
+if (!function_exists('ai_reply_quotes_a_price')) {
+    /**
+     * Whether a reply states a price, and therefore needs auditing.
+     *
+     * Deliberately narrow. A bare long number is NOT a price: the bot echoes
+     * customers' phone numbers ("شكراً لمشاركتك رقمك 012788334522") and auditing
+     * those would deflect a perfectly good reply. Require a thousands separator
+     * or an explicit currency word.
+     *
+     * @param string $reply The assistant's reply text.
+     * @return bool
+     */
+    function ai_reply_quotes_a_price($reply = '')
+    {
+        if (!is_string($reply) || $reply === '') {
+            return false;
+        }
+        // 5,500 / 11,500
+        if (preg_match('/\d{1,3},\d{3}\b/u', $reply)) {
+            return true;
+        }
+        // 900 جنيه / 350 EGP / EGP 900 / ج.م 900
+        if (preg_match('/(\d{2,6}\s*(جنيه|جنيهاً|جنيها|ج\.م|EGP|LE)|(جنيه|EGP|LE)\s*\d{2,6})/iu', $reply)) {
+            return true;
+        }
+        return false;
+    }
+}
+
+if (!function_exists('ai_get_full_knowledge')) {
+    /**
+     * The complete active knowledge base for a scope, as one string.
+     *
+     * Page-scoped sources when $page_id is given, otherwise user-level ones —
+     * the same scoping ai_get_knowledge_context() applies.
+     *
+     * @param int $user_id Owner user ID.
+     * @param int $page_id Page auto ID, or 0.
+     * @return string Concatenated chunk text, or '' when unavailable.
+     */
+    function ai_get_full_knowledge($user_id = 0, $page_id = 0)
+    {
+        $ci = &get_instance();
+        if (empty($user_id) || !is_object($ci)) {
+            return '';
+        }
+        if (!$ci->db->table_exists('ai_knowledge_chunks') || !$ci->db->table_exists('ai_knowledge_sources')) {
+            return '';
+        }
+
+        $user_id = (int) $user_id;
+        $page_id = (int) $page_id;
+        $scope = $page_id > 0 ? "s.page_id = {$page_id}" : "(s.page_id IS NULL OR s.page_id = 0)";
+
+        $sql = "SELECT c.chunk_text
+                FROM ai_knowledge_chunks c
+                INNER JOIN ai_knowledge_sources s ON s.id = c.source_id
+                WHERE s.user_id = {$user_id} AND {$scope} AND s.status = 'active'
+                ORDER BY c.source_id ASC, c.chunk_order ASC";
+
+        $rows = $ci->db->query($sql)->result_array();
+        if (empty($rows) && $page_id > 0) {
+            // Page has no sources of its own; fall back to user-level ones.
+            return ai_get_full_knowledge($user_id, 0);
+        }
+
+        $text = '';
+        foreach ($rows as $row) {
+            $text .= $row['chunk_text'] . "\n\n";
+            if (mb_strlen($text, 'UTF-8') > AI_GUARD_MAX_SOURCE_CHARS) {
+                break;
+            }
+        }
+        return trim($text);
+    }
+}
+
+if (!function_exists('ai_verify_price_grounding')) {
+    /**
+     * Audit a reply's prices against the authoritative source text.
+     *
+     * Fails OPEN: any error, timeout, missing key or missing source returns
+     * 'unknown', and the caller must send the reply unchanged. A judge outage
+     * must never silence the bot.
+     *
+     * @param int    $user_id  Owner user ID (supplies the API key).
+     * @param string $question The customer's message.
+     * @param string $reply    The assistant's proposed reply.
+     * @param string $source   Campaign instructions + full knowledge base.
+     * @return string 'grounded' | 'ungrounded' | 'unknown'
+     */
+    function ai_verify_price_grounding($user_id = 0, $question = '', $reply = '', $source = '')
+    {
+        $source = trim((string) $source);
+        if ($source === '' || trim((string) $reply) === '') {
+            return 'unknown';
+        }
+
+        $api_key = ai_openai_key($user_id);
+        if ($api_key === '') {
+            return 'unknown';
+        }
+
+        $system = "You audit a sales bot's reply for price grounding. The SOURCE below is the complete, authoritative price list.\n"
+            . "Check every price the reply states. A price is GROUNDED only if the SOURCE attaches that exact number to the exact item the reply attaches it to.\n"
+            . "Rules:\n"
+            . "- 'starts from X' / 'تبدأ من X' is GROUNDED if the SOURCE says that item starts from X, or if X is the lowest price the SOURCE lists for that category.\n"
+            . "- A number that belongs to a DIFFERENT item is UNGROUNDED, even if the number appears in the SOURCE.\n"
+            . "- A number the customer proposed is UNGROUNDED unless the SOURCE independently confirms it for that item.\n"
+            . "Reply with exactly one word, GROUNDED or UNGROUNDED, then ': ' and a short reason.";
+
+        $user = "SOURCE:\n" . $source . "\n\nCUSTOMER ASKED: " . $question . "\n\nBOT REPLY: " . $reply;
+
+        $payload = json_encode(array(
+            'model' => AI_GUARD_MODEL,
+            'temperature' => 0,
+            'max_tokens' => 60,
+            'messages' => array(
+                array('role' => 'system', 'content' => $system),
+                array('role' => 'user', 'content' => $user),
+            ),
+        ), JSON_UNESCAPED_UNICODE);
+
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => 'https://api.openai.com/v1/chat/completions',
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 25,
+            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_HTTPHEADER => array(
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $api_key,
+            ),
+        ));
+        $response = curl_exec($ch);
+        $http_code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($http_code !== 200 || $response === false) {
+            log_message('error', 'ai_verify_price_grounding: http=' . $http_code);
+            return 'unknown';
+        }
+
+        $decoded = json_decode($response, true);
+        $verdict = isset($decoded['choices'][0]['message']['content'])
+            ? trim($decoded['choices'][0]['message']['content'])
+            : '';
+        if ($verdict === '') {
+            return 'unknown';
+        }
+
+        // "UNGROUNDED" contains "GROUNDED", so test the negative first.
+        if (stripos($verdict, 'UNGROUNDED') === 0) {
+            log_message('error', 'SPEC21 price guard blocked a reply: ' . mb_substr($verdict, 0, 160));
+            return 'ungrounded';
+        }
+        if (stripos($verdict, 'GROUNDED') === 0) {
+            return 'grounded';
+        }
+        return 'unknown';
+    }
+}
+
+if (!function_exists('ai_price_deflection_text')) {
+    /**
+     * Replacement reply when a quoted price cannot be verified.
+     *
+     * Mirrors the customer's script, matching the bot's language rule.
+     *
+     * @param string $human The customer's message.
+     * @return string
+     */
+    function ai_price_deflection_text($human = '')
+    {
+        $is_arabic = (bool) preg_match('/\p{Arabic}/u', (string) $human);
+        return $is_arabic
+            ? 'خليني أتأكد لك من السعر ده بالظبط من الفريق 👍 ممكن رقم حضرتك أو الواتساب؟'
+            : "Let me confirm that exact price with the team. Could you share your phone or WhatsApp number?";
+    }
+}
+
 if (!function_exists('ai_delete_knowledge_chunks')) {
     /**
      * Delete all chunks for a given knowledge source.
