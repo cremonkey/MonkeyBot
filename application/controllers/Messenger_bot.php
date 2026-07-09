@@ -1487,6 +1487,12 @@ class Messenger_bot extends Home
             $messages = $response['entry']['0']['messaging'][0]['message']['text'];
             $table_name = "messenger_bot";
 
+            // SPEC-19: honour a stop request before anything else touches this
+            // message. Every text message from fb and ig passes through here.
+            $this->load->helper('reengage_hook');
+            if(!empty($subscriber_info[0]['user_id']))
+                reengage_check_optout($subscriber_info[0]['user_id'],$sender_id,$social_media_type,$messages);
+
             // Check if the user in the user input flow.
             $fb_message_id=$response['entry'][0]['messaging'][0]['message']['mid'];
             $this->user_input_flow_assaign_check($sender_id,$page_id,$subscriber_info,$messages,$fb_message_id,$message_type="text");
@@ -12338,6 +12344,10 @@ class Messenger_bot extends Home
     public function update_subscriber_last_interaction($subscriber_id='',$time='',$subsciber_broadcast_unavailable='0'){
 
         //if config is disabled for subscriber last interaction to reduce mysql query execute
+        // NOTE (SPEC-19): re-engagement eligibility is measured from
+        // last_subscriber_interaction_time. Setting this config to "no" would
+        // freeze that column and every contact would classify as out_of_window.
+        // The key is absent from the live config, so the guard is inert today.
         $is_enable=$this->config->item('enable_tracking_subscribers_last_interaction');
 
         if($is_enable == "no")
@@ -12354,6 +12364,10 @@ class Messenger_bot extends Home
              $update_data['unavailable']="0";
         $this->basic->update_data('messenger_bot_subscriber',$where_array=array("subscribe_id"=>$subscriber_id),$update_data);
 
+        // SPEC-19: their 24h window just reopened. Mark any queued
+        // re-engagement message; the cron sends it once the chat goes idle.
+        $this->load->helper('reengage_hook');
+        reengage_mark_reentry($subscriber_id);
     }
 
     public function get_json_code()
