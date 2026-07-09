@@ -28,7 +28,26 @@ class Cron_hub extends Home
         $out['followups'] = $this->_run_followups();
         $out['coupon_reminders'] = $this->_run_coupon_reminders();
         $out['digest'] = $this->_run_digest();
+        $out['reengage'] = $this->_run_reengage();
         echo json_encode($out) . "\n";
+    }
+
+    /**
+     * SPEC-19: re-engagement broadcasts. Paces itself from what it has already
+     * sent, so a missed tick never produces a burst, and only ever delivers to
+     * contacts inside Meta's 24h window.
+     */
+    protected function _run_reengage()
+    {
+        if (!$this->db->table_exists('reengage_campaign')) return array('skipped' => 'not installed');
+
+        try {
+            $this->load->library('reengage_sender');
+            return $this->reengage_sender->run();
+        } catch (Exception $e) {
+            log_message('error', 'SPEC-19 reengage cron: ' . $e->getMessage());
+            return array('error' => $e->getMessage());
+        }
     }
 
     /**
