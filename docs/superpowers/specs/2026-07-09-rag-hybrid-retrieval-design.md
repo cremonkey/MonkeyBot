@@ -57,10 +57,13 @@ Rejected alternatives:
 
 The retrieval layer lives entirely in `application/helpers/ai_knowledge_helper.php`.
 
-This placement is load-bearing. The `ai_knowledge_base` module is an untracked
-third-party addon that has been overwritten by addon reinstalls before (see the
-2026-07-06 `my_helper.php` incident). The helper is tracked in git. Keeping all
-retrieval logic in the helper means an addon reinstall cannot break retrieval.
+This placement is load-bearing. The `ai_knowledge_base` module is a third-party
+addon: it is tracked in git, but the addon installer overwrites files under
+`application/modules/` on reinstall, and a sibling addon bundle has clobbered
+core files before (the 2026-07-06 `my_helper.php` incident). The helper lives in
+`application/helpers/`, which the installer does not touch. Keeping all
+retrieval logic there means an addon reinstall cannot break retrieval; the
+module only calls into it.
 
 Both existing call sites — `Home.php:7168` and
 `ai_knowledge_base/controllers/Ai_knowledge_base.php:373` — continue to call
@@ -79,12 +82,38 @@ limit, missing key, malformed response. Never throws.
 Loads chunks that have an embedding, computes cosine similarity in PHP, and
 returns those above a similarity threshold.
 
-The threshold is the grounding guard. A chunk that is not close enough to the
-question is never injected, so the model is never shown misleading context. It
-must be calibrated empirically during implementation against the benchmark query
-below and against at least one query with no correct answer in the knowledge
-base; it must not be guessed. A starting point of `0.25` is a hypothesis to test,
-not a decision.
+> **Revised during implementation (2026-07-09).** This section originally called
+> the threshold "the grounding guard" and proposed calibrating it to separate
+> answerable from unanswerable questions. Calibration disproved that premise.
+>
+> Measured against the live knowledge base with a 14-positive / 8-negative eval
+> set, **the two classes overlap**:
+>
+> | | top cosine |
+> |---|---|
+> | `المنتجع فين؟` — answerable, lowest positive | 0.2126 |
+> | `عندكم تذاكر طيران؟` — unanswerable, highest negative | 0.3111 |
+>
+> Cosine measures topical proximity, not whether the answer is present. A
+> flight-ticket question is close to resort and booking text. Any threshold high
+> enough to reject it also rejects `عندكم سبا؟` (0.2532), which the knowledge
+> base does answer. No single threshold separates the classes.
+>
+> Deciding "do I actually know this?" belongs to the model, and that mechanism
+> already exists and is tested: guardrail rule 3 (`ZERO OUTSIDE INFORMATION`)
+> and the `[[UNANSWERED]]` marker make it decline and hand off to the team when
+> the excerpts do not answer the question. Verified end to end: given 4,904
+> characters of resort context, the model answered the flight-ticket question
+> with "إحنا مش بنقدم تذاكر طيران" and invented nothing.
+>
+> The threshold's real job is therefore narrower — **a noise filter, not a
+> judge**. It is set to `0.20`, which discards obvious junk
+> (`ما هي عاصمة اليابان؟` 0.0852, `do you sell insurance` 0.1496) while
+> retaining 14/14 answerable questions in the eval set.
+>
+> Had the threshold been calibrated on the benchmark query alone, `0.28` would
+> have shipped and silently dropped four legitimate questions. The negative
+> control is what caught this.
 
 **`ai_fulltext_search($user_id, $query, $page_id, $limit)`**
 The current `MATCH ... AGAINST` logic, extracted verbatim from the existing
@@ -157,8 +186,10 @@ pattern, and into the addon module's own `CREATE TABLE` statement
 
 The decisive test already exists — it is the query that failed in production.
 
-**Benchmark:** `عندكم غرف واقامة` must retrieve the chunk containing
-`Double Room Premium ... EGP 5,500` with a similarity above the threshold.
+**Benchmark:** `عندكم غرف واقامة` must retrieve a chunk containing a real room
+price. *Result: 4,902 characters of context containing `EGP 5,650`. The model
+answers `الأسعار تبدأ من 3,510 جنيه`, which appears verbatim in the knowledge
+base as `starting from EGP 3,510/night`.*
 
 **Negative control:** a query with no correct answer in the knowledge base (for
 example, asking about a service the resort does not offer) must retrieve nothing

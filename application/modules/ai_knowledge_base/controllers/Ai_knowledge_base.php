@@ -284,6 +284,12 @@ class Ai_knowledge_base extends Home
             exit();
         }
 
+        // SPEC-20: embed the chunks for semantic retrieval. Deliberately after
+        // trans_complete() — this makes network calls and must not hold a DB
+        // transaction open. A failure here is non-fatal: chunks keep a NULL
+        // embedding and remain searchable via FULLTEXT.
+        ai_embed_source_chunks($source_id, $this->user_id);
+
         echo json_encode(array(
             'status' => '1',
             'message' => $this->lang->line('Knowledge source added successfully.') . ' ' . $chunk_count . ' ' . $this->lang->line('chunks created.')
@@ -416,6 +422,8 @@ class Ai_knowledge_base extends Home
               `id` int(11) NOT NULL AUTO_INCREMENT,
               `source_id` int(11) NOT NULL,
               `chunk_text` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+              `embedding` blob DEFAULT NULL,
+              `embedding_model` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
               `chunk_order` int(11) NOT NULL DEFAULT '0',
               `created_at` datetime NOT NULL,
               PRIMARY KEY (`id`),
