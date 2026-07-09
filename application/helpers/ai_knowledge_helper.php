@@ -420,15 +420,16 @@ if (!function_exists('ai_embed_text')) {
      *
      * @param string $text    Text to embed.
      * @param int    $user_id Owner user ID (supplies the API key).
+     * @param string $api_key Optional key override, same contract as ai_embed_texts().
      * @return array|false Vector of floats, or false.
      */
-    function ai_embed_text($text = '', $user_id = 0)
+    function ai_embed_text($text = '', $user_id = 0, $api_key = '')
     {
         $text = ai_normalize_text($text);
         if ($text === '') {
             return false;
         }
-        $vectors = ai_embed_texts(array($text), $user_id);
+        $vectors = ai_embed_texts(array($text), $user_id, $api_key);
         return (is_array($vectors) && isset($vectors[0])) ? $vectors[0] : false;
     }
 }
