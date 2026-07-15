@@ -7100,6 +7100,15 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
         // Build system prompt
         if ($sales_mode_enabled && !empty($sales_system_prompt)) {
             $system_prompt = $sales_system_prompt;
+            // A per-channel agent profile (SPEC-18) keeps the business's identity,
+            // offers, and prices in instruction_to_ai, while sales_system_prompt
+            // is the generic rulebook. In sales mode the code used only the
+            // rulebook and dropped instruction_to_ai entirely, so the bot ran with
+            // no idea what it actually sells and answered every question generically.
+            // Inject the profile's instruction_to_ai as the business context.
+            if (!empty($ai_profile) && !empty($ai_profile['instruction_to_ai']) && trim($ai_profile['instruction_to_ai']) !== '') {
+                $system_prompt .= "\n\n--- BOT-SPECIFIC INSTRUCTIONS (this business's identity, offers, prices, and rules) ---\n" . $ai_profile['instruction_to_ai'];
+            }
             // Campaign-level training data must still apply in sales mode,
             // otherwise per-campaign instructions are silently ignored.
             if (!empty($description) && trim($description) !== '') {
@@ -7287,6 +7296,12 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             && ai_reply_quotes_a_price($response['choices'][0]['text'])) {
 
             $guard_source = trim((string) $description);
+            // A profile-based bot keeps its prices in instruction_to_ai, not the
+            // knowledge base. The judge must see them or it will block correct
+            // prices as unverifiable.
+            if (!empty($ai_profile) && !empty($ai_profile['instruction_to_ai'])) {
+                $guard_source .= "\n\n" . $ai_profile['instruction_to_ai'];
+            }
             $full_kb = ai_get_full_knowledge($user_id, isset($kb_page_id) ? $kb_page_id : 0);
             if ($full_kb !== '') {
                 $guard_source .= "\n\n" . $full_kb;
