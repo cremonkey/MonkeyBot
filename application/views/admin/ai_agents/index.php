@@ -19,13 +19,20 @@
                 <input type="hidden" name="csrf_token" value="<?php echo $tk; ?>">
                 <input type="hidden" name="id" id="p_id" value="">
                 <div class="card-body">
+                  <div class="alert alert-info py-2 px-3 mb-3" style="font-size:13px;">
+                    <i class="fas fa-shield-alt"></i> The <strong>Master Rules</strong> in
+                    <a href="<?php echo base_url('integration/open_ai_api_credentials'); ?>">Integration &rarr; Sales System Prompt</a>
+                    apply to <strong>every page and every agent</strong> and are always sent first.
+                    Everything below <em>adds</em> the business details this agent speaks from &mdash; it can never replace or disable the master rules.
+                  </div>
                   <div class="form-group"><label>Profile name (internal)</label><input name="name" id="p_name" class="form-control" required placeholder="e.g. Brand A - Sales"></div>
-                  <div class="form-group"><label>Agent display name</label><input name="agent_name" id="p_agent_name" class="form-control" placeholder="e.g. Sara from Brand A"></div>
+                  <div class="form-group"><label>Agent name <small class="text-muted">(sent to the AI as its identity)</small></label><input name="agent_name" id="p_agent_name" class="form-control" placeholder="e.g. Sara from Brand A"></div>
                   <div class="form-group"><label>Instruction / persona</label><textarea name="instruction_to_ai" id="p_instruction" class="form-control" rows="3"></textarea></div>
                   <div class="form-group">
                     <label class="custom-switch mt-2"><input type="checkbox" name="sales_mode_enabled" id="p_sales" value="1" class="custom-switch-input" checked><span class="custom-switch-indicator"></span><span class="custom-switch-description">Sales Mode</span></label>
+                    <small class="d-block text-muted">Tunes selling behaviour (closing push + playbook stages). The master rules and the price/scope guardrails apply either way.</small>
                   </div>
-                  <div class="form-group"><label>Sales system prompt (brand voice)</label><textarea name="sales_system_prompt" id="p_salesprompt" class="form-control" rows="6"></textarea></div>
+                  <div class="form-group"><label>Agent prompt <small class="text-muted">(this business's details, offers and prices &mdash; added to the master rules)</small></label><textarea name="sales_system_prompt" id="p_salesprompt" class="form-control" rows="6"></textarea></div>
                   <div class="row">
                     <div class="col-6 form-group"><label>Model override <small class="text-muted">(optional)</small></label><input name="model" id="p_model" class="form-control" placeholder="blank = account default"></div>
                     <div class="col-6 form-group"><label>Temperature</label><input name="temperature" id="p_temp" type="number" step="0.1" min="0" max="2" class="form-control" value="0.7"></div>
