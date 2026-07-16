@@ -7224,6 +7224,8 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             }
         }
 
+        $guard_context = '';   // SPEC-21: recent turns handed to the price judge
+
         $messages = [];
         $messages[] = ["role" => "system", "content" => $system_prompt];
 
@@ -7252,6 +7254,13 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                 foreach ($history as $row) {
                     $messages[] = ["role" => "user", "content" => $row['human_message']];
                     $messages[] = ["role" => "assistant", "content" => $row['ai_reply']];
+                }
+                // SPEC-21: the price judge needs the same context to resolve one-word
+                // follow-ups ("الغرفة" answering "تحب أنهي واحدة فيهم؟"). Last 2 turns is
+                // enough to bind a reference and keeps the judge call small.
+                foreach (array_slice($history, -2) as $row) {
+                    $guard_context .= 'العميل: ' . trim((string) $row['human_message']) . "\n"
+                                    . 'البوت: ' . trim((string) $row['ai_reply']) . "\n";
                 }
             }
         }
@@ -7352,7 +7361,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                 $guard_source .= "\n\n" . $full_kb;
             }
 
-            $verdict = ai_verify_price_grounding($user_id, $human, $response['choices'][0]['text'], $guard_source);
+            $verdict = ai_verify_price_grounding($user_id, $human, $response['choices'][0]['text'], $guard_source, $guard_context);
 
             if ($verdict === 'ungrounded') {
                 $guard_blocked = true;

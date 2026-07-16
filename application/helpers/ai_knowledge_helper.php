@@ -1028,7 +1028,18 @@ if (!function_exists('ai_verify_price_grounding')) {
      * @param string $source   Campaign instructions + full knowledge base.
      * @return string 'grounded' | 'ungrounded' | 'unknown'
      */
-    function ai_verify_price_grounding($user_id = 0, $question = '', $reply = '', $source = '')
+    /**
+     * $context: the last few turns, "العميل: ...\nالبوت: ..." per line.
+     *
+     * Without it the judge sees one bare question and false-blocks every follow-up in a
+     * multi-turn sale: the customer answers "الغرفة" to "تحب أنهي واحدة فيهم؟", the judge
+     * has no idea which room that refers to, finds a same-named item at a different price
+     * elsewhere in the source, and rules UNGROUNDED — the correct answer never ships and
+     * the customer gets "I'll check with the team" for a price we just quoted. Measured on
+     * the live Byoot profile: 3/6 without context, 6/6 with it, and the true blocks
+     * (invented totals, accepting the customer's number) still block.
+     */
+    function ai_verify_price_grounding($user_id = 0, $question = '', $reply = '', $source = '', $context = '')
     {
         $source = trim((string) $source);
         if ($source === '' || trim((string) $reply) === '') {
@@ -1050,6 +1061,7 @@ if (!function_exists('ai_verify_price_grounding')) {
 
         $system = "You audit a sales bot's reply for price grounding. The SOURCE below is the complete, authoritative price list.\n"
             . "Check every price the reply states. A price is GROUNDED only if the SOURCE attaches that exact number to the exact item the reply attaches it to.\n"
+            . "- Use CONVERSATION SO FAR to resolve what the customer is referring to. A one-word follow-up like 'الغرفة' means whatever the bot just offered; judge the reply against THAT item, not against a similarly-named item elsewhere in the SOURCE.\n"
             . "Rules:\n"
             . "- 'starts from X' / 'تبدأ من X' is GROUNDED if the SOURCE says that item starts from X, or if X is the lowest price the SOURCE lists for that category.\n"
             . "- Restating a unit the SOURCE itself gives (the SOURCE says 'From EGP 4,502/night', the reply says 'لليلة') is GROUNDED.\n"
@@ -1058,7 +1070,10 @@ if (!function_exists('ai_verify_price_grounding')) {
             . "- ARITHMETIC: the bot may not multiply, add, or total. A computed figure (3 nights x the nightly rate) is UNGROUNDED unless the SOURCE states that total.\n"
             . "Reply with exactly one word, GROUNDED or UNGROUNDED, then ': ' and a short reason.";
 
-        $user = "SOURCE:\n" . $source . "\n\nCUSTOMER ASKED: " . $question . "\n\nBOT REPLY: " . $reply;
+        $user = "SOURCE:\n" . $source;
+        $context = trim((string) $context);
+        if ($context !== '') $user .= "\n\nCONVERSATION SO FAR:\n" . $context;
+        $user .= "\n\nCUSTOMER ASKED: " . $question . "\n\nBOT REPLY: " . $reply;
 
         $payload = json_encode(array(
             'model' => AI_GUARD_MODEL,
