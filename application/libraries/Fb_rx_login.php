@@ -1010,11 +1010,52 @@ class Fb_rx_login
 
 
 	 
+	/*
+	 | Private reply to a comment, via the Send API's recipient.comment_id.
+	 |
+	 | This used to POST to {comment-id}/private_replies. That edge answers
+	 |   "Object with ID '<comment>' does not exist, cannot be loaded due to missing
+	 |    permissions, or does not support this operation"
+	 | for comments on REELS / video posts — the comment reads back fine over Graph, so
+	 | it is the last clause that applies: the edge does not support that object type.
+	 | The bot therefore posted its public "we sent you the details in Messenger" reply
+	 | and then silently sent nothing (Kemzo Hotel reel, 2026-07-16).
+	 |
+	 | me/messages with recipient.comment_id is the supported path and is what the
+	 | structured-template branch in Comment_automation has always used successfully on
+	 | the same account. Same 7-day/one-reply-per-comment limits apply.
+	 |
+	 | The Send API returns message_id where private_replies returned id; mirror it onto
+	 | 'id' so existing callers keep working unchanged.
+	 */
 	public function send_private_reply($message,$comment_id,$post_access_token)
-	{	 
-	   $params['message']=$message;
-       $response = $this->fb->post("{$comment_id}/private_replies",$params,$post_access_token);
-       return $response->getGraphObject()->asArray();	  
+	{
+		$url = "https://graph.facebook.com/v4.0/me/messages?access_token={$post_access_token}";
+		$payload = json_encode(array(
+			"recipient" => array("comment_id" => (string) $comment_id),
+			"message"   => array("text" => $message),
+		));
+
+		$ch = curl_init();
+		curl_setopt($ch, CURLOPT_URL, $url);
+		curl_setopt($ch, CURLOPT_HTTPHEADER, array("Content-type: application/json"));
+		curl_setopt($ch, CURLOPT_POST, 1);
+		curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+		curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+		$st = curl_exec($ch);
+		if ($st === false) {
+			$err = curl_error($ch);
+			curl_close($ch);
+			return array("error" => array("message" => "curl: " . $err));
+		}
+		curl_close($ch);
+
+		$result = json_decode($st, TRUE);
+		if (!is_array($result)) return array("error" => array("message" => "Unreadable Graph response: " . substr((string) $st, 0, 200)));
+		if (isset($result['message_id']) && !isset($result['id'])) $result['id'] = $result['message_id'];
+		return $result;
 	}
 
 	 // Finding out the original PSID of the commenter from message id after giving private reply. In webhook event commenter id isn't PSID, so we have to do extra call to get the PSID from the message id, to parameter return PSID
