@@ -78,6 +78,7 @@ class Ai_tools
                         'email' => array('type' => 'string', 'description' => 'Email address the customer shared.'),
                         'request_summary' => array('type' => 'string', 'description' => "Short summary of the customer's request, in the customer's language."),
                         'customer_profile' => array('type' => 'string', 'description' => "One line for the sales team, in the customer's language: buyer personality (decisive / analytical / hesitant / social / price-focused), their key needs, and any objection raised. Example: 'متردد - محتاج 500 كارت شخصي قبل الخميس - اعترض على السعر مرة'."),
+                        'conversation_status' => array('type' => 'string', 'description' => "Where the conversation actually got to, in the customer's language, so the sales rep can pick it up mid-thread instead of starting over. Say what you already quoted or offered, what the customer decided or objected to, and what is still open. Facts only - never guess at something that was not said. Example: 'اتعرضت عليه الباقة الأولى 900 للفرد، عجبته بس لسه مأكدش التاريخ ولا عدد الأطفال'."),
                     ),
                     'required' => array('request_summary'),
                 ),
@@ -202,6 +203,44 @@ class Ai_tools
         return 'Discount code '.$code.' for '.$percent.'% off, valid 7 days (single use).';
     }
 
+    /**
+     * The last few real turns of this conversation, compact, for the sales rep who picks
+     * the lead up in the external CRM and cannot see the thread.
+     *
+     * Read from ai_conversation_history (one row = one human/ai pair). Kept short and
+     * capped: this rides along in a CRM description field, not an archive. Returns ''
+     * when there is nothing useful (e.g. the lead came from a channel with no history).
+     */
+    protected function _recent_transcript($user_id, $context, $turns = 4, $max_chars = 1200)
+    {
+        try {
+            $page_id = (string) ($context['page_id'] ?? '');
+            $sub_id  = (string) ($context['subscribe_id'] ?? '');
+            if ($page_id === '' || $sub_id === '') return '';
+            $db = $this->CI->db;
+            if (!$db->table_exists('ai_conversation_history')) return '';
+
+            $rows = $db->select('human_message, ai_reply')->from('ai_conversation_history')
+                ->where('user_id', (int) $user_id)->where('page_id', $page_id)->where('subscribe_id', $sub_id)
+                ->order_by('id', 'DESC')->limit((int) $turns)->get()->result_array();
+            if (empty($rows)) return '';
+
+            $out = array();
+            foreach (array_reverse($rows) as $r) {
+                $h = trim(preg_replace('/\s+/u', ' ', (string) $r['human_message']));
+                $a = trim(preg_replace('/\s+/u', ' ', (string) $r['ai_reply']));
+                if ($h !== '') $out[] = 'العميل: ' . mb_substr($h, 0, 200);
+                if ($a !== '') $out[] = 'البوت: ' . mb_substr($a, 0, 200);
+            }
+            $text = implode("\n", $out);
+            // keep the END of the conversation — that is where it actually got to
+            if (mb_strlen($text) > $max_chars) $text = '…' . mb_substr($text, -$max_chars);
+            return $text;
+        } catch (Exception $e) {
+            return '';
+        }
+    }
+
     protected function t_save_lead($user_id, $args, $context)
     {
         $name    = trim((string) ($args['name'] ?? ''));
@@ -209,6 +248,7 @@ class Ai_tools
         $email   = trim((string) ($args['email'] ?? ''));
         $summary = trim((string) ($args['request_summary'] ?? ''));
         $profile = trim((string) ($args['customer_profile'] ?? ''));
+        $status  = trim((string) ($args['conversation_status'] ?? ''));
         if ($phone === '' && $email === '') {
             return 'No contact info to save yet: ask the customer for their phone/WhatsApp number or email first.';
         }
@@ -283,11 +323,18 @@ class Ai_tools
         if ($email !== '') $details[] = 'Email: '.$email;
         $note = $summary
             .($profile !== '' ? "\n\u{1F464} ".$profile : '')
+            .($status !== '' ? "\n\u{1F4CD} وصل لفين: ".$status : '')
             .($details ? "\n".implode(' | ', $details) : '');
+
+        // The same note is what gets mirrored outwards, plus the real last turns: the
+        // rep opening the lead in the external CRM has no access to this conversation,
+        // and a model-written summary can be wrong — the transcript can't.
+        $transcript = $this->_recent_transcript($user_id, $context);
+        $note_full = $note . ($transcript !== '' ? "\n\n── آخر المحادثة ──\n" . $transcript : '');
         $db->insert('crm_activities', array(
             'deal_id' => $deal_id, 'subscriber_id' => ($sub_id > 0 ? $sub_id : null), 'user_id' => $user_id,
             'type' => 'note', 'subject' => 'AI captured lead ('.$source.')',
-            'description' => $note,
+            'description' => $note_full,
             'status' => 'completed', 'completed_at' => $now, 'created_at' => $now,
         ));
 
@@ -314,7 +361,13 @@ class Ai_tools
             'name'        => $name !== '' ? $name : (string) ($existing['contact_name'] ?? ''),
             'phone'       => $phone !== '' ? $phone : (string) ($existing['contact_phone'] ?? ''),
             'email'       => $email !== '' ? $email : (string) ($existing['contact_email'] ?? ''),
+            // Passed apart, not pre-joined: each external CRM has its own field limits
+            // (8xCRM caps description at 191 chars), so let each helper decide what fits
+            // and in what order. The complete note lives on our own deal regardless.
             'summary'     => $summary,
+            'profile'     => $profile,
+            'status'      => $status,
+            'note_full'   => $note_full,
             'deal_id'     => $deal_id,
             'lead_status' => !empty($existing) ? 'updated' : 'new',
         );

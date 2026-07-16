@@ -143,10 +143,24 @@ if (!function_exists('xcrm_build_payload')) {
         if ($name === '') $name = $phone !== '' ? $phone : $email;
         list($first, $middle, $last) = xcrm_split_name($name);
 
-        $desc = trim((string) ($lead['summary'] ?? ''));
+        // 8xCRM validates description at 191 chars (verified 2026-07-16: 191 accepted,
+        // 192 -> 422 "may not be greater than 191 characters" — a Laravel default string
+        // column). The full note therefore CANNOT go here; it stays complete on our own
+        // deal. Pack the most actionable parts first and cut cleanly, so a rep opening
+        // the lead still sees where the conversation got to.
+        $bits = array();
+        if (!empty($lead['status']))  $bits[] = trim((string) $lead['status']);
+        if (!empty($lead['summary'])) $bits[] = trim((string) $lead['summary']);
+        if (!empty($lead['profile'])) $bits[] = trim((string) $lead['profile']);
+        $tail = 'Deal #' . (int) ($lead['deal_id'] ?? 0);
         $channel = strtoupper((string) ($lead['source'] ?? ''));
-        if ($channel !== '') $desc = trim($desc . "\n" . 'القناة: ' . $channel);
-        if (!empty($lead['deal_id'])) $desc = trim($desc . ' | Deal #' . (int) $lead['deal_id']);
+        if ($channel !== '') $tail = $channel . ' | ' . $tail;
+
+        $desc = trim(implode(' — ', array_filter($bits)));
+        $room = 191 - (mb_strlen($tail) + 3);          // " | " before the tail
+        if (mb_strlen($desc) > $room) $desc = trim(mb_substr($desc, 0, $room - 1)) . '…';
+        $desc = trim($desc . ' | ' . $tail);
+        if (mb_strlen($desc) > 191) $desc = mb_substr($desc, 0, 191);
 
         $payload = array(
             'title' => '', 'first_name' => $first, 'middle_name' => $middle, 'last_name' => $last,
