@@ -3047,6 +3047,16 @@ class Instagram_reply extends Home
             commentsListSection:
 
 
+            // No campaign configured for this IG account: nothing to reply with. Bail
+            // instead of dereferencing $autoreply_info[0] on every line below — that threw
+            // ~108 "Undefined offset: 0" notices in a day on Kemzo, which is what a missing
+            // campaign looks like from the log (the comments themselves arrive fine). The
+            // notices also corrupt AJAX JSON elsewhere, since display_errors is on.
+            if (empty($autoreply_info[0])) {
+                log_message('error', 'Instagram_reply: IG comment for page '.$fb_page_id.' has no matching autoreply campaign — skipped');
+                return;
+            }
+
             $trigger_matching_type = isset($autoreply_info[0]['trigger_matching_type']) ? $autoreply_info[0]['trigger_matching_type'] : 'exact';
             $ai_training_data = isset($autoreply_info[0]['ai_training_data']) ? $autoreply_info[0]['ai_training_data'] : 'test';
 
