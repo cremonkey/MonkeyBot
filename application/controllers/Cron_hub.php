@@ -29,7 +29,29 @@ class Cron_hub extends Home
         $out['coupon_reminders'] = $this->_run_coupon_reminders();
         $out['digest'] = $this->_run_digest();
         $out['reengage'] = $this->_run_reengage();
+        $out['external_crm'] = $this->_run_external_crm();
         echo json_encode($out) . "\n";
+    }
+
+    /**
+     * SPEC-23: push AI-captured leads to the external CRM (8xCRM).
+     *
+     * Runs here rather than inline in Ai_tools::t_save_lead because their storeLead
+     * takes 10-14s — inline it would stall the customer's reply by that much on every
+     * lead. Queued here it is invisible to the customer and gets retries.
+     */
+    protected function _run_external_crm()
+    {
+        if (!$this->db->table_exists('crm_external_log')) return array('skipped' => 'not installed');
+
+        try {
+            $this->load->helper('external_crm');
+            if (!function_exists('xcrm_drain')) return array('skipped' => 'helper missing');
+            return xcrm_drain(20);
+        } catch (Exception $e) {
+            log_message('error', 'SPEC-23 external crm cron: ' . $e->getMessage());
+            return array('error' => $e->getMessage());
+        }
     }
 
     /**

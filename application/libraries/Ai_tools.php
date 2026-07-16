@@ -306,19 +306,32 @@ class Ai_tools
             if (function_exists('lead_add_score')) @lead_add_score($sub_id, 'contact_info_shared');
         }
 
-        // mirror the lead onto the user's Google Sheet, if configured (never blocks the reply)
+        // Everything below mirrors the lead outwards. The lead is already saved in our own
+        // crm_deals at this point, and we are on the customer's reply path, so each of these
+        // fails OPEN: an outage in someone else's service must never cost us the reply.
+        $mirror = array(
+            'source'      => $source,
+            'name'        => $name !== '' ? $name : (string) ($existing['contact_name'] ?? ''),
+            'phone'       => $phone !== '' ? $phone : (string) ($existing['contact_phone'] ?? ''),
+            'email'       => $email !== '' ? $email : (string) ($existing['contact_email'] ?? ''),
+            'summary'     => $summary,
+            'deal_id'     => $deal_id,
+            'lead_status' => !empty($existing) ? 'updated' : 'new',
+        );
+
+        // mirror the lead onto the user's Google Sheet, if configured
         if (file_exists(APPPATH.'helpers/crm_sheet_helper.php')) {
             $this->CI->load->helper('crm_sheet');
             if (function_exists('crm_sheet_append_lead')) {
-                crm_sheet_append_lead($user_id, array(
-                    'source'      => $source,
-                    'name'        => $name !== '' ? $name : (string) ($existing['contact_name'] ?? ''),
-                    'phone'       => $phone !== '' ? $phone : (string) ($existing['contact_phone'] ?? ''),
-                    'email'       => $email !== '' ? $email : (string) ($existing['contact_email'] ?? ''),
-                    'summary'     => $summary,
-                    'deal_id'     => $deal_id,
-                    'lead_status' => !empty($existing) ? 'updated' : 'new',
-                ));
+                crm_sheet_append_lead($user_id, $mirror);
+            }
+        }
+
+        // SPEC-23: mirror the lead into the external CRM (8xCRM), if configured
+        if (file_exists(APPPATH.'helpers/external_crm_helper.php')) {
+            $this->CI->load->helper('external_crm');
+            if (function_exists('xcrm_store_lead')) {
+                xcrm_store_lead($user_id, $mirror);
             }
         }
 
