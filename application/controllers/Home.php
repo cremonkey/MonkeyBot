@@ -7355,6 +7355,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             $verdict = ai_verify_price_grounding($user_id, $human, $response['choices'][0]['text'], $guard_source);
 
             if ($verdict === 'ungrounded') {
+                $guard_blocked = true;
                 $blocked = $response['choices'][0]['text'];
                 $response['choices'][0]['text'] = ai_price_deflection_text($human);
 
@@ -7374,8 +7375,20 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             }
         }
 
-        // Save conversation pair
-        if (!empty($page_id) && !empty($subscribe_id) && !empty($user_id)) {
+        // Save conversation pair.
+        //
+        // NOT when the price guard fired. The guard swaps the reply for a canned "I'll
+        // confirm that with the team" line, and writing that into history makes the model
+        // imitate its own refusal on the next turn — the documented self-priming failure,
+        // except here the deflection is OUR string, not something the model reasoned into.
+        // Observed live on Kemzo: a blocked room-price answer became "السعر الأساسي كذا"
+        // one turn later and "المعلومات عن الأسعار مش متاحة حاليًا" the turn after that —
+        // the bot denying prices it has. Master rule 6 tells it not to copy past
+        // deflections and was not enough (a prompt patch for this fixed 1 of 3 cases).
+        // Dropping the turn loses that exchange from context; a refusal cascade loses the
+        // customer. The blocked text and the question are both kept in ai_price_guard_log.
+        $guard_blocked = !empty($guard_blocked);
+        if (!$guard_blocked && !empty($page_id) && !empty($subscribe_id) && !empty($user_id)) {
             $ai_reply_text = isset($response['choices'][0]['text']) ? $response['choices'][0]['text'] : '';
             if (!empty($ai_reply_text)) {
                 $this->basic->insert_data("ai_conversation_history", [
