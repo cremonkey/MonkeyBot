@@ -1067,6 +1067,13 @@ if (!function_exists('ai_verify_price_grounding')) {
             . "- Restating a unit the SOURCE itself gives (the SOURCE says 'From EGP 4,502/night', the reply says 'لليلة') is GROUNDED.\n"
             . "- A number that belongs to a DIFFERENT item is UNGROUNDED, even if the number appears in the SOURCE.\n"
             . "- A number the customer proposed is UNGROUNDED unless the SOURCE independently confirms it for that item.\n"
+            // Do NOT relax this into "check the math". Tried and measured: gpt-4o-mini
+            // cannot verify arithmetic — asked to audit "4500 x 2 nights = 9,000" it
+            // answered "UNGROUNDED: the total is incorrect". It scored 4/8 that way and
+            // rejected every correct total. Arithmetic has a right answer, so it must not
+            // depend on a probabilistic judge. The bot doesn't compute either: totals for
+            // the quantities customers actually ask for are WRITTEN OUT in the prompt, so
+            // the reply quotes a number the SOURCE states and this rule passes it.
             . "- ARITHMETIC: the bot may not multiply, add, or total. A computed figure (3 nights x the nightly rate) is UNGROUNDED unless the SOURCE states that total.\n"
             . "Reply with exactly one word, GROUNDED or UNGROUNDED, then ': ' and a short reason.";
 
