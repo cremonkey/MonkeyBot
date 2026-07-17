@@ -30,7 +30,69 @@ class Cron_hub extends Home
         $out['digest'] = $this->_run_digest();
         $out['reengage'] = $this->_run_reengage();
         $out['external_crm'] = $this->_run_external_crm();
+        $out['deflect_alerts'] = $this->_run_deflect_alerts();
         echo json_encode($out) . "\n";
+    }
+
+    /**
+     * SPEC-27: alert the owner when the bot repeatedly can't answer the SAME thing, so a
+     * real gap (a price, a policy, a service) gets filled before it costs more customers.
+     * Groups new unanswered questions by a normalized topic key; when a topic crosses the
+     * threshold it sends one alert and records it, so the same gap never nags twice.
+     */
+    protected function _run_deflect_alerts()
+    {
+        if (!$this->db->table_exists('ai_deflect_alert_log') || !$this->db->table_exists('ai_unanswered_questions')) {
+            return array('skipped' => 'not installed');
+        }
+        try {
+            $settings = $this->db->from('sales_automation_settings')->where('deflect_alert_enabled', '1')->get()->result_array();
+        } catch (Exception $e) { return array('error' => $e->getMessage()); }
+
+        $sent = 0;
+        foreach ($settings as $s) {
+            $uid = (int) $s['user_id'];
+            $threshold = max(2, (int) $s['deflect_alert_threshold']);
+            // frequent unanswered topics not yet alerted
+            $rows = $this->db->query(
+                "SELECT LOWER(TRIM(question)) topic, MAX(TRIM(question)) sample, COUNT(*) c, MAX(social_media) ch
+                 FROM ai_unanswered_questions
+                 WHERE user_id=? AND status='new' AND CHAR_LENGTH(TRIM(question)) >= 4
+                 GROUP BY LOWER(TRIM(question)) HAVING c >= ?",
+                array($uid, $threshold))->result_array();
+            if (empty($rows)) continue;
+
+            foreach ($rows as $r) {
+                $topic_key = mb_substr((string) $r['topic'], 0, 180);
+                $already = $this->db->from('ai_deflect_alert_log')->where('user_id', $uid)->where('topic_key', $topic_key)->count_all_results();
+                if ($already > 0) continue;   // one alert per gap, ever
+
+                $text = "⚠️ MonkeyBot: the bot couldn't answer this " . (int) $r['c'] . " times\n\n"
+                    . "\"" . mb_substr((string) $r['sample'], 0, 160) . "\"\n\n"
+                    . "Channel: " . $r['ch'] . "\n"
+                    . "Add the answer: " . site_url('missed_questions');
+
+                $delivered = false;
+                if (!empty($s['deflect_alert_whatsapp'])) {
+                    list($ok, $err) = channel_send_text($uid, 'wa', $s['deflect_alert_whatsapp'], $text);
+                    if ($ok) $delivered = true; else log_message('error', 'deflect alert wa: ' . $err);
+                }
+                if (!empty($s['deflect_alert_email'])) {
+                    try {
+                        $this->_email_send_function('', nl2br(htmlspecialchars($text)), $s['deflect_alert_email'], 'MonkeyBot: a question the bot keeps missing', '', '', $uid);
+                        $delivered = true;
+                    } catch (Exception $e) { log_message('error', 'deflect alert email: ' . $e->getMessage()); }
+                }
+
+                // record even if delivery failed, so a broken channel doesn't loop every 5 min
+                $this->db->insert('ai_deflect_alert_log', array(
+                    'user_id' => $uid, 'topic_key' => $topic_key, 'hits' => (int) $r['c'],
+                    'alerted_at' => date('Y-m-d H:i:s'),
+                ));
+                if ($delivered) $sent++;
+            }
+        }
+        return array('sent' => $sent);
     }
 
     /**

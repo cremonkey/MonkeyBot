@@ -39,6 +39,10 @@ class Sales_automation extends Home
             'digest_email'           => trim(strip_tags((string) $this->input->post('digest_email', true))),
             'digest_whatsapp'        => preg_replace('/[^0-9+]/', '', (string) $this->input->post('digest_whatsapp', true)),
             'digest_hour'            => min(23, max(0, (int) $this->input->post('digest_hour', true))),
+            'deflect_alert_enabled'   => $this->input->post('deflect_alert_enabled', true) === '1' ? '1' : '0',
+            'deflect_alert_threshold' => max(2, (int) $this->input->post('deflect_alert_threshold', true)),
+            'deflect_alert_email'     => trim(strip_tags((string) $this->input->post('deflect_alert_email', true))),
+            'deflect_alert_whatsapp'  => preg_replace('/[^0-9+]/', '', (string) $this->input->post('deflect_alert_whatsapp', true)),
             'updated_at'             => date('Y-m-d H:i:s'),
         );
         $existing = $this->db->from('sales_automation_settings')->where('user_id', $this->uid)->get()->row_array();

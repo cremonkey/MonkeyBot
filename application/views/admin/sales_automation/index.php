@@ -42,6 +42,21 @@
               <p class="text-muted mb-0">The digest includes: conversations by platform, new leads, follow-ups sent, tasks due today, and unanswered questions — once per day.</p>
             </div>
           </div>
+          <div class="card">
+            <div class="card-header"><h4><i class="fas fa-bell"></i> Gap alerts</h4></div>
+            <div class="card-body">
+              <label class="custom-switch"><input type="checkbox" name="deflect_alert_enabled" value="1" class="custom-switch-input" <?php if(($config['deflect_alert_enabled'] ?? '0')==='1') echo 'checked'; ?>><span class="custom-switch-indicator"></span><span class="custom-switch-description">Enabled</span></label>
+              <div class="form-row mt-3">
+                <div class="form-group col-md-8"><label>Email</label>
+                  <input type="email" name="deflect_alert_email" class="form-control" value="<?php echo htmlspecialchars($config['deflect_alert_email'] ?? ''); ?>" placeholder="you@company.com"></div>
+                <div class="form-group col-md-4"><label>Alert after N misses</label>
+                  <input type="number" name="deflect_alert_threshold" min="2" max="50" class="form-control" value="<?php echo (int)($config['deflect_alert_threshold'] ?? 3); ?>"></div>
+              </div>
+              <div class="form-group"><label>WhatsApp number <small class="text-muted">(needs a connected WhatsApp account)</small></label>
+                <input type="text" name="deflect_alert_whatsapp" class="form-control" value="<?php echo htmlspecialchars($config['deflect_alert_whatsapp'] ?? ''); ?>" placeholder="2010xxxxxxxx"></div>
+              <p class="text-muted mb-0">When the bot can't answer the SAME question this many times, you get one alert with the question and a link to answer it. One alert per gap — no repeats.</p>
+            </div>
+          </div>
         </div>
       </div>
       <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Settings</button>
