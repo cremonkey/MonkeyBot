@@ -7473,6 +7473,21 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             }
         }
 
+        // SPEC-28: durable audit of what the bot actually SENT — independent of the 24h
+        // conversation-memory TTL, so there's always a record of prices/claims made to a
+        // customer for disputes/compliance. Best-effort; never blocks the reply.
+        if (!empty($user_id) && isset($response['choices'][0]['text']) && $response['choices'][0]['text'] !== ''
+            && $this->db->table_exists('ai_reply_audit')) {
+            @$this->basic->insert_data('ai_reply_audit', array(
+                'user_id' => $user_id, 'page_id' => (string) $page_id, 'social_media' => $social_media,
+                'subscribe_id' => (string) $subscribe_id, 'question' => mb_substr((string) $human, 0, 2000),
+                'reply' => mb_substr((string) $response['choices'][0]['text'], 0, 4000),
+                'guard' => !empty($guard_blocked) ? 'blocked' : null,
+                'tools' => !empty($this->ai_price_facts) ? 'calculate_price' : null,
+                'created_at' => date('Y-m-d H:i:s'),
+            ));
+        }
+
         // Save conversation pair.
         //
         // NOT when the price guard fired. The guard swaps the reply for a canned "I'll

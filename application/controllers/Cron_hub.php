@@ -72,6 +72,7 @@ class Cron_hub extends Home
             'ai_usage_log'         => array('col' => 'created_at', 'days' => 120),
             'ai_price_guard_log'   => array('col' => 'created_at', 'days' => 120),
             'ai_deflect_alert_log' => array('col' => 'alerted_at', 'days' => 180),
+            'ai_reply_audit'       => array('col' => 'created_at', 'days' => 180),
         );
         $deleted = array();
         foreach ($windows as $table => $w) {
