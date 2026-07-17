@@ -1,0 +1,72 @@
+{
+  "currency": "جنيه",
+  "accommodation": {
+    "rooms": [
+      {
+        "name": "Double Garden View",
+        "capacity": 2,
+        "nightly": 4500,
+        "offers": {
+          "4": 11500
+        }
+      },
+      {
+        "name": "Double Pool View",
+        "capacity": 2,
+        "nightly": 5500,
+        "offers": {
+          "4": 15500
+        }
+      },
+      {
+        "name": "Triple Garden View",
+        "capacity": 3,
+        "nightly": 5650,
+        "offers": {
+          "4": 17000
+        }
+      },
+      {
+        "name": "Junior Suite Pool View",
+        "capacity": 4,
+        "nightly": 7800,
+        "offers": {
+          "4": 23000
+        }
+      },
+      {
+        "name": "Royal Suite Pool View",
+        "capacity": 6,
+        "nightly": 11500,
+        "offers": {
+          "4": 30500
+        }
+      }
+    ],
+    "note": "سعر الغرفة كاملة مش للفرد. الإقامة شاملة استخدام حمام السباحة."
+  },
+  "day_use": {
+    "packages": [
+      {
+        "name": "الباقة الأولى",
+        "per_person": 900
+      },
+      {
+        "name": "الباقة الثانية",
+        "per_person": 1350
+      }
+    ],
+    "nth_free": {
+      "every": 5,
+      "pay": 4
+    }
+  },
+  "children": {
+    "free_max_age": 5,
+    "free_cap": 2,
+    "half_min_age": 6,
+    "half_max_age": 11,
+    "full_min_age": 12,
+    "half_price_known": false
+  }
+}

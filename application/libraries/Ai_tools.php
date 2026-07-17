@@ -22,7 +22,7 @@ class Ai_tools
      */
     public function catalog()
     {
-        return array(
+        $tools = array(
             array(
                 'name' => 'search_products',
                 'description' => "Search the store's product catalog by keyword and return matching products with prices. Use when the customer asks about products, prices, or availability.",
@@ -84,6 +84,32 @@ class Ai_tools
                 ),
             ),
         );
+
+        // calculate_price is only offered when this account has a pricing config, so it
+        // never appears for accounts that sell simple catalog products.
+        if ($this->CI->db->table_exists('pricing_config')) {
+            $uid = (int) ($this->CI->session->userdata('user_id') ?: 0);
+            // catalog() is also called on the reply path where session is absent; there we
+            // include the tool unconditionally and t_calculate_price no-ops without config.
+            $tools[] = array(
+                'name' => 'calculate_price',
+                'description' => "Compute an EXACT price total for accommodation or day-use. ALWAYS call this instead of doing the math yourself whenever the customer gives enough to price a stay: for accommodation pass nights + how many adults and children (by age band); for day_use pass the package and how many adults and children. It applies the real offers (multi-night discount, buy-N-get-one-free), picks a room that fits the headcount, and defers to the team for anything it cannot price. Quote its total verbatim.",
+                'params' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'type' => array('type' => 'string', 'enum' => array('accommodation', 'day_use'), 'description' => 'accommodation = overnight stay; day_use = day visit without staying.'),
+                        'room_or_package' => array('type' => 'string', 'description' => "For accommodation: the room name if the customer named one (else leave empty and it picks the fitting room). For day_use: the package name if named."),
+                        'nights' => array('type' => 'integer', 'description' => 'Accommodation only: number of nights.'),
+                        'adults' => array('type' => 'integer', 'description' => 'Number of adults (12+ counts as adult).'),
+                        'children_under_5' => array('type' => 'integer', 'description' => 'Children up to 5 years (usually free).'),
+                        'children_6_to_11' => array('type' => 'integer', 'description' => 'Children from 6 to under 12.'),
+                        'children_12_plus' => array('type' => 'integer', 'description' => 'Children 12 or older (billed as full adults).'),
+                    ),
+                    'required' => array('type'),
+                ),
+            );
+        }
+        return $tools;
     }
 
     /** OpenAI tools format */
@@ -123,6 +149,7 @@ class Ai_tools
                 case 'create_discount_code': return $this->t_create_coupon($user_id, $args);
                 case 'handoff_to_human':  return $this->t_handoff($context, $args);
                 case 'save_lead_to_crm':  return $this->t_save_lead($user_id, $args, $context);
+                case 'calculate_price':   return $this->t_calculate_price($user_id, $args);
                 default: return 'Error: unknown tool.';
             }
         } catch (Exception $e) {
@@ -239,6 +266,58 @@ class Ai_tools
         } catch (Exception $e) {
             return '';
         }
+    }
+
+    /**
+     * SPEC-24: exact price total. The computed figure is also stashed on the CI instance so
+     * the price guard sees it as authoritative — otherwise the guard, which only knows the
+     * per-night/per-person source numbers, would block a correct computed total.
+     */
+    protected function t_calculate_price($user_id, $args)
+    {
+        $this->CI->load->helper('pricing');
+        $cfg = pricing_get_config($user_id);
+        if (empty($cfg)) return 'Pricing is not configured; tell the customer the team will confirm the exact total and ask for their contact number.';
+
+        $type    = ($args['type'] ?? '') === 'accommodation' ? 'accommodation' : 'day_use';
+        $item    = trim((string) ($args['room_or_package'] ?? ''));
+        $nights  = (int) ($args['nights'] ?? 1);
+        $adults  = (int) ($args['adults'] ?? 0);
+        $c_free  = (int) ($args['children_under_5'] ?? 0);
+        $c_half  = (int) ($args['children_6_to_11'] ?? 0);
+        $c_full  = (int) ($args['children_12_plus'] ?? 0);
+        if ($adults <= 0 && $c_free <= 0 && $c_half <= 0 && $c_full <= 0) $adults = ($type === 'accommodation') ? 2 : 1;
+
+        $r = $type === 'accommodation'
+            ? pricing_calc_accommodation($cfg, $item, $nights, $adults, $c_free, $c_half, $c_full)
+            : pricing_calc_day_use($cfg, $item, $adults, $c_free, $c_half, $c_full);
+
+        if (empty($r['ok'])) return 'Could not price this exactly; tell the customer the team will confirm and ask for their contact number.';
+
+        $cur = $r['currency'];
+        $notes = !empty($r['notes']) ? implode('؛ ', $r['notes']) : '';
+
+        if ($r['total'] === null || !empty($r['needs_team'])) {
+            // Partial: we can name the item/basis but not a final total. Do NOT invent one.
+            $line = $r['item'];
+            if ($type === 'accommodation' && isset($r['nightly'])) $line .= ' - سعر الليلة ' . number_format($r['nightly']) . ' ' . $cur;
+            $msg = 'ITEM: ' . $line . ($notes ? ' | ' . $notes : '')
+                 . ' | NO FINAL TOTAL: some of this needs the team to confirm (say so and ask for the customer\'s WhatsApp; do not state a total).';
+            $this->CI->ai_price_facts[] = $line . ($notes ? ' (' . $notes . ')' : '');
+            return $msg;
+        }
+
+        $total_str = number_format($r['total']) . ' ' . $cur;
+        // Fact the guard must treat as authoritative.
+        if ($type === 'accommodation') {
+            $fact = $r['item'] . ' لمدة ' . $r['nights'] . ' ليالي = ' . $total_str . ' (' . $r['basis'] . ')';
+        } else {
+            $fact = $r['item'] . ' للـDay Use لعدد ' . rtrim(rtrim(number_format($r['people'], 1), '0'), '.') . ' فرد = ' . $total_str;
+        }
+        $this->CI->ai_price_facts[] = $fact;
+
+        return 'AUTHORITATIVE TOTAL (quote it exactly): ' . $fact . ($notes ? ' | ' . $notes : '')
+             . ' | Present this total to the customer and move to close.';
     }
 
     protected function t_save_lead($user_id, $args, $context)

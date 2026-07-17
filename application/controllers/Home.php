@@ -18,6 +18,8 @@ class Home extends CI_Controller
     public $using_media_type = '';
     // SPEC-05: product cards stashed by Ai_tools::t_search_products during an AI reply
     public $ai_last_products = null;
+    // SPEC-24: exact totals stashed by Ai_tools::t_calculate_price, fed to the price guard
+    public $ai_price_facts = array();
     public $module_access;
     public $team_access = [];
     public $language;
@@ -7067,6 +7069,8 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
 
     public function get_ai_reply_open_ai($description, $human = "Human: How are you ?", $user_id = 0, $page_id = '', $subscribe_id = '', $social_media = 'fb')
     {
+        $this->ai_price_facts = array();   // SPEC-24: reset per reply, filled by calculate_price
+
         $api_info = $this->basic->get_data("open_ai_config", ['where' => ['user_id' => $user_id]], $select = '', $join = '', $limit = '1', $start = 0, $order_by = 'RAND()');
 
         if (empty($api_info)) {
@@ -7179,6 +7183,9 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             if (isset($api_info[0]['ai_tools_enabled']) && $api_info[0]['ai_tools_enabled'] == '1') {
                 $system_prompt .= "\n8. The moment the customer shares a phone/WhatsApp number or email, call the save_lead_to_crm tool with their details, a short summary of their request, customer_profile (their buyer personality per the playbook, key needs, and any objection raised), and conversation_status (where the conversation actually got to: what you already quoted or offered, what they decided or objected to, and what is still open) so the sales rep can continue the conversation instead of restarting it; then confirm that the team will contact them soon."
                     . "\n9. When the customer asks about a product, its price, or availability, ALWAYS call the search_products tool FIRST. Product info returned by the tool counts as written context: quote it exactly. If the tool finds nothing, that does NOT mean the item is unavailable - the catalog may be incomplete - so never tell the customer it isn't available; name the thing they asked about, say the team will confirm its availability and price, and ask for their phone/WhatsApp.";
+                if ($this->db->table_exists('pricing_config') && !empty($this->basic->get_data('pricing_config', array('where' => array('user_id' => $user_id, 'status' => '1')), array('id'), '', 1))) {
+                    $system_prompt .= "\n10. NEVER do price arithmetic yourself. Call the calculate_price tool whenever the customer gives a COUNT you can price: a number of nights, OR a number of people/adults, OR a headcount for day-use. 'داي يوز لـ5 أفراد', 'اقامة ليلتين', '4 كبار وطفلين' all mean CALL THE TOOL now with what you have - do not ask more questions first if you already have a count, and never answer such a question with 'بيبدأ من' when the customer gave you a specific number. Quote the tool's total exactly. If it returns NO FINAL TOTAL, tell the customer the team will confirm and ask for their WhatsApp - do not invent a total.";
+                }
             }
         }
 
@@ -7359,6 +7366,12 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             $full_kb = ai_get_full_knowledge($user_id, isset($kb_page_id) ? $kb_page_id : 0);
             if ($full_kb !== '') {
                 $guard_source .= "\n\n" . $full_kb;
+            }
+            // SPEC-24: a total computed by calculate_price is authoritative — PHP did the
+            // arithmetic the model isn't allowed to. Feed it to the judge so a correct
+            // computed total isn't blocked as "a number belonging to a different item".
+            if (!empty($this->ai_price_facts)) {
+                $guard_source .= "\n\nComputed totals (authoritative, from the pricing tool):\n- " . implode("\n- ", $this->ai_price_facts);
             }
 
             $verdict = ai_verify_price_grounding($user_id, $human, $response['choices'][0]['text'], $guard_source, $guard_context);
