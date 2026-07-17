@@ -1159,6 +1159,46 @@ if (!function_exists('ai_price_deflection_text')) {
     }
 }
 
+if (!function_exists('ai_reply_confirms_booking')) {
+    /**
+     * True if the reply CONFIRMS a booking/reservation or asserts a specific date is
+     * available/held. The bot has no reservation backend, so it can never truthfully say
+     * "I booked it" or "that date is free" — those are hallucinations that cause
+     * double-booking and broken promises. Deliberately NARROW/high-precision: it matches
+     * affirmative confirmation, not written policy like "الكابينة متاحة للعائلات", and it
+     * skips negations ("لسه محجزتش", "مش متاح", "not confirmed").
+     */
+    function ai_reply_confirms_booking($reply = '')
+    {
+        if (!is_string($reply) || $reply === '') return false;
+        // negation nearby -> not a confirmation
+        if (preg_match('/(?:لسه|مش|لم|لا|غير|not\s+yet|isn\x27?t|aren\x27?t|no)\s+\S{0,6}\s*(?:مؤكد|متاح|محجوز|confirm|book|reserv|avail)/iu', $reply)) return false;
+        $patterns = array(
+            // Arabic booking confirmations
+            '/تم\s+(?:الحجز|حجز|تأكيد\s+الحجز|تأكيد\s+حجز)/u',
+            '/(?:حجزت|حجزنا|أكدت|أكدنا|ثبّت(?:نا)?)\s*(?:لك|لحضرتك|لكم)/u',
+            '/حجز(?:ك|كم|حضرتك)\s+(?:مؤكد|اتأكد|تم)/u',
+            '/(?:التاريخ|اليوم|الميعاد|المعاد)\s+\S{0,10}\s*(?:متاح|فاضي|محجوز\s+لك)/u',
+            // English
+            '/\byour\s+(?:booking|reservation)\s+is\s+confirmed\b/i',
+            '/\b(?:i\x27?ve|we\x27?ve|i have|we have)\s+(?:booked|reserved|confirmed)\b/i',
+            '/\b(?:that|the)\s+date\s+is\s+(?:available|free|open)\b/i',
+        );
+        foreach ($patterns as $p) if (preg_match($p, $reply)) return true;
+        return false;
+    }
+}
+
+if (!function_exists('ai_availability_deflection_text')) {
+    function ai_availability_deflection_text($human = '')
+    {
+        $is_arabic = (bool) preg_match('/\p{Arabic}/u', (string) $human);
+        return $is_arabic
+            ? 'التاريخ والتوافر بيتأكدوا من فريق الحجوزات قبل ما نثبّت أي حجز 👍 ابعتلي رقمك أو الواتساب وأنا أرتبلك مع الفريق.'
+            : "Availability and dates are confirmed by our reservations team before any booking is held. Share your phone or WhatsApp and I'll set it up with them.";
+    }
+}
+
 if (!function_exists('ai_delete_knowledge_chunks')) {
     /**
      * Delete all chunks for a given knowledge source.
