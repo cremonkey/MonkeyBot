@@ -6,3 +6,8 @@ upload/
 upload_caster/
 download/
 .specs/scratch/
+
+# secrets — never commit
+.env
+.env.*
+!.env.example
