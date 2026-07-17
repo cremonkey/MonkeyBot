@@ -531,8 +531,43 @@ class Ai_tools
                 'description' => ($reason !== '' ? $reason : 'Customer requested human assistance.'),
                 'due_date' => $now, 'status' => 'pending', 'created_at' => $now,
             ));
+
+            // Real-time alert: a CRM task alone means the owner only finds out if they
+            // happen to look. Notify immediately via the same email/WhatsApp channels the
+            // digest/gap-alerts use, so an escalated (often angry / high-intent) customer
+            // isn't left waiting in the dark. Best-effort; never blocks the reply.
+            $this->notify_handoff($user_id, $source, $reason, $deal_id);
         }
 
         return 'A human agent will take over shortly. Please hold on.';
+    }
+
+    /** Fire an owner alert for a human handoff, reusing sales_automation_settings channels. */
+    protected function notify_handoff($user_id, $source, $reason, $deal_id)
+    {
+        try {
+            $db = $this->CI->db;
+            if (!$db->table_exists('sales_automation_settings')) return;
+            $s = $db->from('sales_automation_settings')->where('user_id', (int) $user_id)->get()->row_array();
+            if (empty($s)) return;
+            // Use the deflection-alert channels if set, else the digest ones.
+            $email = trim((string) ($s['deflect_alert_email'] ?? '')) ?: trim((string) ($s['digest_email'] ?? ''));
+            $wa    = trim((string) ($s['deflect_alert_whatsapp'] ?? '')) ?: trim((string) ($s['digest_whatsapp'] ?? ''));
+            if ($email === '' && $wa === '') return;
+
+            $text = "🔔 عميل محتاج تدخل بشري (" . $source . ")\n\n"
+                . ($reason !== '' ? "السبب: " . mb_substr($reason, 0, 200) . "\n" : '')
+                . "المحادثة اتوقف فيها البوت. تابعها من: " . site_url('crm/tasks');
+
+            $this->CI->load->helper('channel_send');
+            if ($wa !== '' && function_exists('channel_send_text')) {
+                @channel_send_text((int) $user_id, 'wa', $wa, $text);
+            }
+            if ($email !== '' && method_exists($this->CI, '_email_send_function')) {
+                @$this->CI->_email_send_function('', nl2br(htmlspecialchars($text)), $email, 'MonkeyBot: عميل محتاج تدخل بشري', '', '', (int) $user_id);
+            }
+        } catch (Exception $e) {
+            log_message('error', 'notify_handoff: ' . $e->getMessage());
+        }
     }
 }
