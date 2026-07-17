@@ -30,6 +30,7 @@ class Analytics_hub extends Home
         $data['funnel'] = $this->funnel($since);
         $data['top_missed'] = $this->top_missed($since);
         $data['deflection'] = $this->deflection($since);
+        $data['sales_kpis'] = $this->sales_kpis($since);
         $data['page_title'] = 'Analytics Hub';
         $data['body'] = 'admin/analytics_hub/index';
         $this->_viewcontroller($data);
@@ -179,6 +180,46 @@ class Analytics_hub extends Home
         $deflected = $missed + $blocked;
         $rate = $replies > 0 ? round($deflected / max($replies, $deflected) * 100, 1) : 0.0;
         return array('replies'=>$replies, 'missed'=>$missed, 'blocked'=>$blocked, 'deflected'=>$deflected, 'rate'=>$rate);
+    }
+
+    /**
+     * Sales KPIs (30d): the funnel conversions an owner actually cares about — chats that
+     * became leads, leads that closed, and how fast the bot answers.
+     */
+    private function sales_kpis($since)
+    {
+        $uid = $this->uid;
+        $chats = (int) ($this->db->query(
+            "SELECT COUNT(DISTINCT CONCAT(platform,'|',subscriber_id)) c FROM livechat_messages
+             WHERE user_id=? AND sender='user' AND conversation_time >= ?", array($uid, $since))->row()->c ?? 0);
+        $leads = (int) $this->db->from('crm_deals')->where('user_id',$uid)->where('created_at >=',$since)->count_all_results();
+        $won   = (int) $this->db->from('crm_deals')->where('user_id',$uid)->where('status','won')->where('created_at >=',$since)->count_all_results();
+        $won_value = (float) ($this->db->query(
+            "SELECT COALESCE(SUM(value),0) v FROM crm_deals WHERE user_id=? AND status='won' AND created_at >= ?", array($uid,$since))->row()->v ?? 0);
+
+        // median bot response time: gap between a customer message and the next bot reply
+        $rt = $this->db->query(
+            "SELECT TIMESTAMPDIFF(SECOND, u.conversation_time,
+                      (SELECT MIN(b.conversation_time) FROM livechat_messages b
+                        WHERE b.user_id=u.user_id AND b.subscriber_id=u.subscriber_id
+                          AND b.sender='bot' AND b.conversation_time > u.conversation_time)) secs
+             FROM livechat_messages u
+             WHERE u.user_id=? AND u.sender='user' AND u.conversation_time >= ?
+             HAVING secs IS NOT NULL AND secs BETWEEN 0 AND 600
+             ORDER BY secs LIMIT 500", array($uid, $since))->result_array();
+        $times = array_map(function($r){ return (int)$r['secs']; }, $rt);
+        sort($times);
+        $median = count($times) ? $times[intval(count($times)/2)] : null;
+
+        return array(
+            'chats'      => $chats,
+            'leads'      => $leads,
+            'won'        => $won,
+            'won_value'  => $won_value,
+            'chat_to_lead' => $chats > 0 ? round($leads / $chats * 100, 1) : 0.0,
+            'lead_to_won'  => $leads > 0 ? round($won / $leads * 100, 1) : 0.0,
+            'median_response_s' => $median,
+        );
     }
 
     // rough public price estimates (USD per 1M tokens: [input, output]) — estimates only

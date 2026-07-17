@@ -20,6 +20,16 @@
       <?php endforeach; ?>
     </div>
     <div class="row">
+      <?php $k = $sales_kpis;
+        $rt = $k['median_response_s'];
+        $rt_txt = $rt === null ? '—' : ($rt < 60 ? $rt.'s' : round($rt/60,1).'m'); ?>
+      <div class="col-lg-3 col-6"><div class="card card-statistic-1"><div class="card-icon bg-info"><i class="fas fa-comments"></i></div><div class="card-wrap"><div class="card-header"><h4>Chat &rarr; Lead</h4></div><div class="card-body"><?php echo $k['chat_to_lead']; ?>%</div></div></div></div>
+      <div class="col-lg-3 col-6"><div class="card card-statistic-1"><div class="card-icon bg-success"><i class="fas fa-trophy"></i></div><div class="card-wrap"><div class="card-header"><h4>Lead &rarr; Won</h4></div><div class="card-body"><?php echo $k['lead_to_won']; ?>%</div></div></div></div>
+      <div class="col-lg-3 col-6"><div class="card card-statistic-1"><div class="card-icon bg-primary"><i class="fas fa-hand-holding-usd"></i></div><div class="card-wrap"><div class="card-header"><h4>Won Value (30d)</h4></div><div class="card-body"><?php echo number_format($k['won_value']); ?></div></div></div></div>
+      <div class="col-lg-3 col-6"><div class="card card-statistic-1"><div class="card-icon bg-warning"><i class="fas fa-stopwatch"></i></div><div class="card-wrap"><div class="card-header"><h4>Median Reply</h4></div><div class="card-body"><?php echo $rt_txt; ?></div></div></div></div>
+    </div>
+
+    <div class="row">
       <div class="col-12">
         <div class="card">
           <div class="card-header"><h4><i class="fas fa-filter"></i> Sales Funnel (30d): Conversations &rarr; Leads &rarr; Won</h4></div>
