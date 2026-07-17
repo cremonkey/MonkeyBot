@@ -7433,6 +7433,18 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
 
             $verdict = ai_verify_price_grounding($user_id, $human, $response['choices'][0]['text'], $guard_source, $guard_context);
 
+            // The guard fails OPEN (returns 'unknown' on any error, reply untouched). That
+            // is safe for availability but means a silently-broken guard leaks bad prices
+            // with no alarm. Log 'unknown' verdicts so an outage is visible, not silent.
+            if ($verdict === 'unknown' && $this->db->table_exists('ai_price_guard_log')) {
+                @$this->basic->insert_data('ai_price_guard_log', array(
+                    'user_id' => $user_id, 'page_id' => (string) $page_id, 'social_media' => $social_media,
+                    'subscribe_id' => (string) $subscribe_id, 'question' => $human,
+                    'blocked_reply' => '', 'sent_reply' => $response['choices'][0]['text'],
+                    'verdict' => 'unknown', 'created_at' => date('Y-m-d H:i:s'),
+                ));
+            }
+
             if ($verdict === 'ungrounded') {
                 $guard_blocked = true;
                 $blocked = $response['choices'][0]['text'];
