@@ -87,8 +87,8 @@ if (!function_exists('ai_extract_url_text')) {
             CURLOPT_TIMEOUT => 30,
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; MonkeyBot/1.0; +https://bot.cremonkey.com)',
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
         ));
         $html = curl_exec($ch);
         $http_code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
