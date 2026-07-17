@@ -15,7 +15,21 @@ class Webchat extends Home
         parent::__construct();
         $seg = $this->uri->segment(2);
         $public = array('widget', 'send', 'poll');
-        if (!in_array($seg, $public)) {
+        if (in_array($seg, $public)) {
+            // The widget is embedded on the customer's OWN site (a different origin), so
+            // the browser blocks send/poll unless we allow cross-origin. Without this the
+            // message "sends" (shows in the box) but the reply never arrives and nothing
+            // reaches the server — exactly the "widget loads but doesn't reply" symptom.
+            // Any origin is fine: the widget_key is the credential, not the origin.
+            header('Access-Control-Allow-Origin: *');
+            header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
+            header('Access-Control-Allow-Headers: Content-Type');
+            header('Access-Control-Max-Age: 86400');
+            if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') { // browser preflight
+                $this->output->set_status_header(204);
+                exit;
+            }
+        } else {
             if ($this->session->userdata('logged_in') != 1) redirect('home/login_page', 'location');
             $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
         }
