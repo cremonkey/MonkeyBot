@@ -6,8 +6,15 @@ require_once("Home.php");
 /**
  * Cron hub — scheduled sales automation. Hit every 5 minutes:
  *   curl http://127.0.0.1/cron_hub/run
- * Public endpoint (same pattern as webhooks / tiktok cron); every job is
- * idempotent so overlapping or repeated hits are safe.
+ *
+ * Runs under a MariaDB advisory lock (GET_LOCK): jobs are NOT all idempotent (the
+ * external-CRM drain and the message senders can double-fire on overlapping runs), and
+ * runs routinely exceed 5 min because ignore_user_abort keeps PHP going past the curl
+ * timeout. The lock makes a second concurrent tick a no-op.
+ *
+ * Optionally protected by a shared secret: set config 'cron_secret' and pass ?key=... .
+ * When no secret is configured the endpoint stays open (backwards compatible), but the
+ * cron file passes the key when one is set.
  *
  * Jobs:
  *  - follow-ups: one nudge per silent conversation, inside Meta's 24h window
@@ -22,16 +29,37 @@ class Cron_hub extends Home
         $this->load->helper(array('channel_send', 'secret'));
     }
 
+    /** Optional shared-secret gate. No secret configured -> open (unchanged behaviour). */
+    private function _authorized()
+    {
+        $secret = (string) $this->config->item('cron_secret');
+        if ($secret === '') return true;
+        return hash_equals($secret, (string) $this->input->get('key', true));
+    }
+
     public function run()
     {
-        $out = array();
-        $out['followups'] = $this->_run_followups();
-        $out['coupon_reminders'] = $this->_run_coupon_reminders();
-        $out['digest'] = $this->_run_digest();
-        $out['reengage'] = $this->_run_reengage();
-        $out['external_crm'] = $this->_run_external_crm();
-        $out['deflect_alerts'] = $this->_run_deflect_alerts();
-        echo json_encode($out) . "\n";
+        if (!$this->_authorized()) { $this->output->set_status_header(403); echo 'forbidden'; return; }
+
+        // Advisory lock: bail immediately if another run is still going, so overlapping
+        // ticks can't double-send leads/follow-ups/digests.
+        $got = $this->db->query("SELECT GET_LOCK('monkeybot_cron_hub', 0) AS l")->row();
+        if (empty($got) || (int) $got->l !== 1) {
+            echo json_encode(array('skipped' => 'another run in progress')) . "\n";
+            return;
+        }
+        try {
+            $out = array();
+            $out['followups'] = $this->_run_followups();
+            $out['coupon_reminders'] = $this->_run_coupon_reminders();
+            $out['digest'] = $this->_run_digest();
+            $out['reengage'] = $this->_run_reengage();
+            $out['external_crm'] = $this->_run_external_crm();
+            $out['deflect_alerts'] = $this->_run_deflect_alerts();
+            echo json_encode($out) . "\n";
+        } finally {
+            $this->db->query("SELECT RELEASE_LOCK('monkeybot_cron_hub')");
+        }
     }
 
     /**

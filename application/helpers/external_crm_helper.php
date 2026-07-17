@@ -246,10 +246,25 @@ if (!function_exists('xcrm_drain')) {
         $out = array('sent' => 0, 'failed' => 0, 'retry' => 0);
         if (!$ci->db->table_exists('crm_external_log')) return $out;
 
-        $rows = $ci->db->from('crm_external_log')
-            ->where('status', 'pending')
-            ->group_start()->where('next_attempt_at <=', date('Y-m-d H:i:s'))->or_where('next_attempt_at', null)->group_end()
-            ->order_by('id', 'ASC')->limit((int) $limit)->get()->result_array();
+        // Recover rows stuck in 'processing' from a drain that died mid-flight. Claim sets
+        // next_attempt_at = claim time, so a processing row older than 10 min was orphaned.
+        $ci->db->where('status', 'processing')->where('next_attempt_at <', date('Y-m-d H:i:s', time() - 600))
+            ->set('status', 'pending')->set('error', null)->update('crm_external_log');
+
+        // Claim rows atomically before sending: flip pending -> processing on exactly the
+        // rows we'll handle (stamping next_attempt_at = now as the claim time), then read
+        // back only what THIS drain claimed. Two overlapping drains can't both pick the
+        // same lead and double-POST it. (The cron GET_LOCK already prevents overlap; this
+        // is defense-in-depth and also covers a manual backfill running with the cron.)
+        $now = date('Y-m-d H:i:s');
+        $claim = mb_substr(md5(uniqid('xd', true)), 0, 16);
+        $ci->db->where('status', 'pending')
+            ->group_start()->where('next_attempt_at <=', $now)->or_where('next_attempt_at', null)->group_end()
+            ->order_by('id', 'ASC')->limit((int) $limit)
+            ->set('status', 'processing')->set('error', $claim)->set('next_attempt_at', $now)
+            ->update('crm_external_log');
+        $rows = $ci->db->from('crm_external_log')->where('status', 'processing')->where('error', $claim)
+            ->order_by('id', 'ASC')->get()->result_array();
         if (empty($rows)) return $out;
 
         $tokens = array();   // one token per user per drain
