@@ -7368,8 +7368,38 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
         }
 
         $this->load->library('Ai_provider');
+        if (!empty($completion_overrides['tools_context'])) {   // reset per-reply lead flag
+            $this->load->library('Ai_tools');
+            $this->ai_tools->saved_lead = false;
+        }
         $response = $this->ai_provider->completion($api_info[0], $messages, $completion_overrides);
         $response = json_decode($response, true);
+
+        // SPEC-30: deterministic lead-capture backstop. The model sometimes just
+        // acknowledges a shared phone/email in prose ("thanks for your number, the
+        // team will contact you") without calling save_lead_to_crm, silently losing
+        // the lead. If the customer's own message carries contact details and no lead
+        // was saved this turn, capture it here. Fails open — never blocks the reply.
+        if (!empty($completion_overrides['tools_context']) && empty($this->ai_tools->saved_lead)) {
+            $bs_phone = ''; $bs_email = '';
+            if (preg_match('/[\w.+-]+@[\w-]+\.[\w][\w.-]*[\w]/u', (string) $human, $em)) $bs_email = $em[0];
+            if (preg_match_all('/\+?\d[\d\s\-]{7,}\d/u', (string) $human, $ms)) {
+                foreach ($ms[0] as $cand) {
+                    $d = preg_replace('/\D+/', '', $cand);
+                    if (strlen($d) >= 10 && strlen($d) <= 15) { $bs_phone = $d; break; }
+                }
+            }
+            if ($bs_phone !== '' || $bs_email !== '') {
+                $this->load->library('Ai_tools');
+                @$this->ai_tools->execute('save_lead_to_crm', array(
+                    'phone'               => $bs_phone,
+                    'email'               => $bs_email,
+                    'request_summary'     => mb_substr(trim((string) $human), 0, 200),
+                    'conversation_status' => 'Captured automatically — customer shared contact details; the model replied without calling the tool.',
+                ), $completion_overrides['tools_context']);
+                log_message('error', 'LEADBACKSTOP saved lead from '.$social_media.' (phone='.$bs_phone.' email='.$bs_email.')');
+            }
+        }
 
         // SPEC-04: extract + strip sentiment marker so the reply returned to callers never contains it
         $detected_sentiment = null;

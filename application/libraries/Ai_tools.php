@@ -12,6 +12,11 @@ class Ai_tools
 {
     protected $CI;
 
+    /** Set true by t_save_lead when a lead is actually written this reply. Lets the
+     *  reply engine tell whether the model already captured the lead, so its
+     *  deterministic backstop doesn't need to (reset per reply by the caller). */
+    public $saved_lead = false;
+
     public function __construct()
     {
         $this->CI =& get_instance();
@@ -395,6 +400,7 @@ class Ai_tools
             ));
             $result = 'Lead saved to the CRM (deal #'.$deal_id.'). Tell the customer the team will contact them soon.';
         }
+        $this->saved_lead = true;
 
         $details = array();
         if ($name !== '')  $details[] = 'Name: '.$name;
