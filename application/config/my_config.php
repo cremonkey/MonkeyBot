@@ -8,7 +8,7 @@
   'institute_address2' => '',
   'institute_email' => '',
   'institute_mobile' => '',
-  'time_zone' => 'Europe/Dublin',
+  'time_zone' => 'UTC',
   'language' => 'english',
   'facebook_poster_image_upload_limit' => '2',
   'facebook_poster_video_upload_limit' => '15',

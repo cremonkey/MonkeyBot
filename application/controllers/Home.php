@@ -519,9 +519,15 @@ class Home extends CI_Controller
 
     public function _time_zone_set()
     {
+        // Default to UTC so PHP date()/strtotime() agree with MySQL NOW()/UTC_TIMESTAMP().
+        // The old default was Europe/Dublin — an accidental fallback, not a choice — which
+        // put every PHP-written timestamp +1h ahead of MySQL in summer: follow-ups fired
+        // an hour late and the 23h Meta-window margin collapsed to 24h (rejected sends).
+        // Customer-facing local time is injected explicitly (Africa/Cairo) where needed, so
+        // it is unaffected. A tenant can still override via config 'time_zone'.
         $time_zone = $this->config->item('time_zone');
         if ($time_zone == '') {
-            $time_zone = "Europe/Dublin";
+            $time_zone = 'UTC';
         }
         date_default_timezone_set($time_zone);
     }
