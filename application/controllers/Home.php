@@ -7083,6 +7083,16 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             return ['status' => '0', 'message' => 'OpenAI configuration not found.'];
         }
 
+        // Image messages: the attachment URL used to arrive as $human and got fed to a
+        // text model as if it were the customer's words, producing a confused reply. We
+        // don't pass the URL to vision (Facebook's signed URLs are often not fetchable by
+        // the model and would fail the whole reply); instead we hand the model a clear
+        // note so it acknowledges the image and moves the sale forward.
+        if (is_string($human) && preg_match('#^\s*https?://\S+$#i', (string) $human)
+            && preg_match('#\.(?:jpg|jpeg|png|gif|webp|bmp)(?:\?|$)#i', (string) $human . ' ')) {
+            $human = '[العميل بعت صورة. رحّب بيها بإيجاز، واطلب منه يوضّح باختصار عايز إيه بخصوص الصورة دي (منتج/مكان/سعر) عشان تقدر تساعده، من غير ما تدّعي إنك شوفت تفاصيلها.]';
+        }
+
         // SPEC-18: if a per-channel AI agent profile is assigned, overlay its behaviour
         // knobs onto the account config (keys + provider stay from the account).
         //
