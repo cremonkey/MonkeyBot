@@ -43,8 +43,21 @@
                   <label class="custom-switch mt-1"><input type="checkbox" name="sentiment_enabled" id="p_sent" value="1" class="custom-switch-input"><span class="custom-switch-indicator"></span><span class="custom-switch-description">Sentiment</span></label>
                   <label class="custom-switch mt-1"><input type="checkbox" name="ai_tools_enabled" id="p_tools" value="1" class="custom-switch-input"><span class="custom-switch-indicator"></span><span class="custom-switch-description">AI actions (tools)</span></label>
                 </div>
-                <div class="card-footer"><button class="btn btn-primary"><i class="fas fa-save"></i> Save Profile</button> <button type="button" class="btn btn-light" onclick="crmResetForm()">Clear</button></div>
+                <div class="card-footer">
+                  <button class="btn btn-primary"><i class="fas fa-save"></i> Save Profile</button>
+                  <button type="button" class="btn btn-light" onclick="crmResetForm()">Clear</button>
+                  <small class="d-block text-muted mt-1">Saving also updates this agent's Messenger/Instagram templates automatically.</small>
+                </div>
               </form>
+              <div class="card-body border-top">
+                <label><i class="fas fa-vial"></i> Test before saving</label>
+                <div class="input-group">
+                  <input id="p_test_msg" class="form-control" placeholder="Type a customer message, e.g. الداي يوز بكام؟">
+                  <div class="input-group-append"><button type="button" id="p_test_btn" class="btn btn-info">Test</button></div>
+                </div>
+                <div id="p_test_out" class="mt-2" style="font-size:13px;white-space:pre-line;"></div>
+                <small class="text-muted">Runs the currently typed prompt against the model — no save, no history. A quick preview of the brand voice and answers.</small>
+              </div>
             </div>
           </div>
           <div class="col-lg-7">
@@ -129,4 +142,21 @@ function crmEdit(p,copy){
   document.getElementById('p_tools').checked=p.ai_tools_enabled=='1';
   window.scrollTo(0,0);
 }
+document.getElementById('p_test_btn').addEventListener('click',function(){
+  var out=document.getElementById('p_test_out'), b=this;
+  var msg=document.getElementById('p_test_msg').value.trim();
+  if(!msg){out.textContent='Type a test message first.';return;}
+  b.disabled=true; out.textContent='Thinking…';
+  var fd=new FormData();
+  fd.append('csrf_token','<?php echo $tk; ?>');
+  fd.append('message',msg);
+  fd.append('agent_name',document.getElementById('p_agent_name').value);
+  fd.append('instruction_to_ai',document.getElementById('p_instruction').value);
+  fd.append('sales_system_prompt',document.getElementById('p_salesprompt').value);
+  fetch('<?php echo base_url('ai_agents/preview'); ?>',{method:'POST',body:fd}).then(r=>r.json()).then(function(r){
+    b.disabled=false;
+    if(r.status=='1'){out.innerHTML='<b>Bot:</b> '+(r.reply||'').replace(/</g,'&lt;')+'<br><small class="text-muted">prompt '+r.chars+' chars</small>';}
+    else{out.textContent=r.message||'Preview failed';}
+  }).catch(function(){b.disabled=false;out.textContent='Preview failed';});
+});
 </script>
