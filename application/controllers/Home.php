@@ -7157,8 +7157,24 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                 . implode("\n\n", $bot_context);
         }
 
+        // Campaign layer. When a profile is assigned, the channel template's AI-node text
+        // ($description) is a SYNCED COPY of the profile's sales_system_prompt — so it would
+        // be injected a second time (already the BOT-SPECIFIC layer above) and, when stale,
+        // it's the copy that silently overrode the fixed profile. Skip it when it merely
+        // duplicates the profile; keep it only when it's a genuine per-campaign instruction
+        // (no profile, or text the profile doesn't already contain). This makes the profile
+        // the single source of truth and neutralises the stale-copy class of bug at runtime.
         if (!empty($description) && trim($description) !== '') {
-            $layers[] = "--- CAMPAIGN INSTRUCTIONS (apply within the scope above) ---\n" . trim($description);
+            $desc_trim = trim($description);
+            $is_dup_of_profile = false;
+            if (!empty($ai_profile)) {
+                foreach (array($ai_profile['sales_system_prompt'] ?? '', $ai_profile['instruction_to_ai'] ?? '') as $pt) {
+                    if ($pt !== '' && trim((string) $pt) === $desc_trim) { $is_dup_of_profile = true; break; }
+                }
+            }
+            if (!$is_dup_of_profile) {
+                $layers[] = "--- CAMPAIGN INSTRUCTIONS (apply within the scope above) ---\n" . $desc_trim;
+            }
         }
 
         // SPEC-25: answers the team added from Missed Questions. One store, injected live,
