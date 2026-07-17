@@ -123,12 +123,34 @@ class Webchat extends Home
         return empty($s) ? null : $s[0];
     }
 
-    // ---- Public: rate limit helper ----
+    // ---- Public: rate limits ----
+    // The widget_key is public (embedded in the site JS), and each send() triggers a
+    // billable model call, so throttle at three levels: per session, per client IP, and
+    // per tenant. A tenant-wide cap alone let one script drain the OpenAI budget and lock
+    // out every real visitor to the widget.
     private function rate_ok($user_id)
     {
-        $cnt = (int) $this->db->from('livechat_messages')->where('user_id',$user_id)->where('platform','web')
-            ->where('sender','user')->where('conversation_time >=', date('Y-m-d H:i:s', strtotime('-1 minute')))->count_all_results();
-        return $cnt < 20;
+        $since = date('Y-m-d H:i:s', strtotime('-1 minute'));
+        $tenant = (int) $this->db->from('livechat_messages')->where('user_id',$user_id)->where('platform','web')
+            ->where('sender','user')->where('conversation_time >=', $since)->count_all_results();
+        return $tenant < 40;   // tenant/min
+    }
+
+    private function session_rate_ok($session_key)
+    {
+        $since = date('Y-m-d H:i:s', strtotime('-1 minute'));
+        $cnt = (int) $this->db->from('livechat_messages')->where('subscriber_id',$session_key)->where('platform','web')
+            ->where('sender','user')->where('conversation_time >=', $since)->count_all_results();
+        return $cnt < 12;   // per session/min — one human can't type this fast
+    }
+
+    private function ip_rate_ok()
+    {
+        if (!$this->db->field_exists('ip', 'webchat_sessions')) return true;
+        $since = date('Y-m-d H:i:s', strtotime('-1 minute'));
+        $sessions = $this->db->from('webchat_sessions')->where('ip', $this->input->ip_address())
+            ->where('last_activity >=', $since)->count_all_results();
+        return $sessions < 8;   // distinct new sessions per IP/min
     }
 
     // ---- Public: widget bootstrap JS ----
@@ -173,15 +195,31 @@ JS;
         $key = $this->input->post('widget_key', true);
         $s = $this->settings_by_key($key);
         if (!$s) { echo json_encode(['error'=>'invalid']); return; }
-        if (!$this->rate_ok($s['user_id'])) { echo json_encode(['error'=>'rate']); return; }
         $sk = $this->input->post('session_key', true);
+        $has_ip = $this->db->field_exists('ip', 'webchat_sessions');
+
+        // Three-tier throttle (see rate helpers). Order cheapest-first.
+        if (!$this->ip_rate_ok())                        { echo json_encode(['error'=>'rate']); return; }
+        if (!empty($sk) && !$this->session_rate_ok($sk)) { echo json_encode(['error'=>'rate']); return; }
+        if (!$this->rate_ok($s['user_id']))              { echo json_encode(['error'=>'rate']); return; }
+
         $message = trim((string)$this->input->post('message', true));
         if ($message === '') { echo json_encode(['error'=>'empty']); return; }
+        if (mb_strlen($message) > 2000) $message = mb_substr($message, 0, 2000);   // cap stored/model input
 
         if (empty($sk)) {
             $sk = 'web_'.substr(md5(uniqid('', true)), 0, 24);
-            $this->basic->insert_data('webchat_sessions', array('user_id'=>$s['user_id'], 'session_key'=>$sk, 'page_url'=>substr((string)$this->input->post('page_url', true),0,255), 'created_at'=>date('Y-m-d H:i:s'), 'last_activity'=>date('Y-m-d H:i:s')));
+            $row = array('user_id'=>$s['user_id'], 'session_key'=>$sk, 'page_url'=>substr((string)$this->input->post('page_url', true),0,255), 'created_at'=>date('Y-m-d H:i:s'), 'last_activity'=>date('Y-m-d H:i:s'));
+            if ($has_ip) { $row['ip'] = $this->input->ip_address(); $row['widget_key'] = $key; }
+            $this->basic->insert_data('webchat_sessions', $row);
         } else {
+            // Bind the session to its widget: reject a session_key that belongs to a
+            // different widget/tenant (stops cross-widget conversation reads).
+            if ($has_ip) {
+                $own = $this->db->from('webchat_sessions')->where('session_key',$sk)->where('widget_key',$key)->count_all_results();
+                $exists = $this->db->from('webchat_sessions')->where('session_key',$sk)->count_all_results();
+                if ($exists && !$own) { echo json_encode(['error'=>'invalid']); return; }
+            }
             $this->db->where('session_key',$sk)->update('webchat_sessions', array('last_activity'=>date('Y-m-d H:i:s')));
         }
 
