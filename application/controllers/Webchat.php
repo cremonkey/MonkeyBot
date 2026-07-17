@@ -214,11 +214,19 @@ JS;
             $this->basic->insert_data('webchat_sessions', $row);
         } else {
             // Bind the session to its widget: reject a session_key that belongs to a
-            // different widget/tenant (stops cross-widget conversation reads).
+            // *different* widget/tenant (stops cross-widget conversation reads). A legacy
+            // session whose widget_key is still NULL (created before the multi-widget
+            // migration) is adopted into this widget rather than locked out.
             if ($has_ip) {
-                $own = $this->db->from('webchat_sessions')->where('session_key',$sk)->where('widget_key',$key)->count_all_results();
-                $exists = $this->db->from('webchat_sessions')->where('session_key',$sk)->count_all_results();
-                if ($exists && !$own) { echo json_encode(['error'=>'invalid']); return; }
+                $sess = $this->db->select('widget_key')->from('webchat_sessions')->where('session_key',$sk)->get()->row_array();
+                if ($sess) {
+                    if (!empty($sess['widget_key']) && $sess['widget_key'] !== $key) {
+                        echo json_encode(['error'=>'invalid']); return;
+                    }
+                    if (empty($sess['widget_key'])) {
+                        $this->db->where('session_key',$sk)->update('webchat_sessions', array('widget_key'=>$key));
+                    }
+                }
             }
             $this->db->where('session_key',$sk)->update('webchat_sessions', array('last_activity'=>date('Y-m-d H:i:s')));
         }
