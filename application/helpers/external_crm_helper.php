@@ -29,6 +29,11 @@ if (!function_exists('xcrm_get_config')) {
         if (!$ci->db->table_exists('crm_external_config')) return null;
         $row = $ci->db->from('crm_external_config')->where('user_id', (int) $user_id)->get()->row_array();
         if (empty($row) || $row['status'] !== '1') return null;
+        // decrypt at-rest secrets (transparent for legacy plaintext values)
+        $ci->load->helper('secret');
+        foreach (array('client_secret', 'password') as $sf) {
+            if (!empty($row[$sf])) $row[$sf] = secret_decrypt($row[$sf]);
+        }
         foreach (array('base_url', 'client_id', 'client_secret', 'username', 'password', 'form_id') as $f) {
             if (empty($row[$f])) return null;
         }

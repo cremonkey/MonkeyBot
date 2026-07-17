@@ -29,6 +29,34 @@ class Cron_hub extends Home
         $this->load->helper(array('channel_send', 'secret'));
     }
 
+    /** One-time CLI maintenance: encrypt CRM secrets written before at-rest encryption
+     *  was wired. Idempotent (skips values already 'enc::'). Run once, then it's dead code.
+     *  php index.php cron_hub encrypt_crm_secrets */
+    public function encrypt_crm_secrets()
+    {
+        if (!is_cli()) { show_404(); return; }
+        $this->load->helper('secret');
+        $done = 0;
+        if ($this->db->table_exists('crm_external_config')) {
+            foreach ($this->db->from('crm_external_config')->get()->result_array() as $r) {
+                $u = array();
+                foreach (array('client_secret', 'password') as $f) {
+                    if (!empty($r[$f]) && strpos($r[$f], 'enc::') !== 0) $u[$f] = secret_encrypt($r[$f]);
+                }
+                if ($u) { $this->db->where('id', $r['id'])->update('crm_external_config', $u); $done++; }
+            }
+        }
+        if ($this->db->table_exists('crm_sheet_config')) {
+            foreach ($this->db->from('crm_sheet_config')->get()->result_array() as $r) {
+                if (!empty($r['service_account_json']) && strpos($r['service_account_json'], 'enc::') !== 0) {
+                    $this->db->where('id', $r['id'])->update('crm_sheet_config', array('service_account_json' => secret_encrypt($r['service_account_json'])));
+                    $done++;
+                }
+            }
+        }
+        echo "encrypted {$done} config row(s)\n";
+    }
+
     /** Optional shared-secret gate. No secret configured -> open (unchanged behaviour). */
     private function _authorized()
     {

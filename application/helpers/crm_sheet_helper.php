@@ -23,6 +23,9 @@ if (!function_exists('crm_sheet_get_config')) {
         $row = $ci->db->from('crm_sheet_config')->where('user_id', (int) $user_id)->get()->row_array();
         if (empty($row) || $row['status'] !== '1') return null;
         if (empty($row['service_account_json']) || empty($row['spreadsheet_id'])) return null;
+        // decrypt the service-account key at rest (transparent for legacy plaintext)
+        $ci->load->helper('secret');
+        $row['service_account_json'] = secret_decrypt($row['service_account_json']);
         return $row;
     }
 }

@@ -191,7 +191,8 @@ class Crm extends Home
             : null;
         $sa_email = '';
         if (!empty($config['service_account_json'])) {
-            $sa = crm_sheet_parse_sa($config['service_account_json']);
+            $this->load->helper('secret');
+            $sa = crm_sheet_parse_sa(secret_decrypt($config['service_account_json']));
             $sa_email = $sa['client_email'] ?? '';
         }
         $data['config'] = $config;
@@ -217,11 +218,15 @@ class Crm extends Home
 
         $existing = $this->db->from('crm_sheet_config')->where('user_id', $this->uid)->get()->row_array();
 
-        // blank JSON on an existing config means "keep the stored key"
+        // blank JSON on an existing config means "keep the stored key" (already encrypted,
+        // so keep it verbatim — don't re-validate/re-encrypt it). A freshly pasted key is
+        // validated as plaintext, then encrypted for storage.
+        $this->load->helper('secret');
+        $keep_stored = false;
         if ($sa_json === '' && !empty($existing['service_account_json'])) {
-            $sa_json = $existing['service_account_json'];
-        }
-        if ($sa_json !== '' && !crm_sheet_parse_sa($sa_json)) {
+            $sa_stored = $existing['service_account_json'];
+            $keep_stored = true;
+        } elseif ($sa_json !== '' && !crm_sheet_parse_sa($sa_json)) {
             echo json_encode(['status' => '0', 'message' => 'Invalid service account JSON (needs type=service_account, client_email, private_key).']);
             return;
         }
@@ -231,7 +236,7 @@ class Crm extends Home
         }
 
         $fields = array(
-            'service_account_json' => $sa_json,
+            'service_account_json' => $keep_stored ? $sa_stored : ($sa_json !== '' ? secret_encrypt($sa_json) : ''),
             'spreadsheet_id'       => $spreadsheet_id,
             'sheet_tab'            => $sheet_tab,
             'status'               => $status,
@@ -338,9 +343,12 @@ class Crm extends Home
             'default_country_code' => strip_tags((string)$this->input->post('default_country_code', true)) ?: 'EG',
             'status' => $this->input->post('status', true) == '1' ? '1' : '0',
         );
-        // never blank a stored secret/password on an edit that leaves the field empty
+        // never blank a stored secret/password on an edit that leaves the field empty;
+        // encrypt the ones we do write (transparent no-op until a strong key is set)
+        $this->load->helper('secret');
         foreach (array('client_secret', 'password') as $secret) {
             if ($fields[$secret] === '') unset($fields[$secret]);
+            else $fields[$secret] = secret_encrypt($fields[$secret]);
         }
         $exists = $this->db->from('crm_external_config')->where('user_id', $this->uid)->count_all_results();
         if ($exists) {
