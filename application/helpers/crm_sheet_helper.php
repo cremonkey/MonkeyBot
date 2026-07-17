@@ -193,6 +193,42 @@ if (!function_exists('crm_sheet_append_lead')) {
      *
      * $lead keys: source, name, phone, email, summary, deal_id, lead_status
      */
+    /**
+     * Enqueue a lead for the Google Sheet instead of appending inline. The sheet append
+     * makes 15s+ HTTPS calls (JWT + values:append); doing it on the customer's reply path
+     * stalled every lead-capturing message. Cron_hub's drain settles it (provider=gsheet),
+     * reusing the external-CRM queue's claiming + retry. No-op when the sheet is unconfigured.
+     */
+    function crm_sheet_enqueue_lead($user_id, $lead)
+    {
+        $ci = &get_instance();
+        try {
+            if (!crm_sheet_get_config($user_id)) return false;               // not configured -> nothing to do
+            if (!$ci->db->table_exists('crm_external_log')) return false;
+            if (!empty($lead['deal_id'])) {
+                $dup = $ci->db->from('crm_external_log')->where('user_id', (int) $user_id)
+                    ->where('deal_id', (int) $lead['deal_id'])->where('provider', 'gsheet')
+                    ->where_in('status', array('pending', 'processing', 'sent'))->count_all_results();
+                if ($dup > 0) return false;
+            }
+            $ci->db->insert('crm_external_log', array(
+                'user_id'         => (int) $user_id,
+                'deal_id'         => !empty($lead['deal_id']) ? (int) $lead['deal_id'] : null,
+                'provider'        => 'gsheet',
+                'status'          => 'pending',
+                'attempts'        => 0,
+                'next_attempt_at' => date('Y-m-d H:i:s'),
+                'payload'         => json_encode($lead, JSON_UNESCAPED_UNICODE),
+                'phone'           => mb_substr((string) ($lead['phone'] ?? ''), 0, 60),
+                'created_at'      => date('Y-m-d H:i:s'),
+            ));
+            return true;
+        } catch (Exception $e) {
+            log_message('error', 'crm_sheet_enqueue_lead: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     function crm_sheet_append_lead($user_id, $lead)
     {
         try {

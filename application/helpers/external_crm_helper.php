@@ -275,6 +275,19 @@ if (!function_exists('xcrm_drain')) {
         $tokens = array();   // one token per user per drain
         foreach ($rows as $row) {
             $user_id = (int) $row['user_id'];
+
+            // Google Sheet rows: append via the sheet helper (slow HTTPS, hence queued
+            // off the reply path) and settle the row here.
+            if (($row['provider'] ?? '') === 'gsheet') {
+                $ci->load->helper('crm_sheet');
+                $lead = json_decode((string) $row['payload'], true);
+                $ok = function_exists('crm_sheet_append_lead') && is_array($lead)
+                    ? (crm_sheet_append_lead($user_id, $lead) === true) : false;
+                if ($ok) { $ci->db->where('id', $row['id'])->update('crm_external_log', array('status'=>'sent','ok'=>'1','attempts'=>(int)$row['attempts']+1,'error'=>null)); $out['sent']++; }
+                else     { xcrm_defer($row, (int)$row['attempts']+1, 'sheet append failed', $out); }
+                continue;
+            }
+
             $config = xcrm_get_config($user_id);
             if (!$config) continue;
 

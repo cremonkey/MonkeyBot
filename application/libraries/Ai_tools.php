@@ -454,8 +454,8 @@ class Ai_tools
         // mirror the lead onto the user's Google Sheet, if configured
         if (file_exists(APPPATH.'helpers/crm_sheet_helper.php')) {
             $this->CI->load->helper('crm_sheet');
-            if (function_exists('crm_sheet_append_lead')) {
-                crm_sheet_append_lead($user_id, $mirror);
+            if (function_exists('crm_sheet_enqueue_lead')) {
+                crm_sheet_enqueue_lead($user_id, $mirror);   // queued, not inline — off the reply path
             }
         }
 
