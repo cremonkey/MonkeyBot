@@ -306,6 +306,95 @@ class Crm extends Home
         }
     }
 
+    public function external_settings()
+    {
+        $config = $this->db->table_exists('crm_external_config')
+            ? $this->db->from('crm_external_config')->where('user_id', $this->uid)->get()->row_array()
+            : null;
+        $data['config'] = $config;
+        $data['queue'] = array('pending' => 0, 'sent' => 0, 'failed' => 0);
+        if ($this->db->table_exists('crm_external_log')) {
+            foreach ($this->db->select('status, COUNT(*) c')->from('crm_external_log')->where('user_id', $this->uid)->group_by('status')->get()->result_array() as $r) {
+                $data['queue'][$r['status']] = (int) $r['c'];
+            }
+        }
+        $data['page_title'] = 'External CRM (8xCRM)';
+        $data['body'] = 'admin/crm/external_settings';
+        $this->_viewcontroller($data);
+    }
+
+    public function external_settings_save()
+    {
+        $this->csrf_token_check();
+        if (!$this->db->table_exists('crm_external_config')) { redirect('crm/external_settings'); return; }
+        $fields = array(
+            'provider' => '8xcrm',
+            'base_url' => rtrim(strip_tags((string)$this->input->post('base_url', true)), '/') ?: 'https://byootbay.8xcrm.com',
+            'client_id' => strip_tags((string)$this->input->post('client_id', true)),
+            'client_secret' => trim((string)$this->input->post('client_secret', true)),
+            'username' => trim((string)$this->input->post('username', true)),
+            'password' => (string)$this->input->post('password', true),
+            'form_id' => strip_tags((string)$this->input->post('form_id', true)),
+            'default_country_code' => strip_tags((string)$this->input->post('default_country_code', true)) ?: 'EG',
+            'status' => $this->input->post('status', true) == '1' ? '1' : '0',
+        );
+        // never blank a stored secret/password on an edit that leaves the field empty
+        foreach (array('client_secret', 'password') as $secret) {
+            if ($fields[$secret] === '') unset($fields[$secret]);
+        }
+        $exists = $this->db->from('crm_external_config')->where('user_id', $this->uid)->count_all_results();
+        if ($exists) {
+            $this->db->where('user_id', $this->uid)->update('crm_external_config', $fields);
+        } else {
+            $fields['user_id'] = $this->uid; $fields['created_at'] = date('Y-m-d H:i:s');
+            $this->basic->insert_data('crm_external_config', $fields);
+        }
+        // force a token refresh on the next push so bad creds surface fast
+        $this->db->where('user_id', $this->uid)->update('crm_external_config', array('access_token' => null, 'token_expires_at' => null));
+        $this->session->set_flashdata('success', 'External CRM settings saved');
+        redirect('crm/external_settings');
+    }
+
+    /**
+     * SPEC-23: enqueue existing deals to the external CRM (8xCRM). The cron drains the
+     * queue, so this is instant and safe to re-run — the per-deal dedupe in xcrm_store_lead
+     * means a deal already sent or queued is skipped.
+     */
+    public function external_crm_backfill()
+    {
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        $this->load->helper('external_crm');
+        if (!function_exists('xcrm_get_config') || !xcrm_get_config($this->uid)) {
+            echo json_encode(['status' => '0', 'message' => 'External CRM is not configured/enabled.']);
+            return;
+        }
+
+        $deals = $this->db->query(
+            "SELECT d.id, d.source, d.status,
+                    COALESCE(NULLIF(d.contact_name,''), NULLIF(TRIM(CONCAT(COALESCE(m.first_name,''),' ',COALESCE(m.last_name,''))),''), NULLIF(m.full_name,''), '') AS name,
+                    COALESCE(NULLIF(d.contact_phone,''), NULLIF(m.phone_number,''), '') AS phone,
+                    COALESCE(NULLIF(d.contact_email,''), NULLIF(m.email,''), '') AS email,
+                    (SELECT a.description FROM crm_activities a WHERE a.deal_id = d.id AND a.type='note' ORDER BY a.id ASC LIMIT 1) AS summary
+             FROM crm_deals d
+             LEFT JOIN messenger_bot_subscriber m ON m.id = d.subscriber_id
+             WHERE d.user_id = ? ORDER BY d.id ASC LIMIT 500", array($this->uid)
+        )->result_array();
+
+        $queued = 0; $skipped = 0;
+        foreach ($deals as $d) {
+            if (trim((string)$d['phone']) === '' && trim((string)$d['email']) === '') { $skipped++; continue; }
+            $ok = xcrm_store_lead($this->uid, array(
+                'source' => $d['source'], 'name' => $d['name'], 'phone' => $d['phone'],
+                'email' => $d['email'], 'summary' => (string) $d['summary'],
+                'note_full' => (string) $d['summary'], 'deal_id' => $d['id'],
+                'lead_status' => 'new',
+            ));
+            if ($ok) $queued++; else $skipped++;   // skipped includes already-queued/sent
+        }
+        echo json_encode(['status' => '1', 'message' => $queued . ' lead queued to the CRM (sent within a few minutes). ' . $skipped . ' skipped (already sent or no contact).']);
+    }
+
     public function create_deal_from_contact()
     {
         $this->csrf_token_check();

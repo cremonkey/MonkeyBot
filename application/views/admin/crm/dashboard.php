@@ -4,6 +4,7 @@
       <a href="<?php echo base_url('crm/pipeline'); ?>" class="btn btn-primary"><i class="fas fa-columns"></i> Pipeline</a>
       <a href="<?php echo base_url('crm/contacts'); ?>" class="btn btn-outline-primary"><i class="fas fa-users"></i> Contacts</a>
       <a href="<?php echo base_url('crm/sheet_settings'); ?>" class="btn btn-outline-success"><i class="fas fa-file-excel"></i> Google Sheet</a>
+      <a href="<?php echo base_url('crm/external_settings'); ?>" class="btn btn-outline-info"><i class="fas fa-people-arrows"></i> External CRM</a>
     </div>
   </div>
   <div class="section-body">
