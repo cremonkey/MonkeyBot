@@ -345,7 +345,13 @@ class Cron_hub extends Home
                     if (!empty($deal)) { $skipped++; continue; }
                 }
 
-                $message = $this->_followup_text($s, (string) $c['last_msg']);
+                // quote-aware: the highest-intent drop-off is a customer who got a price
+                // and went quiet. Pull the bot's last reply to this subscriber and, if it
+                // quoted a price, reference it instead of the generic nudge.
+                $last_bot = $this->db->select('ai_reply')->from('ai_conversation_history')
+                    ->where('user_id', $uid)->where('page_id', $c['page_id'])->where('subscribe_id', $c['subscribe_id'])
+                    ->order_by('id', 'DESC')->limit(1)->get()->row_array();
+                $message = $this->_followup_text($s, (string) $c['last_msg'], (string) ($last_bot['ai_reply'] ?? ''));
                 list($ok, $err) = channel_send_text($uid, $c['social_media'], $c['subscribe_id'], $message, (string) $c['page_id']);
 
                 $this->basic->insert_data('ai_followups', array(
@@ -365,9 +371,18 @@ class Cron_hub extends Home
      * Pick the follow-up text: custom template if set, else a default —
      * Arabic when the customer's last message contains Arabic letters.
      */
-    protected function _followup_text($settings, $last_msg)
+    protected function _followup_text($settings, $last_msg, $last_bot_reply = '')
     {
-        $is_arabic = preg_match('/[\x{0600}-\x{06FF}]/u', $last_msg);
+        $is_arabic = preg_match('/[\x{0600}-\x{06FF}]/u', $last_msg . ' ' . $last_bot_reply);
+        // If the bot's last reply quoted a price, this customer got a real quote and went
+        // quiet — the clearest lead to bring back. Reference the quote (without re-stating
+        // a possibly-stale number) instead of the generic nudge.
+        $quoted = $last_bot_reply !== '' && preg_match('/\d[\d,\.]{2,}\s*(?:جنيه|ج|EGP|جـ)|(?:جنيه|EGP)\s*\d/iu', $last_bot_reply);
+        if ($quoted) {
+            return $is_arabic
+                ? 'لسه مهتم بالعرض اللي اتكلمنا عنه؟ 😊 أقدر أظبطهولك أو أخلي فريق الحجوزات يتواصل معاك على الواتساب — تحب إيه؟'
+                : "Still interested in the offer we discussed? 😊 I can set it up, or have the reservations team reach you on WhatsApp — which do you prefer?";
+        }
         if ($is_arabic) {
             return trim((string) $settings['followup_message_ar']) !== ''
                 ? $settings['followup_message_ar']
