@@ -247,7 +247,9 @@ class Ai_knowledge_base extends Home
         $this->basic->insert_data('ai_knowledge_sources', $insert_data);
         $source_id = $this->db->insert_id();
 
-        $chunks = ai_chunk_text($text, 1000, 200);
+        // SPEC-29: semantic chunking via the model (strips nav boilerplate, keeps topics
+        // whole). Falls back to length-based chunking on any error, so upload never breaks.
+        $chunks = function_exists('ai_chunk_text_ai') ? ai_chunk_text_ai($text, $this->user_id) : ai_chunk_text($text, 1000, 200);
         $chunk_count = 0;
         if (!empty($chunks)) {
             $batch = array();

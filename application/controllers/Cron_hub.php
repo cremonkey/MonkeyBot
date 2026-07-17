@@ -68,6 +68,65 @@ class Cron_hub extends Home
         echo ($mode === 'baseline' ? 'baselined' : 'applied') . " {$done} migration(s)\n";
     }
 
+    /** CLI: re-chunk a KB source (or all) with the AI chunker and re-embed. Reprocesses
+     *  content already stored, replacing length-based chunks with clean semantic ones.
+     *  php index.php cron_hub rechunk_kb [source_id]   (omit id = all active sources) */
+    /* CLI KB retrieval probe (diagnostics only):
+     *  php index.php cron_hub kb_probe <user_id> <kb_page_id> <base64_query> */
+    public function kb_probe($user_id = 0, $kb_page_id = 0, $q_b64 = '')
+    {
+        if (!is_cli()) { show_404(); return; }
+        $this->load->helper('ai_knowledge');
+        $q = base64_decode(strtr((string) $q_b64, '-_', '+/'));  // url-safe base64
+        $ctx = ai_get_knowledge_context((int) $user_id, $q, (int) $kb_page_id, 5);
+        echo "Q: {$q}\n";
+        echo "ctx_len: " . mb_strlen((string) $ctx) . "\n";
+        echo "----\n" . mb_substr((string) $ctx, 0, 900) . "\n====\n";
+    }
+
+    public function rechunk_kb($source_id = 0)
+    {
+        if (!is_cli()) { show_404(); return; }
+        $this->load->helper('ai_knowledge');
+        if (!$this->db->table_exists('ai_knowledge_sources')) { echo "no KB tables\n"; return; }
+
+        $q = $this->db->from('ai_knowledge_sources')->where('status', 'active');
+        if ((int) $source_id > 0) $q->where('id', (int) $source_id);
+        $sources = $q->get()->result_array();
+
+        foreach ($sources as $s) {
+            $sid = (int) $s['id']; $uid = (int) $s['user_id'];
+            // reconstruct the source text from its current chunks (original not stored)
+            $rows = $this->db->select('chunk_text')->from('ai_knowledge_chunks')->where('source_id', $sid)
+                ->order_by('chunk_order', 'ASC')->get()->result_array();
+            $text = trim(implode("\n\n", array_map(function ($r) { return $r['chunk_text']; }, $rows)));
+            if ($text === '') { echo "source {$sid}: empty, skipped\n"; continue; }
+
+            $chunks = ai_chunk_text_ai($text, $uid);
+            if (empty($chunks)) { echo "source {$sid}: rechunk produced nothing, kept old\n"; continue; }
+
+            // swap chunks in a transaction: old chunks are only dropped if every new
+            // insert succeeds, so a mid-way failure can never leave the source empty.
+            $this->db->trans_start();
+            $this->db->where('source_id', $sid)->delete('ai_knowledge_chunks');
+            $order = 0;
+            foreach ($chunks as $c) {
+                $this->db->insert('ai_knowledge_chunks', array(
+                    'source_id' => $sid, 'chunk_text' => $c, 'chunk_order' => $order++,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ));
+            }
+            $this->db->where('id', $sid)->update('ai_knowledge_sources', array('total_chunks' => count($chunks)));
+            $this->db->trans_complete();
+            if ($this->db->trans_status() === FALSE) {
+                echo "source {$sid}: DB swap failed, rolled back, kept old\n"; continue;
+            }
+            if (function_exists('ai_embed_source_chunks')) ai_embed_source_chunks($sid, $uid);
+            echo "source {$sid}: " . count($rows) . " -> " . count($chunks) . " chunks, re-embedded\n";
+        }
+        echo "done\n";
+    }
+
     /** One-time CLI maintenance: encrypt CRM secrets written before at-rest encryption
      *  was wired. Idempotent (skips values already 'enc::'). Run once, then it's dead code.
      *  php index.php cron_hub encrypt_crm_secrets */

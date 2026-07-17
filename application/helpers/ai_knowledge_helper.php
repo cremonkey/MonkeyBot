@@ -245,6 +245,78 @@ if (!function_exists('ai_chunk_text')) {
     }
 }
 
+if (!function_exists('ai_chunk_text_ai')) {
+    /**
+     * SPEC-29: semantic chunking with a model. The length-based ai_chunk_text() cuts every
+     * ~1000 chars regardless of meaning and drags nav/menu boilerplate ("Skip to content",
+     * "Our Brands") into chunks, which pollutes retrieval. This asks gpt-4o-mini to split
+     * the text into clean, self-contained topic chunks and drop the boilerplate.
+     *
+     * Big inputs are pre-split into ~6k blocks so each model call is cheap and bounded.
+     * FAILS SAFE: any error (no key, network, bad JSON) returns ai_chunk_text()'s output,
+     * so upload never breaks — worst case you get the old length-based chunks.
+     */
+    function ai_chunk_text_ai($text = '', $user_id = 0)
+    {
+        $text = ai_normalize_text($text);
+        if ($text === '') return array();
+        $fallback = ai_chunk_text($text, 1000, 200);
+
+        $api_key = function_exists('ai_openai_key') ? ai_openai_key($user_id) : '';
+        if ($api_key === '') return $fallback;
+
+        // pre-split on paragraph boundaries into ~6k blocks
+        $blocks = array();
+        $buf = '';
+        foreach (preg_split('/\n{2,}/u', $text) as $para) {
+            if (mb_strlen($buf) + mb_strlen($para) > 6000 && $buf !== '') { $blocks[] = $buf; $buf = ''; }
+            $buf .= ($buf === '' ? '' : "\n\n") . $para;
+        }
+        if ($buf !== '') $blocks[] = $buf;
+        if (empty($blocks)) return $fallback;
+
+        $out = array();
+        foreach ($blocks as $block) {
+            $sys = "You clean and split website/document text into knowledge-base chunks for retrieval. "
+                . "Return ONLY a JSON array of strings. Each string is ONE self-contained topic (a service, a price list, a policy), 200-900 characters, readable on its own. "
+                . "REMOVE navigation/menu/footer boilerplate, cookie notices, 'skip to content', breadcrumbs, and repeated site chrome. Keep every real fact, price and detail. Do not summarise or translate — keep the original wording and language.";
+            $payload = json_encode(array(
+                'model' => AI_GUARD_MODEL, 'temperature' => 0,
+                'response_format' => array('type' => 'json_object'),
+                'messages' => array(
+                    array('role' => 'system', 'content' => $sys . " Wrap the array in an object: {\"chunks\": [...]}."),
+                    array('role' => 'user', 'content' => $block),
+                ),
+            ), JSON_UNESCAPED_UNICODE);
+
+            $ch = curl_init('https://api.openai.com/v1/chat/completions');
+            curl_setopt_array($ch, array(
+                CURLOPT_POST => true, CURLOPT_POSTFIELDS => $payload, CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 40, CURLOPT_CONNECTTIMEOUT => 8,
+                CURLOPT_HTTPHEADER => array('Content-Type: application/json', 'Authorization: Bearer ' . $api_key),
+            ));
+            $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+            if ($code !== 200) return $fallback;
+            $d = json_decode($raw, true);
+            $content = $d['choices'][0]['message']['content'] ?? '';
+            $parsed = json_decode($content, true);
+            $arr = is_array($parsed) && isset($parsed['chunks']) ? $parsed['chunks'] : (is_array($parsed) ? $parsed : null);
+            if (!is_array($arr)) return $fallback;
+            foreach ($arr as $c) {
+                // elements are usually plain strings, but the model sometimes wraps each in
+                // an object ({"text": "..."} / {"chunk": "..."}); coerce those to their text.
+                if (is_array($c)) {
+                    $c = $c['text'] ?? $c['chunk'] ?? $c['content'] ?? reset($c);
+                }
+                if (!is_string($c)) continue;
+                $c = ai_normalize_text($c);
+                if (mb_strlen($c) >= 40) $out[] = $c;
+            }
+        }
+        return empty($out) ? $fallback : $out;
+    }
+}
+
 /*
  * ---------------------------------------------------------------------------
  * Retrieval layer (SPEC-20): hybrid semantic + lexical search.
