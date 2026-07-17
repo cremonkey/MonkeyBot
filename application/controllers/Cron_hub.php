@@ -29,6 +29,45 @@ class Cron_hub extends Home
         $this->load->helper(array('channel_send', 'secret'));
     }
 
+    /**
+     * CLI migration runner: applies any .sql file in assets/backup_db/migrations/ not yet
+     * recorded in schema_migrations, in filename order, and records it. Idempotent — safe
+     * to run repeatedly; already-applied files are skipped. Replaces the previous ad-hoc
+     * "run the SQL by hand" process.
+     *   php index.php cron_hub migrate            (apply pending)
+     *   php index.php cron_hub migrate baseline   (mark ALL existing files as applied)
+     */
+    public function migrate($mode = '')
+    {
+        if (!is_cli()) { show_404(); return; }
+        $this->db->query("CREATE TABLE IF NOT EXISTS `schema_migrations` (
+            `filename` varchar(190) NOT NULL, `applied_at` datetime NOT NULL,
+            PRIMARY KEY (`filename`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $dir = FCPATH . 'assets/backup_db/migrations/';
+        $files = glob($dir . '*.sql');
+        sort($files);
+        $applied = array();
+        foreach ($this->db->from('schema_migrations')->get()->result_array() as $r) $applied[$r['filename']] = true;
+
+        $done = 0;
+        foreach ($files as $path) {
+            $name = basename($path);
+            if (isset($applied[$name])) continue;
+            if ($mode === 'baseline') {
+                $this->db->insert('schema_migrations', array('filename' => $name, 'applied_at' => date('Y-m-d H:i:s')));
+                echo "baselined {$name}\n"; $done++; continue;
+            }
+            $sql = file_get_contents($path);
+            foreach (array_filter(array_map('trim', preg_split('/;\s*[\r\n]/', $sql))) as $stmt) {
+                if ($stmt === '' || strpos($stmt, '--') === 0) continue;
+                try { $this->db->query($stmt); } catch (Exception $e) { echo "  ! {$name}: " . $e->getMessage() . "\n"; }
+            }
+            $this->db->insert('schema_migrations', array('filename' => $name, 'applied_at' => date('Y-m-d H:i:s')));
+            echo "applied {$name}\n"; $done++;
+        }
+        echo ($mode === 'baseline' ? 'baselined' : 'applied') . " {$done} migration(s)\n";
+    }
+
     /** One-time CLI maintenance: encrypt CRM secrets written before at-rest encryption
      *  was wired. Idempotent (skips values already 'enc::'). Run once, then it's dead code.
      *  php index.php cron_hub encrypt_crm_secrets */
