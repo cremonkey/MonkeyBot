@@ -80,13 +80,19 @@ class Whatsapp_bot extends Home
             if (empty($acc)) { echo json_encode(['ok'=>false]); return; }
             $acc = $acc[0];
             $raw_body = file_get_contents('php://input');
-            // review I1: verify Meta signature when an app secret is configured
+            // Verify Meta's signature — FAIL CLOSED. Without an app secret we can't tell a
+            // real Meta delivery from a forged POST, and a forged webhook can make the
+            // tenant's verified number send attacker-chosen messages and rack up AI cost.
+            // So: no app_secret configured -> reject (owner must set it). Bad signature ->
+            // reject. Only a valid signature is processed.
             $app_secret = isset($acc['app_secret']) && $acc['app_secret'] !== null ? secret_decrypt($acc['app_secret']) : '';
-            if ($app_secret !== '') {
-                $sig = isset($_SERVER['HTTP_X_HUB_SIGNATURE_256']) ? $_SERVER['HTTP_X_HUB_SIGNATURE_256'] : '';
-                $expected = 'sha256=' . hash_hmac('sha256', $raw_body, $app_secret);
-                if (!hash_equals($expected, (string)$sig)) { $this->output->set_status_header(403); echo json_encode(['ok'=>false]); return; }
+            if ($app_secret === '') {
+                log_message('error', 'Whatsapp_bot: webhook rejected — account ' . ($acc['id'] ?? '?') . ' has no app_secret configured (cannot verify Meta signature).');
+                $this->output->set_status_header(403); echo json_encode(['ok'=>false, 'reason'=>'app_secret not configured']); return;
             }
+            $sig = isset($_SERVER['HTTP_X_HUB_SIGNATURE_256']) ? $_SERVER['HTTP_X_HUB_SIGNATURE_256'] : '';
+            $expected = 'sha256=' . hash_hmac('sha256', $raw_body, $app_secret);
+            if (!hash_equals($expected, (string)$sig)) { $this->output->set_status_header(403); echo json_encode(['ok'=>false]); return; }
             $token = secret_decrypt($acc['access_token']);
             $body = json_decode($raw_body, true);
             $entries = $body['entry'] ?? array();
