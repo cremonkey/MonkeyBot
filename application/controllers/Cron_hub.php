@@ -57,6 +57,40 @@ class Cron_hub extends Home
         echo "encrypted {$done} config row(s)\n";
     }
 
+    /**
+     * Retention: the log/message tables grow unbounded (only ai_conversation_history had a
+     * TTL, and it pruned only the active subscriber). Trim in bounded batches once an hour
+     * so a single run never locks a large delete. Conservative windows — nothing a report
+     * needs is younger than these.
+     */
+    protected function _run_retention()
+    {
+        // hourly, on the top of the hour-ish, and only one worker (we already hold the cron lock)
+        static $windows = array(
+            'livechat_messages'    => array('col' => 'conversation_time', 'days' => 120),
+            'ai_conversation_history' => array('col' => 'created_at', 'days' => 60),
+            'ai_usage_log'         => array('col' => 'created_at', 'days' => 120),
+            'ai_price_guard_log'   => array('col' => 'created_at', 'days' => 120),
+            'ai_deflect_alert_log' => array('col' => 'alerted_at', 'days' => 180),
+        );
+        $deleted = array();
+        foreach ($windows as $table => $w) {
+            if (!$this->db->table_exists($table)) continue;
+            $cutoff = date('Y-m-d H:i:s', time() - 86400 * $w['days']);
+            $this->db->where($w['col'] . ' <', $cutoff)->limit(5000)->delete($table);
+            $n = (int) $this->db->affected_rows();
+            if ($n > 0) $deleted[$table] = $n;
+        }
+        // external-CRM queue: drop settled rows (sent/failed) older than 30 days
+        if ($this->db->table_exists('crm_external_log')) {
+            $this->db->where_in('status', array('sent', 'failed'))
+                ->where('created_at <', date('Y-m-d H:i:s', time() - 86400 * 30))->limit(5000)->delete('crm_external_log');
+            $n = (int) $this->db->affected_rows();
+            if ($n > 0) $deleted['crm_external_log'] = $n;
+        }
+        return empty($deleted) ? array('nothing_to_prune' => true) : $deleted;
+    }
+
     /** Optional shared-secret gate. No secret configured -> open (unchanged behaviour). */
     private function _authorized()
     {
@@ -84,6 +118,7 @@ class Cron_hub extends Home
             $out['reengage'] = $this->_run_reengage();
             $out['external_crm'] = $this->_run_external_crm();
             $out['deflect_alerts'] = $this->_run_deflect_alerts();
+            $out['retention'] = $this->_run_retention();
             echo json_encode($out) . "\n";
         } finally {
             $this->db->query("SELECT RELEASE_LOCK('monkeybot_cron_hub')");
