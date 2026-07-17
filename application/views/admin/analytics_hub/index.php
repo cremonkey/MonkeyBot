@@ -69,6 +69,47 @@
       <div class="col-lg-8"><div class="card"><div class="card-header"><h4>AI Replies per Day (30d)</h4></div><div class="card-body"><canvas id="chAi" height="90"></canvas></div></div></div>
       <div class="col-lg-4"><div class="card"><div class="card-header"><h4>Estimated AI Cost (30d)</h4></div><div class="card-body text-center"><h2 class="text-primary">$<?php echo number_format($ai_cost,2); ?></h2><small class="text-muted">rough estimate from token usage</small></div></div></div>
     </div>
+
+    <div class="row">
+      <div class="col-lg-4">
+        <div class="card">
+          <div class="card-header"><h4><i class="fas fa-hand-paper"></i> Deflection Rate (30d)</h4></div>
+          <div class="card-body text-center">
+            <?php $df = $deflection; $rate=(float)$df['rate'];
+              $cls = $rate < 10 ? 'text-success' : ($rate < 25 ? 'text-warning' : 'text-danger'); ?>
+            <h1 class="<?php echo $cls; ?>" style="font-size:2.6rem;"><?php echo $rate; ?>%</h1>
+            <p class="text-muted mb-1">of <?php echo number_format($df['replies']); ?> replies couldn't give a real answer</p>
+            <small class="text-muted"><?php echo (int)$df['missed']; ?> gaps flagged · <?php echo (int)$df['blocked']; ?> price blocks</small>
+            <div class="mt-2"><a href="<?php echo base_url('missed_questions'); ?>" class="btn btn-sm btn-outline-primary">Fill the gaps &rarr;</a></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-8">
+        <div class="card">
+          <div class="card-header"><h4><i class="fas fa-question-circle"></i> Top Unanswered Questions (30d)</h4>
+            <div class="card-header-action"><a href="<?php echo base_url('missed_questions'); ?>" class="btn btn-sm btn-primary">Answer them</a></div>
+          </div>
+          <div class="card-body p-0">
+            <?php if(empty($top_missed)): ?>
+              <p class="text-muted p-3 mb-0">No unanswered questions — the bot handled everything. 🎉</p>
+            <?php else: ?>
+            <table class="table table-sm table-striped mb-0">
+              <thead><tr><th style="width:60px">#</th><th>Question</th><th style="width:70px">Channel</th></tr></thead>
+              <tbody>
+                <?php foreach($top_missed as $m): ?>
+                <tr>
+                  <td><span class="badge badge-<?php echo $m['c']>1?'danger':'secondary'; ?>"><?php echo (int)$m['c']; ?>×</span></td>
+                  <td style="white-space:pre-line"><?php echo htmlspecialchars(mb_substr((string)$m['q'],0,90)); ?></td>
+                  <td><small class="text-muted"><?php echo htmlspecialchars((string)$m['social_media']); ?></small></td>
+                </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+            <?php endif; ?>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 <script src="<?php echo base_url('assets/modules/chart.min.js'); ?>"></script>

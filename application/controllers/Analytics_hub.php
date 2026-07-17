@@ -28,6 +28,8 @@ class Analytics_hub extends Home
         $data['lead_bands'] = $this->lead_bands();
         $data['ai_cost'] = $this->ai_cost($since);
         $data['funnel'] = $this->funnel($since);
+        $data['top_missed'] = $this->top_missed($since);
+        $data['deflection'] = $this->deflection($since);
         $data['page_title'] = 'Analytics Hub';
         $data['body'] = 'admin/analytics_hub/index';
         $this->_viewcontroller($data);
@@ -144,6 +146,39 @@ class Analytics_hub extends Home
         $warm=(int)$this->db->from('messenger_bot_subscriber')->where('user_id',$uid)->where('lead_score >=',20)->where('lead_score <',50)->count_all_results();
         $cold=(int)$this->db->from('messenger_bot_subscriber')->where('user_id',$uid)->where('lead_score <',20)->count_all_results();
         return array('hot'=>$hot,'warm'=>$warm,'cold'=>$cold);
+    }
+
+    /**
+     * The questions the bot couldn't answer, most frequent first — the gaps to fill.
+     * Grouped case-insensitively on a trimmed question so rewordings cluster loosely.
+     */
+    private function top_missed($since)
+    {
+        if (!$this->db->table_exists('ai_unanswered_questions')) return array();
+        return $this->db->query(
+            "SELECT TRIM(question) q, social_media, COUNT(*) c, MAX(created_at) last_at
+             FROM ai_unanswered_questions
+             WHERE user_id=? AND status='new' AND created_at >= ?
+             GROUP BY LOWER(TRIM(question)) ORDER BY c DESC, last_at DESC LIMIT 12",
+            array($this->uid, $since))->result_array();
+    }
+
+    /**
+     * Deflection rate (30d): how often the bot could NOT give a real answer — either it
+     * flagged a gap ([[UNANSWERED]] -> ai_unanswered_questions) or the price guard blocked
+     * a reply — as a share of all AI replies. High = the prompt/KB has gaps to fill.
+     */
+    private function deflection($since)
+    {
+        $uid = $this->uid;
+        $replies = (int) $this->db->from('ai_conversation_history')->where('user_id', $uid)->where('created_at >=', $since)->count_all_results();
+        $missed = $this->db->table_exists('ai_unanswered_questions')
+            ? (int) $this->db->from('ai_unanswered_questions')->where('user_id', $uid)->where('created_at >=', $since)->count_all_results() : 0;
+        $blocked = $this->db->table_exists('ai_price_guard_log')
+            ? (int) $this->db->from('ai_price_guard_log')->where('user_id', $uid)->where('created_at >=', $since)->count_all_results() : 0;
+        $deflected = $missed + $blocked;
+        $rate = $replies > 0 ? round($deflected / max($replies, $deflected) * 100, 1) : 0.0;
+        return array('replies'=>$replies, 'missed'=>$missed, 'blocked'=>$blocked, 'deflected'=>$deflected, 'rate'=>$rate);
     }
 
     // rough public price estimates (USD per 1M tokens: [input, output]) — estimates only
