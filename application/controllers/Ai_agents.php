@@ -43,8 +43,10 @@ class Ai_agents extends Home
             foreach ($this->basic->get_data('telegram_accounts', ['where'=>['user_id'=>$this->uid]], ['id','bot_username']) as $t)
                 $out[] = array('channel'=>'tg', 'target'=>$t['id'], 'label'=>('@'.$t['bot_username']), 'icon'=>'fab fa-telegram', 'note'=>'Telegram');
         if ($this->db->table_exists('webchat_settings'))
-            foreach ($this->basic->get_data('webchat_settings', ['where'=>['user_id'=>$this->uid]], ['id','title']) as $wc)
-                $out[] = array('channel'=>'web', 'target'=>$wc['id'], 'label'=>($wc['title'] ?: 'Web Chat Widget'), 'icon'=>'fas fa-comment-dots', 'note'=>'Website');
+            // target is the widget_key, matching how the webchat send path resolves the
+            // agent (one widget per website, each with its own prompt).
+            foreach ($this->basic->get_data('webchat_settings', ['where'=>['user_id'=>$this->uid]], ['widget_key','title']) as $wc)
+                $out[] = array('channel'=>'web', 'target'=>$wc['widget_key'], 'label'=>($wc['title'] ?: 'Web Chat Widget'), 'icon'=>'fas fa-comment-dots', 'note'=>'Website');
         return $out;
     }
 

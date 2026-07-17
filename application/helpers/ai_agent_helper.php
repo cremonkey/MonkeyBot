@@ -32,8 +32,18 @@ if (!function_exists('ai_resolve_profile')) {
                 if (empty($row)) return null;
                 $target = (string) $row['id'];
             } elseif ($channel === 'web') {
-                $row = $CI->db->select('id')->from('webchat_settings')->where('user_id', $user_id)->limit(1)->get()->row_array();
-                $target = (string) ($row['id'] ?? '0');
+                // $page_id carries the widget_key so each website widget resolves its own
+                // agent; assignments are keyed on widget_key (target_id). When a caller
+                // passes the legacy 'webchat' sentinel or nothing, fall back to the first
+                // widget's key so old single-widget setups keep working.
+                if (!empty($page_id) && $page_id !== 'webchat') {
+                    $target = (string) $page_id;
+                } else {
+                    $row = $CI->db->select('widget_key')->from('webchat_settings')
+                        ->where('user_id', $user_id)->order_by('id', 'ASC')->limit(1)->get()->row_array();
+                    if (empty($row)) return null;
+                    $target = (string) $row['widget_key'];
+                }
             } else { // wa / tg
                 $target = (string) $page_id;
             }

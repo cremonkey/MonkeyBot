@@ -24,29 +24,82 @@ class Webchat extends Home
     // ---- Admin ----
     public function index()
     {
-        $s = $this->basic->get_data('webchat_settings', ['where'=>['user_id'=>$this->uid]]);
+        $s = $this->basic->get_data('webchat_settings', ['where'=>['user_id'=>$this->uid]], '', '', '', '', 'id ASC');
         if (empty($s)) {
-            $key = substr(md5(uniqid('wc'.$this->uid, true)), 0, 24);
-            $this->basic->insert_data('webchat_settings', array('user_id'=>$this->uid, 'widget_key'=>$key));
-            $s = $this->basic->get_data('webchat_settings', ['where'=>['user_id'=>$this->uid]]);
+            $this->create_widget('Web Chat Widget');
+            $s = $this->basic->get_data('webchat_settings', ['where'=>['user_id'=>$this->uid]], '', '', '', '', 'id ASC');
         }
-        $data['settings'] = $s[0];
-        $data['embed'] = '<script src="'.base_url('webchat/widget/'.$s[0]['widget_key']).'" async></script>';
-        $data['page_title'] = 'Web Chat Widget';
-        $data['body'] = 'admin/webchat/index';
+        // which AI agent is assigned to each widget (its site's prompt)
+        $assign = array();
+        foreach ($this->basic->get_data('ai_agent_assignments', ['where'=>['user_id'=>$this->uid, 'channel_type'=>'web']]) as $a) {
+            $assign[$a['target_id']] = $a['profile_id'];
+        }
+        $data['widgets']    = $s;
+        $data['assign_map'] = $assign;
+        $data['profiles']   = $this->basic->get_data('ai_agent_profiles', ['where'=>['user_id'=>$this->uid, 'status'=>'1']], '', '', '', '', 'id DESC');
+        $data['base']       = base_url();
+        $data['page_title'] = 'Web Chat Widgets';
+        $data['body']       = 'admin/webchat/index';
         $this->_viewcontroller($data);
+    }
+
+    private function create_widget($title)
+    {
+        $key = substr(md5(uniqid('wc'.$this->uid, true)), 0, 24);
+        $this->basic->insert_data('webchat_settings', array(
+            'user_id'=>$this->uid, 'widget_key'=>$key,
+            'title'=>strip_tags((string)$title) ?: 'Web Chat Widget',
+            'ai_enabled'=>'1', 'status'=>'1',
+        ));
+        return $key;
+    }
+
+    public function add()
+    {
+        $this->csrf_token_check();
+        $this->create_widget($this->input->post('title', true));
+        $this->session->set_flashdata('success','Widget created');
+        redirect('webchat');
+    }
+
+    private function owns_widget($id)
+    {
+        return (bool) $this->db->from('webchat_settings')->where('id',(int)$id)->where('user_id',$this->uid)->count_all_results();
     }
 
     public function save()
     {
         $this->csrf_token_check();
-        $this->db->where('user_id', $this->uid)->update('webchat_settings', array(
+        $id = (int)$this->input->post('id', true);
+        if (!$this->owns_widget($id)) { redirect('webchat'); return; }
+        $this->db->where('id', $id)->where('user_id', $this->uid)->update('webchat_settings', array(
             'title'=>strip_tags((string)$this->input->post('title', true)),
             'color'=>strip_tags((string)$this->input->post('color', true)),
             'greeting'=>strip_tags((string)$this->input->post('greeting', true)),
             'ai_enabled'=>$this->input->post('ai_enabled', true)=='1'?'1':'0',
         ));
+
+        // Bind this widget to an AI agent (its site's prompt), stored exactly like the
+        // fb/ig channel assignments so get_ai_reply_open_ai resolves it the same way.
+        $w = $this->db->select('widget_key')->from('webchat_settings')->where('id',$id)->get()->row_array();
+        $this->db->where(['user_id'=>$this->uid,'channel_type'=>'web','target_id'=>$w['widget_key']])->delete('ai_agent_assignments');
+        $pid = (int)$this->input->post('profile_id', true);
+        if ($pid > 0 && (bool)$this->db->from('ai_agent_profiles')->where('id',$pid)->where('user_id',$this->uid)->count_all_results()) {
+            $this->basic->insert_data('ai_agent_assignments', array('user_id'=>$this->uid,'profile_id'=>$pid,'channel_type'=>'web','target_id'=>$w['widget_key']));
+        }
+
         $this->session->set_flashdata('success','Saved');
+        redirect('webchat');
+    }
+
+    public function delete_widget($id=0)
+    {
+        if (!hash_equals((string)$this->session->userdata('csrf_token_session'), (string)$this->input->get('t'))) show_error('Invalid token', 403);
+        if ($this->owns_widget($id)) {
+            $w = $this->db->select('widget_key')->from('webchat_settings')->where('id',(int)$id)->get()->row_array();
+            $this->db->where(['id'=>(int)$id,'user_id'=>$this->uid])->delete('webchat_settings');
+            if (!empty($w)) $this->db->where(['user_id'=>$this->uid,'channel_type'=>'web','target_id'=>$w['widget_key']])->delete('ai_agent_assignments');
+        }
         redirect('webchat');
     }
 
@@ -122,7 +175,10 @@ JS;
 
         $reply_text = '';
         if ($s['ai_enabled'] == '1') {
-            $reply = $this->get_ai_reply_open_ai('', $message, $s['user_id'], 'webchat', $sk, 'web');
+            // Pass the widget_key as page_id so each website widget resolves its own AI
+            // agent (its site's prompt). The subscriber id stays $sk. History and RAG key
+            // off page_id, so a widget_key gives every widget its own conversation memory.
+            $reply = $this->get_ai_reply_open_ai('', $message, $s['user_id'], $key, $sk, 'web');
             $reply_text = $reply['choices'][0]['text'] ?? '';
             if ($reply_text !== '') $this->log_msg($s['user_id'], $sk, 'bot', $reply_text);
         }
