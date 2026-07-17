@@ -35,7 +35,8 @@
                   <?php if(!empty($r['page_name'])): ?><br><small><?php echo htmlspecialchars($r['page_name']); ?></small><?php endif; ?></td>
               <td><small class="text-muted"><?php echo $r['created_at']; ?></small></td>
               <td style="white-space:nowrap">
-                <?php if($r['status']==='new'): ?><button class="btn btn-sm btn-success mq-resolve" data-id="<?php echo $r['id']; ?>" title="I added this info to the prompt/KB"><i class="fas fa-check"></i></button><?php endif; ?>
+                <?php if($r['status']==='new'): ?><button class="btn btn-sm btn-primary mq-answer" data-id="<?php echo $r['id']; ?>" title="Type the answer — the bot uses it right away"><i class="fas fa-reply"></i> Answer</button>
+                <button class="btn btn-sm btn-success mq-resolve" data-id="<?php echo $r['id']; ?>" title="Mark resolved without adding an answer"><i class="fas fa-check"></i></button><?php endif; ?>
                 <button class="btn btn-sm btn-outline-danger mq-del" data-id="<?php echo $r['id']; ?>">×</button>
               </td>
             </tr>
@@ -52,6 +53,11 @@
 </section>
 <script>
 var MQ_TOKEN="<?php echo $this->session->userdata('csrf_token_session'); ?>", MQ_BASE="<?php echo base_url(); ?>";
+$(document).on('click','.mq-answer',function(){var id=$(this).data('id');
+  var ans=prompt('Type the answer the bot should give for this question. It applies immediately, on every channel for this page:');
+  if(ans===null||!ans.trim())return;
+  $.post(MQ_BASE+'missed_questions/answer',{csrf_token:MQ_TOKEN,id:id,answer:ans},function(r){
+    if(r.status=='1'){$('#mq_'+id).fadeOut();}else{alert(r.message||'Failed');}},'json');});
 $(document).on('click','.mq-resolve',function(){var id=$(this).data('id');
   $.post(MQ_BASE+'missed_questions/resolve',{csrf_token:MQ_TOKEN,id:id},function(r){if(r.status=='1')$('#mq_'+id).fadeOut();},'json');});
 $(document).on('click','.mq-del',function(){if(!confirm('Delete this question?'))return;var id=$(this).data('id');

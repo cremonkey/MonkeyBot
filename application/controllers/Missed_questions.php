@@ -61,6 +61,39 @@ class Missed_questions extends Home
         echo json_encode(['status' => '1']);
     }
 
+    /**
+     * SPEC-25: the owner types the answer; it becomes an ai_faq row scoped to that
+     * question's page and is injected into the bot's prompt live on every channel. The
+     * question is marked resolved. No prompt-copy sync needed — the FAQ is read at reply
+     * time, not stored in the per-channel templates.
+     */
+    public function answer()
+    {
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        $id = (int) $this->input->post('id', true);
+        $answer = trim((string) $this->input->post('answer', true));
+        if ($answer === '') { echo json_encode(['status' => '0', 'message' => 'Answer is empty']); return; }
+        if (!$this->db->table_exists('ai_faq')) { echo json_encode(['status' => '0', 'message' => 'FAQ store missing']); return; }
+
+        $q = $this->db->from('ai_unanswered_questions')->where('id', $id)->where('user_id', $this->uid)->get()->row_array();
+        if (empty($q)) { echo json_encode(['status' => '0', 'message' => 'Question not found']); return; }
+
+        // scope to the question's page when known, else all pages (page_id NULL)
+        $page = trim((string) ($q['page_id'] ?? ''));
+        $this->basic->insert_data('ai_faq', array(
+            'user_id'    => $this->uid,
+            'page_id'    => $page !== '' && $page !== 'webchat' ? $page : null,
+            'question'   => (string) $q['question'],
+            'answer'     => $answer,
+            'status'     => '1',
+            'created_at' => date('Y-m-d H:i:s'),
+        ));
+        $this->db->where('id', $id)->where('user_id', $this->uid)
+            ->update('ai_unanswered_questions', array('status' => 'resolved'));
+        echo json_encode(['status' => '1', 'message' => 'Answer added — the bot will use it right away.']);
+    }
+
     public function delete()
     {
         $this->csrf_token_check();

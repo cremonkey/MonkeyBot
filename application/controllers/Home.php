@@ -7155,6 +7155,26 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             $layers[] = "--- CAMPAIGN INSTRUCTIONS (apply within the scope above) ---\n" . trim($description);
         }
 
+        // SPEC-25: answers the team added from Missed Questions. One store, injected live,
+        // so every channel gets them without touching the per-channel prompt copies. These
+        // are authoritative written context — the guard sees them below too.
+        $faq_block = '';
+        if (!empty($user_id) && $this->db->table_exists('ai_faq')) {
+            $this->db->from('ai_faq')->where('user_id', $user_id)->where('status', '1');
+            if (!empty($page_id)) $this->db->group_start()->where('page_id', $page_id)->or_where('page_id', null)->or_where('page_id', '')->group_end();
+            else $this->db->group_start()->where('page_id', null)->or_where('page_id', '')->group_end();
+            $faqs = $this->db->order_by('id', 'ASC')->limit(60)->get()->result_array();
+            $lines = array();
+            foreach ($faqs as $f) {
+                $q = trim((string) $f['question']); $a = trim((string) $f['answer']);
+                if ($a !== '') $lines[] = ($q !== '' ? 'س: ' . $q . "\n" : '') . 'ج: ' . $a;
+            }
+            if (!empty($lines)) {
+                $faq_block = "--- ANSWERS THE TEAM ADDED (authoritative; use these exactly when the customer asks) ---\n" . implode("\n\n", $lines);
+                $layers[] = $faq_block;
+            }
+        }
+
         $system_prompt = implode("\n\n", $layers);
 
         // Guardrails: hard scope lock so the bot never drifts into free consulting /
@@ -7362,6 +7382,9 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             // field (the business may sit in any of the agent's text fields).
             if (!empty($bot_context)) {
                 $guard_source .= "\n\n" . implode("\n\n", $bot_context);
+            }
+            if (!empty($faq_block)) {
+                $guard_source .= "\n\n" . $faq_block;   // SPEC-25: team answers are authoritative
             }
             $full_kb = ai_get_full_knowledge($user_id, isset($kb_page_id) ? $kb_page_id : 0);
             if ($full_kb !== '') {
