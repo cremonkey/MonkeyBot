@@ -989,6 +989,11 @@ if (!function_exists('ai_get_full_knowledge')) {
 
         $user_id = (int) $user_id;
         $page_id = (int) $page_id;
+        // Request-level cache: the price guard calls this on every priced reply, right
+        // after RAG already read the same chunks. Memoise per (user,page) for this request.
+        static $cache = array();
+        $ck = $user_id . ':' . $page_id;
+        if (array_key_exists($ck, $cache)) return $cache[$ck];
         $scope = $page_id > 0 ? "s.page_id = {$page_id}" : "(s.page_id IS NULL OR s.page_id = 0)";
 
         $sql = "SELECT c.chunk_text
@@ -1000,7 +1005,7 @@ if (!function_exists('ai_get_full_knowledge')) {
         $rows = $ci->db->query($sql)->result_array();
         if (empty($rows) && $page_id > 0) {
             // Page has no sources of its own; fall back to user-level ones.
-            return ai_get_full_knowledge($user_id, 0);
+            return $cache[$ck] = ai_get_full_knowledge($user_id, 0);
         }
 
         $text = '';
@@ -1010,7 +1015,7 @@ if (!function_exists('ai_get_full_knowledge')) {
                 break;
             }
         }
-        return trim($text);
+        return $cache[$ck] = trim($text);
     }
 }
 
@@ -1098,8 +1103,10 @@ if (!function_exists('ai_verify_price_grounding')) {
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $payload,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 25,
-            CURLOPT_CONNECTTIMEOUT => 8,
+            // 8s: this is a ~60-token GROUNDED/UNGROUNDED classification. It fails open, so
+            // a long wait buys nothing — it just stalls the customer's reply. (was 25s)
+            CURLOPT_TIMEOUT => 8,
+            CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_HTTPHEADER => array(
                 'Content-Type: application/json',
                 'Authorization: Bearer ' . $api_key,
