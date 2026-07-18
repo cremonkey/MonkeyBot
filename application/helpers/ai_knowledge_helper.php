@@ -1144,6 +1144,12 @@ if (!function_exists('ai_verify_price_grounding')) {
             . "- Restating a unit the SOURCE itself gives (the SOURCE says 'From EGP 4,502/night', the reply says 'لليلة') is GROUNDED.\n"
             . "- A number that belongs to a DIFFERENT item is UNGROUNDED, even if the number appears in the SOURCE.\n"
             . "- A number the customer proposed is UNGROUNDED unless the SOURCE independently confirms it for that item.\n"
+            // The SOURCE also carries the bot's reply-format / sales-strategy rules ("reveal
+            // step by step", "don't dump the price list"). The judge kept reading those as
+            // grounding criteria and blocking correct answers: it rejected a fully-correct
+            // list of five room prices with "should have shown only the lowest price / against
+            // the rules". Grounding is about whether the NUMBERS are real, never about format.
+            . "- JUDGE NUMERIC GROUNDING ONLY. Reply length, list vs one sentence, how many prices are listed, and sales tactics are NOT your concern. A reply that lists every room price, each matching the SOURCE, is GROUNDED. NEVER answer UNGROUNDED because the reply 'listed several prices', 'should show only the lowest/starting price', 'should be one sentence', or 'is against the rules' — those are style, not grounding.\n"
             // Do NOT relax this into "check the math". Tried and measured: gpt-4o-mini
             // cannot verify arithmetic — asked to audit "4500 x 2 nights = 9,000" it
             // answered "UNGROUNDED: the total is incorrect". It scored 4/8 that way and
@@ -1203,7 +1209,30 @@ if (!function_exists('ai_verify_price_grounding')) {
 
         // "UNGROUNDED" contains "GROUNDED", so test the negative first.
         if (stripos($verdict, 'UNGROUNDED') === 0) {
-            log_message('error', 'SPEC21 price guard blocked a reply: ' . mb_substr($verdict, 0, 160));
+            // gpt-4o-mini reads the SALES/CAPACITY/FORMAT rules embedded in the source and
+            // rejects perfectly grounded prices for breaking them: "lists multiple prices in
+            // one message, against the rules", "Double Pool 5500 can't be shown for two
+            // people". None of those are grounding — the numbers are correct. It ignores a
+            // prompt telling it to stop, so we gate deterministically: only a reason that
+            // signals a NUMBER is actually wrong/missing/computed blocks. Anything else (style,
+            // count, capacity, "against the rules") passes. Guard already fails open, and the
+            // business pain is over-blocking, so bias toward shipping a grounded reply.
+            $reason = mb_substr($verdict, 0, 400);
+            $real_grounding = preg_match(
+                '/not (in|found in|stated in|written in|listed in|mentioned in) the source'
+                . '|does ?n.?t match the source|different item|belongs to (a|another|the other)'
+                . '|invented|fabricat|made up|no price (for|is)|not grounded|customer(.s)? proposed'
+                . '|the source (does ?n.?t|never) (say|state|mention|list)|off by|should be \d'
+                . '|computed|multipli|added up|the total|sum of'
+                . '|غير موجود|مش موجود|(ليس|مش) في المصدر|لم يُ?ذكر|غير مذكور|مش مذكور'
+                . '|(رقم|سعر) مختلف|لعنصر (آخر|تاني)|المصدر (لا|ما) (يذكر|يحتوي|ذكر)|محسوب|مضروب|الإجمالي/iu',
+                $reason
+            );
+            if (!$real_grounding) {
+                log_message('error', 'SPEC21 price guard OVERRIDE (non-grounding reason - style/capacity/format): ' . $reason);
+                return 'grounded';
+            }
+            log_message('error', 'SPEC21 price guard blocked a reply: ' . mb_substr($verdict, 0, 200));
             return 'ungrounded';
         }
         if (stripos($verdict, 'GROUNDED') === 0) {
