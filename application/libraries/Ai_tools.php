@@ -113,6 +113,22 @@ class Ai_tools
                     'required' => array('type'),
                 ),
             );
+
+            // SPEC-31: photo albums + per-item services. Registered on the same
+            // terms as calculate_price — the session is absent on the reply path,
+            // so gating on the config here would silently drop the tool exactly
+            // where it is needed; t_room_media no-ops when no media is configured.
+            $tools[] = array(
+                    'name' => 'get_room_media',
+                    'description' => "Get the OFFICIAL photo album link and the service list for one room, suite, or for the resort/day-use gallery. ALWAYS call this before sending any link or describing what a room includes — never write a URL yourself and never reuse a link from earlier in the conversation. Pass the room the customer named, in their own words; it understands Arabic nicknames. If it says the name is unclear, ask the customer which room they mean.",
+                    'params' => array(
+                        'type' => 'object',
+                        'properties' => array(
+                            'item' => array('type' => 'string', 'description' => "The room/suite the customer asked about, in their own words (Arabic or English). Use 'Day Use' for the general resort gallery."),
+                        ),
+                        'required' => array('item'),
+                    ),
+            );
         }
         return $tools;
     }
@@ -155,6 +171,7 @@ class Ai_tools
                 case 'handoff_to_human':  return $this->t_handoff($context, $args);
                 case 'save_lead_to_crm':  return $this->t_save_lead($user_id, $args, $context);
                 case 'calculate_price':   return $this->t_calculate_price($user_id, $args);
+                case 'get_room_media':    return $this->t_room_media($user_id, $args);
                 default: return 'Error: unknown tool.';
             }
         } catch (Exception $e) {
@@ -278,6 +295,49 @@ class Ai_tools
      * the price guard sees it as authoritative — otherwise the guard, which only knows the
      * per-night/per-person source numbers, would block a correct computed total.
      */
+    /**
+     * SPEC-31 — hand the model the official album link + services for ONE item.
+     * Ambiguous or unknown names return an instruction to ask, never a guess:
+     * a wrong album is the customer-visible twin of a cross-mapped price.
+     */
+    protected function t_room_media($user_id, $args)
+    {
+        $this->CI->load->helper('pricing');
+        $this->CI->load->helper('media');
+        $cfg = pricing_get_config($user_id);
+        if (empty($cfg) || empty(media_index($cfg))) {
+            return 'No photo albums are configured; do not send any link. Offer to have the team send photos and ask for the customer\'s number.';
+        }
+
+        $name = trim((string) ($args['item'] ?? ''));
+        if ($name === '') {
+            return 'NO ITEM GIVEN: ask the customer which room or suite they want to see.';
+        }
+
+        $hit = media_find($cfg, $name);
+        if ($hit === null) {
+            // Deliberately WITHOUT the list of every item: handing the model all the
+            // names makes it recite them, which is the list-dump the profile bans.
+            return 'UNCLEAR ITEM: "' . $name . '" did not match exactly one room. Ask the customer ONE short question to narrow it down (e.g. how many people, or overnight vs day use). Do NOT list the rooms and do NOT send any link now.';
+        }
+        if (empty($hit['album'])) {
+            return 'ITEM: ' . $hit['name'] . ' | NO ALBUM CONFIGURED: describe it in words if you have the details, but send no link.';
+        }
+
+        $line = 'ITEM: ' . $hit['name']
+              . ($hit['services'] !== '' ? ' | SERVICES: ' . $hit['services'] : '')
+              . ' | PHOTOS: ' . $hit['album'];
+
+        // Mirrors ai_price_facts: the guard must see this as written source, or a
+        // correct reply gets blocked. Also feeds the outgoing link gate's whitelist.
+        if (!isset($this->CI->ai_media_facts) || !is_array($this->CI->ai_media_facts)) {
+            $this->CI->ai_media_facts = array();
+        }
+        $this->CI->ai_media_facts[] = $line;
+
+        return $line . ' | Send the link EXACTLY as written, once, as a BARE url — never inside [] () brackets or any markdown, the customer sees those characters raw. One short sentence + one question. Never alter the url.';
+    }
+
     protected function t_calculate_price($user_id, $args)
     {
         $this->CI->load->helper('pricing');

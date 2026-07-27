@@ -138,7 +138,20 @@ if (!function_exists('pricing_calc_accommodation')) {
         usort($rooms, function ($a, $b) { return $a['capacity'] - $b['capacity']; });
         $chosen = null; $upgraded = false;
         if ($room_name !== '') {
-            foreach ($rooms as $r) if (mb_stripos($r['name'], $room_name) !== false) { $chosen = $r; break; }
+            // SPEC-31: resolve through the shared alias-aware resolver. A plain
+            // first-substring match over the capacity-sorted list picks the WRONG
+            // room now that two names share a prefix ("Deluxe Double or Twin" 4,500
+            // vs "Deluxe Double Room with Balcony" 5,500) — it would quote the
+            // cheaper one for the balcony room. media_find() also refuses to guess
+            // when a name is ambiguous, which leaves $chosen null => fits-by-headcount.
+            if (function_exists('media_find')) {
+                $hit = media_find($cfg, $room_name);
+                if ($hit !== null) {
+                    foreach ($rooms as $r) if ($r['name'] === $hit['name']) { $chosen = $r; break; }
+                }
+            } else {
+                foreach ($rooms as $r) if (mb_stripos($r['name'], $room_name) !== false) { $chosen = $r; break; }
+            }
             if ($chosen !== null && $heads > (int) $chosen['capacity']) { $chosen = null; $upgraded = true; }
         }
         if ($chosen === null) {

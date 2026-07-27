@@ -20,6 +20,10 @@ class Home extends CI_Controller
     public $ai_last_products = null;
     // SPEC-24: exact totals stashed by Ai_tools::t_calculate_price, fed to the price guard
     public $ai_price_facts = array();
+
+    /** SPEC-31: album/service lines returned by get_room_media this reply. Fed to the
+     *  price guard as written source and used by the outgoing link gate. */
+    public $ai_media_facts = array();
     public $module_access;
     public $team_access = [];
     public $language;
@@ -7076,6 +7080,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
     public function get_ai_reply_open_ai($description, $human = "Human: How are you ?", $user_id = 0, $page_id = '', $subscribe_id = '', $social_media = 'fb')
     {
         $this->ai_price_facts = array();   // SPEC-24: reset per reply, filled by calculate_price
+        $this->ai_media_facts = array();   // SPEC-31: reset per reply, filled by get_room_media
 
         $api_info = $this->basic->get_data("open_ai_config", ['where' => ['user_id' => $user_id]], $select = '', $join = '', $limit = '1', $start = 0, $order_by = 'RAND()');
 
@@ -7470,6 +7475,11 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             if (!empty($this->ai_price_facts)) {
                 $guard_source .= "\n\nComputed totals (authoritative, from the pricing tool):\n- " . implode("\n- ", $this->ai_price_facts);
             }
+            // SPEC-31: same reason as the totals above — the album/services line the
+            // media tool returned IS written source, or the judge blocks a correct reply.
+            if (!empty($this->ai_media_facts)) {
+                $guard_source .= "\n\nRoom media (authoritative, from the media tool):\n- " . implode("\n- ", $this->ai_media_facts);
+            }
 
             $verdict = ai_verify_price_grounding($user_id, $human, $response['choices'][0]['text'], $guard_source, $guard_context);
 
@@ -7525,6 +7535,52 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             }
         }
 
+        // SPEC-31: outgoing photo-link gate. Every link must be one this account
+        // configured; a URL the model invented — or reused from a different room —
+        // is the customer-visible twin of a cross-mapped price, and nothing else
+        // inspects URLs (the price guard only reasons about numbers). Deterministic,
+        // no model call, fails open.
+        if (empty($guard_blocked) && !empty($user_id) && isset($response['choices'][0]['text'])) {
+            try {
+                $this->load->helper('media');
+                $this->load->helper('pricing');
+                // Markdown links reach the customer literally on every channel we send
+                // to — unwrap before validating, so the URL inside is still checked.
+                $response['choices'][0]['text'] = media_unwrap_markdown_links($response['choices'][0]['text']);
+                $sent_urls = media_extract_urls($response['choices'][0]['text']);
+                if (!empty($sent_urls)) {
+                    $mcfg    = pricing_get_config($user_id);
+                    $allowed = !empty($mcfg) ? media_all_urls($mcfg) : array();
+                    // A URL the OWNER wrote (location pin, booking page, socials) is
+                    // authoritative wherever it lives — profile, campaign or knowledge
+                    // base — and all of those are already inside $system_prompt. Without
+                    // this the gate blocks correct replies: it first fired on the resort's
+                    // own map link. Only links from nowhere are invented links.
+                    $allowed = array_merge($allowed, media_extract_urls($system_prompt));
+                    $bad     = array();
+                    foreach ($sent_urls as $u) {
+                        if (!media_url_allowed($u, $allowed)) $bad[] = $u;
+                    }
+                    if (!empty($bad)) {
+                        $guard_blocked  = true;
+                        $blocked_media  = $response['choices'][0]['text'];
+                        $response['choices'][0]['text'] = media_link_deflection_text();
+                        if ($this->db->table_exists('ai_price_guard_log')) {
+                            $this->basic->insert_data('ai_price_guard_log', array(
+                                'user_id' => $user_id, 'page_id' => (string) $page_id, 'social_media' => $social_media,
+                                'subscribe_id' => (string) $subscribe_id, 'question' => $human,
+                                'blocked_reply' => $blocked_media, 'sent_reply' => $response['choices'][0]['text'],
+                                'verdict' => 'media',
+                                'created_at' => date('Y-m-d H:i:s'),
+                            ));
+                        }
+                    }
+                }
+            } catch (Exception $e) {
+                log_message('error', 'SPEC-31 link gate failed: ' . $e->getMessage());
+            }
+        }
+
         // SPEC-28: durable audit of what the bot actually SENT — independent of the 24h
         // conversation-memory TTL, so there's always a record of prices/claims made to a
         // customer for disputes/compliance. Best-effort; never blocks the reply.
@@ -7535,7 +7591,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                 'subscribe_id' => (string) $subscribe_id, 'question' => mb_substr((string) $human, 0, 2000),
                 'reply' => mb_substr((string) $response['choices'][0]['text'], 0, 4000),
                 'guard' => !empty($guard_blocked) ? 'blocked' : null,
-                'tools' => !empty($this->ai_price_facts) ? 'calculate_price' : null,
+                'tools' => trim((!empty($this->ai_price_facts) ? 'calculate_price ' : '') . (!empty($this->ai_media_facts) ? 'get_room_media' : '')) ?: null,
                 'created_at' => date('Y-m-d H:i:s'),
             ));
         }
