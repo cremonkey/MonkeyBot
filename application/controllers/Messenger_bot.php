@@ -989,10 +989,10 @@ class Messenger_bot extends Home
 
 
                 // typing on and typing on delay [alamin]
-                $enable_typing_on = $msg['message']['typing_on_settings'];
+                $enable_typing_on = $msg['message']['typing_on_settings'] ?? 'off';
                 $enable_typing_on = ($enable_typing_on=='on')  ? 1 : 0;
                 unset($msg['message']['typing_on_settings']);
-                $typing_on_delay_time = $msg['message']['delay_in_reply'];
+                $typing_on_delay_time = $msg['message']['delay_in_reply'] ?? 0;
                 if($typing_on_delay_time=="") $typing_on_delay_time = 0;
                 unset($msg['message']['delay_in_reply']);
 
@@ -1194,15 +1194,23 @@ class Messenger_bot extends Home
 
                 if((isset($subscriber_info[0]['status']) && $subscriber_info[0]['status']=="1") || $user_reference_id!="")
                 {
-                    // typing on and typing on delay [alamin]
-                    if($enable_typing_on && $user_reference_id=="") $this->sender_action($sender_id,"typing_on",$access_token);
-                    if($typing_on_delay_time>0 && $user_reference_id =="") sleep($typing_on_delay_time);
+                    // OpenWA / WhatsApp: skip Graph typing indicators (not applicable)
+                    if($social_media_type !== 'wa') {
+                        // typing on and typing on delay [alamin]
+                        if($enable_typing_on && $user_reference_id=="") $this->sender_action($sender_id,"typing_on",$access_token);
+                        if($typing_on_delay_time>0 && $user_reference_id =="") sleep($typing_on_delay_time);
+                    }
 
-                    $reply_response= $this->send_reply($access_token,$reply);
+                    // OpenWA outbound — same bot templates as FB/IG, different transport
+                    if($social_media_type === 'wa') {
+                        $reply_response = $this->send_openwa_reply($value, $sender_id, $reply);
+                    } else {
+                        $reply_response= $this->send_reply($access_token,$reply);
+                    }
 
                     // SPEC-05: follow the AI text with a product carousel when
                     // the search_products tool matched catalog items (fb only)
-                    if(!empty($ai_ecom_elements)){
+                    if(!empty($ai_ecom_elements) && $social_media_type !== 'wa'){
                         $carousel = json_encode(array(
                             'recipient' => array('id' => $sender_id),
                             'messaging_type' => 'RESPONSE',
@@ -1232,6 +1240,7 @@ class Messenger_bot extends Home
                                         "error_time"=>$error_time);
 
                     if($social_media_type=='ig') $error_insert_data['media_type']="ig";
+                    if($social_media_type=='wa') $error_insert_data['media_type']="wa";
                     $this->basic->insert_data('messenger_bot_reply_error_log',$error_insert_data);
 
                  }
@@ -1248,7 +1257,8 @@ class Messenger_bot extends Home
                         'message_content' => $reply,
                         'fb_message_id '=>$message_id
                     ];
-                    if($social_media_type == 'fb')
+                    if($social_media_type == 'wa') $insert_livechat_data['platform'] = 'wa';
+                    if($social_media_type == 'fb' || $social_media_type == 'wa')
                         $message_id = $this->insert_livechat_data($insert_livechat_data);
                     $is_error=0;
                     // update input flow start information.
@@ -1300,6 +1310,169 @@ class Messenger_bot extends Home
                 'message'=> empty($reply_error_message) ? $this->lang->line('postback template message has been sent.') : $reply_error_message
                 ]);
         }
+    }
+
+    /**
+     * Send a Graph-shaped bot reply JSON via OpenWA (text + image URLs).
+     * Used when social_media === 'wa' so keyword/AI templates reuse FB/IG paths.
+     * Carousel / button / QR templates are flattened to WhatsApp-friendly text
+     * (OpenWA has no native Messenger generic template).
+     */
+    protected function send_openwa_reply($value, $sender_id, $reply_json)
+    {
+        $this->load->library('Openwa_api');
+        $this->load->helper('secret');
+
+        $base_url = $value['openwa_base_url'] ?? '';
+        $api_key = $value['openwa_api_key'] ?? '';
+        $session_id = $value['openwa_session_id'] ?? '';
+        $account_id = (int)($value['openwa_account_id'] ?? ($value['page_id'] ?? 0));
+
+        // Resolve credentials from openwa_accounts when not injected on the bot row
+        if ($base_url === '' || $api_key === '' || $session_id === '') {
+            $acc = $this->basic->get_data('openwa_accounts', array('where'=>array('id'=>$account_id, 'status'=>'1')), '', '', 1);
+            if (empty($acc)) {
+                return array('error'=>array('message'=>'OpenWA account not found'));
+            }
+            $base_url = $acc[0]['base_url'];
+            $api_key = secret_decrypt($acc[0]['api_key']);
+            $session_id = $acc[0]['session_id'];
+        }
+
+        $payload = json_decode($reply_json, true);
+        if (!is_array($payload)) {
+            return array('error'=>array('message'=>'Invalid reply JSON for OpenWA'));
+        }
+
+        // Graph envelope: { recipient, message: { text|attachment... } }
+        $msg = isset($payload['message']) ? $payload['message'] : $payload;
+        $parts = $this->flatten_openwa_message($msg);
+        $text = $parts['text'];
+        $image_urls = $parts['images'];
+
+        if ($text === '' && empty($image_urls)) {
+            return array('error'=>array('message'=>'No text/image content to send via OpenWA'));
+        }
+
+        $last = null;
+        $sent_ok = false;
+
+        // Prefer text first — carousel images often 404 / hang the OpenWA engine
+        if ($text !== '') {
+            $last = $this->openwa_api->send_text($base_url, $api_key, $session_id, $sender_id, $text);
+            $http = (int)($last['_http'] ?? 0);
+            if ($http >= 200 && $http < 300) $sent_ok = true;
+        }
+
+        // Optional first valid image as follow-up (caption already in text)
+        if (!empty($image_urls)) {
+            $img = $image_urls[0];
+            $img_res = $this->openwa_api->send_image($base_url, $api_key, $session_id, $sender_id, $img, '');
+            $http = (int)($img_res['_http'] ?? 0);
+            if ($http >= 200 && $http < 300) {
+                $sent_ok = true;
+                $last = $img_res;
+            } elseif (!$sent_ok) {
+                $last = $img_res;
+            }
+        }
+
+        if ($sent_ok) {
+            return array(
+                'message_id' => $last['id'] ?? ($last['waMessageId'] ?? ($last['data']['id'] ?? 'openwa')),
+            );
+        }
+
+        $err = $last['error']['message'] ?? ($last['message'] ?? ($last['_error'] ?? json_encode($last)));
+        return array('error'=>array('message'=>'OpenWA: '.$err));
+    }
+
+    /**
+     * Flatten Messenger template JSON into WhatsApp text + image URL list.
+     * @return array{text:string,images:string[]}
+     */
+    protected function flatten_openwa_message($msg)
+    {
+        $text = '';
+        $images = array();
+        if (!is_array($msg)) return array('text' => '', 'images' => $images);
+
+        if (!empty($msg['text'])) {
+            $text = (string)$msg['text'];
+        }
+
+        // Single image attachment
+        if (!empty($msg['attachment']['payload']['url'])) {
+            $url = (string)$msg['attachment']['payload']['url'];
+            if ($this->is_openwa_http_url($url)) $images[] = $url;
+        }
+
+        // Generic / carousel elements
+        $elements = $msg['attachment']['payload']['elements'] ?? null;
+        if (is_array($elements) && !empty($elements)) {
+            $blocks = array();
+            foreach ($elements as $i => $el) {
+                if (!is_array($el)) continue;
+                $lines = array();
+                $title = trim((string)($el['title'] ?? ''));
+                $subtitle = trim((string)($el['subtitle'] ?? ''));
+                if ($title !== '') $lines[] = $title;
+                if ($subtitle !== '') $lines[] = $subtitle;
+                if (!empty($el['image_url']) && $this->is_openwa_http_url($el['image_url'])) {
+                    $images[] = (string)$el['image_url'];
+                }
+                if (!empty($el['buttons']) && is_array($el['buttons'])) {
+                    foreach ($el['buttons'] as $btn) {
+                        $bt = trim((string)($btn['title'] ?? ''));
+                        if ($bt === '') continue;
+                        $url = trim((string)($btn['url'] ?? ''));
+                        if ($url !== '' && $this->is_openwa_http_url($url)) {
+                            $lines[] = '• '.$bt.': '.$url;
+                        } else {
+                            $lines[] = '• '.$bt;
+                        }
+                    }
+                }
+                if ($lines) $blocks[] = implode("\n", $lines);
+            }
+            if ($blocks) {
+                $carousel_text = implode("\n\n", $blocks);
+                $text = $text !== '' ? ($text."\n\n".$carousel_text) : $carousel_text;
+            }
+        }
+
+        // Button template (no elements)
+        if (!empty($msg['attachment']['payload']['buttons']) && is_array($msg['attachment']['payload']['buttons'])) {
+            if ($text === '' && !empty($msg['attachment']['payload']['text'])) {
+                $text = (string)$msg['attachment']['payload']['text'];
+            }
+            $labels = array();
+            foreach ($msg['attachment']['payload']['buttons'] as $btn) {
+                if (!empty($btn['title'])) $labels[] = '• '.$btn['title'];
+            }
+            if ($labels) {
+                $text = trim($text.($text !== '' ? "\n" : '').implode("\n", $labels));
+            }
+        }
+
+        // Quick replies
+        if (!empty($msg['quick_replies']) && is_array($msg['quick_replies'])) {
+            $labels = array();
+            foreach ($msg['quick_replies'] as $qr) {
+                if (!empty($qr['title'])) $labels[] = '• '.$qr['title'];
+            }
+            if ($labels) {
+                $text = trim($text.($text !== '' ? "\n" : '').implode("\n", $labels));
+            }
+        }
+
+        return array('text' => $text, 'images' => array_values(array_unique($images)));
+    }
+
+    protected function is_openwa_http_url($url)
+    {
+        $url = trim((string)$url);
+        return $url !== '' && (stripos($url, 'http://') === 0 || stripos($url, 'https://') === 0);
     }
 
     public function webhook_callback_main()
@@ -3370,15 +3543,16 @@ class Messenger_bot extends Home
             $nomatch_info = $this->basic->get_data("messenger_bot",array("where"=>array("keyword_type"=>"no match","user_id"=>$this->user_id,"page_id"=>$page_table_id,"media_type"=>$media_type)));
             $nid=$nurl='';
             if(isset($nomatch_info[0]['id'])) $nid = $nomatch_info[0]['id'];
+            $nomatch_media_suffix = ($media_type === 'wa') ? '/wa' : '';
 
             if($flowbuilder_exist == 'no' || $nid == '')
-                $nurl = base_url("messenger_bot/edit_bot/").$nid."/1/nomatch";
+                $nurl = base_url("messenger_bot/edit_bot/").$nid."/1/nomatch".$nomatch_media_suffix;
             else
             {
                 if($nid!='' && $nomatch_info[0]['visual_flow_type']=='general')
-                    $nurl = base_url("messenger_bot/edit_bot/").$nid."/1/nomatch";
+                    $nurl = base_url("messenger_bot/edit_bot/").$nid."/1/nomatch".$nomatch_media_suffix;
                 else
-                    $nurl = base_url("visual_flow_builder/edit_builder_data/").$nomatch_info[0]['visual_flow_campaign_id']."/1";
+                    $nurl = base_url("visual_flow_builder/edit_builder_data/").$nomatch_info[0]['visual_flow_campaign_id']."/1".($media_type === 'wa' ? '/wa' : '');
             }
         }
 
@@ -3624,6 +3798,15 @@ class Messenger_bot extends Home
                     $action_buttons_str .= str_replace(['#URL#','#ISIFRAME#','#ICON#','#TITLE#'], [$burl,'iframed','fas fa-robot text-danger','Chat with Robot Template'], $common_str);
                 }
 
+            }
+
+            if($media_type == "wa") {
+                if(stripos($nurl,"visual_flow_builder/edit_builder_data")) {
+                    $action_buttons_str .= str_replace(['#URL#','#ISIFRAME#','#ICON#','#TITLE#'], [$nurl,'','fas fa-comment-slash text-success','No Match Template'], $common_str);
+                }
+                else {
+                    $action_buttons_str .= str_replace(['#URL#','#ISIFRAME#','#ICON#','#TITLE#'], [$nurl,'iframed','fas fa-comment-slash text-success','No Match Template'], $common_str);
+                }
             }
 
             if($media_type == "ig") {
@@ -4147,12 +4330,39 @@ class Messenger_bot extends Home
         $data['store_info'] = $store_info;
         $data['all_products'] = $all_products;
 
-        $table_name = "facebook_rx_fb_page_info";
-        $where['where'] = array('bot_enabled' => "1", "facebook_rx_fb_page_info.id"=>$bot_info[0]["page_id"], "facebook_rx_fb_page_info.user_id"=>$this->user_id);
-        $join = array('facebook_rx_fb_user_info'=>"facebook_rx_fb_user_info.id=facebook_rx_fb_page_info.facebook_rx_fb_user_info_id,left");
-        $page_info = $this->basic->get_data($table_name,$where, array("facebook_rx_fb_page_info.*","facebook_rx_fb_user_info.name as account_name","facebook_rx_fb_user_info.fb_id"),$join);
-        if(!isset($page_info[0]))
-        redirect('messenger_bot/bot_list','location');
+        if ($media_type === 'fb' || $media_type === '') {
+            $media_type = function_exists('get_media_type') ? get_media_type() : 'fb';
+        }
+        if (!empty($bot_info[0]['media_type'])) {
+            $media_type = $bot_info[0]['media_type'];
+        }
+
+        if ($media_type === 'wa') {
+            $openwa = $this->basic->get_data('openwa_accounts', array(
+                'where' => array('id' => $bot_info[0]['page_id'], 'user_id' => $this->user_id)
+            ));
+            if (!isset($openwa[0])) {
+                redirect('openwa_bot', 'location');
+            }
+            $page_info = array(array(
+                'id' => $openwa[0]['id'],
+                'page_id' => $openwa[0]['session_id'],
+                'page_name' => !empty($openwa[0]['label']) ? $openwa[0]['label'] : ('OpenWA '.$openwa[0]['phone']),
+                'page_access_token' => '',
+                'instagram_business_account_id' => '',
+                'has_instagram' => '0',
+                'bot_enabled' => '1',
+                'account_name' => !empty($openwa[0]['label']) ? $openwa[0]['label'] : $openwa[0]['phone'],
+                'fb_id' => '',
+            ));
+        } else {
+            $table_name = "facebook_rx_fb_page_info";
+            $where['where'] = array('bot_enabled' => "1", "facebook_rx_fb_page_info.id"=>$bot_info[0]["page_id"], "facebook_rx_fb_page_info.user_id"=>$this->user_id);
+            $join = array('facebook_rx_fb_user_info'=>"facebook_rx_fb_user_info.id=facebook_rx_fb_page_info.facebook_rx_fb_user_info_id,left");
+            $page_info = $this->basic->get_data($table_name,$where, array("facebook_rx_fb_page_info.*","facebook_rx_fb_user_info.name as account_name","facebook_rx_fb_user_info.fb_id"),$join);
+            if(!isset($page_info[0]))
+            redirect('messenger_bot/bot_list','location');
+        }
 
         $template_types=$this->basic->get_enum_values("messenger_bot","template_type");
         if(!$this->addon_exist("custom_field_manager"))
@@ -4191,6 +4401,7 @@ class Messenger_bot extends Home
         $data['page_title'] = $this->lang->line('Edit Bot Settings');
         $data['page_info'] = isset($page_info[0]) ? $page_info[0] : array();
         $data['bot_info'] = isset($bot_info[0]) ? $bot_info[0] : array();
+        $data['media_type'] = $media_type;
         $postback_id_list = $this->basic->get_data('messenger_bot_postback',array('where'=>array('user_id'=>$this->user_id,'page_id'=>$bot_info[0]["page_id"])));
         $current_postbacks = array();
         foreach ($postback_id_list as $value) {
@@ -4244,6 +4455,13 @@ class Messenger_bot extends Home
         if($page_auto_id==0) exit();
 
         $media_type = $this->using_media_type;
+        // URL ?media_type=wa wins when opening from OpenWA deep link
+        $url_media = $this->input->get('media_type');
+        if (in_array($url_media, array('fb','ig','wa'), true)) {
+            $media_type = $url_media;
+            $this->session->set_userdata('selected_global_media_type', $media_type);
+            $this->using_media_type = $media_type;
+        }
         $data['media_type'] = $media_type;
 
         $ecommerce_stores = '<option value="">'.$this->lang->line('Select').'</option>';
@@ -4254,14 +4472,44 @@ class Messenger_bot extends Home
         }
         $data['ecommerce_stores'] = $ecommerce_stores;
 
-        $table_name = "facebook_rx_fb_page_info";
-        $where['where'] = array('bot_enabled' => "1","facebook_rx_fb_page_info.id"=>$page_auto_id,"facebook_rx_fb_page_info.user_id"=>$this->user_id);
-        $join = array('facebook_rx_fb_user_info'=>"facebook_rx_fb_user_info.id=facebook_rx_fb_page_info.facebook_rx_fb_user_info_id,left");
-        $page_info = $this->basic->get_data($table_name,$where,array("facebook_rx_fb_page_info.*","facebook_rx_fb_user_info.name as account_name","facebook_rx_fb_user_info.fb_id"),$join);
+        $is_openwa = false;
+        if ($media_type === 'wa' && $this->db->table_exists('openwa_accounts')) {
+            $openwa = $this->basic->get_data('openwa_accounts', array(
+                'where' => array('id' => (int)$page_auto_id, 'user_id' => $this->user_id, 'status' => '1'),
+            ), '', '', 1);
+            if (!empty($openwa)) {
+                $is_openwa = true;
+                $page_info = array(array(
+                    'id' => $openwa[0]['id'],
+                    'page_id' => $openwa[0]['session_id'],
+                    'page_name' => $openwa[0]['label'] !== '' ? $openwa[0]['label'] : ($openwa[0]['display_phone'] ?: 'OpenWA'),
+                    'page_access_token' => 'openwa:'.$openwa[0]['id'],
+                    'bot_enabled' => $openwa[0]['bot_enabled'],
+                    'account_name' => $openwa[0]['session_name'] ?: 'OpenWA',
+                    'fb_id' => '',
+                    'user_id' => $openwa[0]['user_id'],
+                    'enable_mark_seen' => '0',
+                    'enbale_type_on' => '0',
+                    'reply_delay_time' => 0,
+                    'no_match_found_reply' => $openwa[0]['no_match_found_reply'] ?? 'enabled',
+                    'ig_no_match_found_reply' => 'disabled',
+                    'has_instagram' => '0',
+                ));
+            }
+        }
+
+        if (!$is_openwa) {
+            $table_name = "facebook_rx_fb_page_info";
+            $where['where'] = array('bot_enabled' => "1","facebook_rx_fb_page_info.id"=>$page_auto_id,"facebook_rx_fb_page_info.user_id"=>$this->user_id);
+            $join = array('facebook_rx_fb_user_info'=>"facebook_rx_fb_user_info.id=facebook_rx_fb_page_info.facebook_rx_fb_user_info_id,left");
+            $page_info = $this->basic->get_data($table_name,$where,array("facebook_rx_fb_page_info.*","facebook_rx_fb_user_info.name as account_name","facebook_rx_fb_user_info.fb_id"),$join);
+        }
 
         if(!isset($page_info[0]))
-        redirect('messenger_bot/bot_list', 'location');
-        $bot_settings=$this->basic->get_data("messenger_bot",array("where"=>array("page_id"=>$page_auto_id,"is_template"=>"0","media_type"=>"fb")),'','','','','bot_name asc');
+        redirect($media_type === 'wa' ? 'openwa_bot' : 'messenger_bot/bot_list', 'location');
+
+        $bot_media = in_array($media_type, array('fb','ig','wa'), true) ? $media_type : 'fb';
+        $bot_settings=$this->basic->get_data("messenger_bot",array("where"=>array("page_id"=>$page_auto_id,"is_template"=>"0","media_type"=>$bot_media)),'','','','','bot_name asc');
 
         $template_types=$this->basic->get_enum_values("messenger_bot","template_type");
         if(!$this->addon_exist("custom_field_manager"))
@@ -4276,6 +4524,13 @@ class Messenger_bot extends Home
             If($key!==false)
             unset($template_types[$key]);
         }
+        // WhatsApp: hide FB-only template types that OpenWA cannot deliver richly
+        if ($bot_media === 'wa') {
+            foreach (array('One Time Notification', 'media') as $rm) {
+                $key = array_search($rm, $template_types);
+                if ($key !== false) unset($template_types[$key]);
+            }
+        }
         $data["templates"]=$template_types;
 
         $data["keyword_types"]=$this->basic->get_enum_values("messenger_bot","keyword_type");
@@ -4284,7 +4539,7 @@ class Messenger_bot extends Home
         $data['page_info'] = isset($page_info[0]) ? $page_info[0] : array();
         $data['bot_settings'] = $bot_settings;
 
-        $postback_id_list = $this->basic->get_data('messenger_bot_postback',array('where'=>array('user_id'=>$this->user_id,'page_id'=>$page_auto_id)));
+        $postback_id_list = $this->basic->get_data('messenger_bot_postback',array('where'=>array('user_id'=>$this->user_id,'page_id'=>$page_auto_id,'media_type'=>$bot_media)));
         $data['postback_ids'] = $postback_id_list;
 
         if($this->basic->is_exist("add_ons",array("project_id"=>16)))
@@ -4311,6 +4566,7 @@ class Messenger_bot extends Home
             $data['visual_flow_builder_exist'] = 'no';
 
         $data['iframe']=$iframe;
+        $data['is_openwa'] = $is_openwa ? '1' : '0';
         $this->_viewcontroller($data);
     }
 
@@ -4409,26 +4665,46 @@ class Messenger_bot extends Home
     public function change_bot_state()
     {
         $this->ajax_check();
-        check_module_action_access($module_id=199,$actions=2,'json2');
 
-        $table_id = $this->input->post('table_id', true);
+        $table_id = (int)$this->input->post('table_id', true);
+        $bot_info = $this->basic->get_data('messenger_bot', array('where' => array('id' => $table_id)), '', '', 1);
 
-        /* check this users requested bot existance */
-        $bot_info = $this->basic->get_data('messenger_bot', array('where' => array('id' => $table_id, 'user_id' => $this->user_id)), array('status'));
-
-        if (count($bot_info) > 0) {
-
-            if ($bot_info[0]['status'] == '1') {
-                $new_state = '0';
-            } else {
-                $new_state = '1';
-            }
-
-            $this->basic->update_data('messenger_bot', array('id' => $table_id, 'user_id' => $this->user_id), array('status' => $new_state));
-            echo json_encode(array('status' => 'success', 'message' => $this->lang->line("State has successfully changed.")));
-        } else {
+        if (empty($bot_info)) {
             echo json_encode(array('status' => 'error', 'message' => $this->lang->line("Something went wrong.")));
+            return;
         }
+
+        if (!$this->user_can_manage_bot_row($bot_info[0])) {
+            echo json_encode(array('status' => 'error', 'message' => $this->lang->line("You do not have access to perform this action.")));
+            return;
+        }
+
+        // Classic FB bots still need module 199; OpenWA bots are managed via openwa ownership
+        if (($bot_info[0]['media_type'] ?? '') !== 'wa') {
+            check_module_action_access($module_id=199,$actions=2,'json2');
+        }
+
+        $new_state = ($bot_info[0]['status'] == '1') ? '0' : '1';
+        $this->basic->update_data('messenger_bot', array('id' => $table_id), array(
+            'status' => $new_state,
+            'user_id' => $this->user_id, // heal mismatched ownership from older WA seeds
+        ));
+        echo json_encode(array('status' => 'success', 'message' => $this->lang->line("State has successfully changed.")));
+    }
+
+    /** True when current user owns the bot row or its OpenWA account. */
+    private function user_can_manage_bot_row($bot)
+    {
+        if (empty($bot) || empty($this->user_id)) return false;
+        if ((int)($bot['user_id'] ?? 0) === (int)$this->user_id) return true;
+
+        if (($bot['media_type'] ?? '') === 'wa' && $this->db->table_exists('openwa_accounts')) {
+            $acc = $this->basic->get_data('openwa_accounts', array(
+                'where' => array('id' => (int)($bot['page_id'] ?? 0), 'user_id' => $this->user_id),
+            ), array('id'), '', 1);
+            return !empty($acc);
+        }
+        return false;
     }
 
     public function get_postback()
@@ -4550,14 +4826,29 @@ class Messenger_bot extends Home
             $insert_data['postback_id'] = implode(',', $keywordtype_postback_id);
 
         // $template_type = str_replace(' ', '_', $template_type);
-        // domain white list section
-        $facebook_rx_fb_user_info_id = $this->basic->get_data("facebook_rx_fb_page_info",array("where"=>array("id"=>$page_table_id)),array("facebook_rx_fb_user_info_id","page_access_token"));
-        $page_access_token = $facebook_rx_fb_user_info_id[0]['page_access_token'];
-        $facebook_rx_fb_user_info_id = $facebook_rx_fb_user_info_id[0]["facebook_rx_fb_user_info_id"];
-        $white_listed_domain = $this->basic->get_data("messenger_bot_domain_whitelist",array("where"=>array("user_id"=>$this->user_id,"messenger_bot_user_info_id"=>$facebook_rx_fb_user_info_id,"page_id"=>$page_table_id)),"domain");
+        // domain white list section — OpenWA has no Graph page tokens
+        $is_openwa_save = (isset($media_type) && $media_type === 'wa');
+        if (!$is_openwa_save && $this->db->table_exists('openwa_accounts')) {
+            $owa_check = $this->basic->get_data('openwa_accounts', array('where'=>array('id'=>(int)$page_table_id,'user_id'=>$this->user_id)), array('id','session_id'), '', 1);
+            if (!empty($owa_check)) {
+                $is_openwa_save = true;
+                $insert_data['media_type'] = 'wa';
+                $media_type = 'wa';
+                if (empty($insert_data['fb_page_id'])) $insert_data['fb_page_id'] = $owa_check[0]['session_id'];
+            }
+        }
+
+        $page_access_token = '';
+        $facebook_rx_fb_user_info_id = 0;
         $white_listed_domain_array = array();
-        foreach ($white_listed_domain as $value) {
-            $white_listed_domain_array[] = $value['domain'];
+        if (!$is_openwa_save) {
+            $facebook_rx_fb_user_info_id = $this->basic->get_data("facebook_rx_fb_page_info",array("where"=>array("id"=>$page_table_id)),array("facebook_rx_fb_user_info_id","page_access_token"));
+            $page_access_token = $facebook_rx_fb_user_info_id[0]['page_access_token'];
+            $facebook_rx_fb_user_info_id = $facebook_rx_fb_user_info_id[0]["facebook_rx_fb_user_info_id"];
+            $white_listed_domain = $this->basic->get_data("messenger_bot_domain_whitelist",array("where"=>array("user_id"=>$this->user_id,"messenger_bot_user_info_id"=>$facebook_rx_fb_user_info_id,"page_id"=>$page_table_id)),"domain");
+            foreach ($white_listed_domain as $value) {
+                $white_listed_domain_array[] = $value['domain'];
+            }
         }
         $need_to_whitelist_array = array();
         // domain white list section
@@ -5432,6 +5723,7 @@ class Messenger_bot extends Home
         // domain white list section start
         $this->load->library("fb_rx_login");
         $domain_whitelist_insert_data = array();
+        if (empty($is_openwa_save) && $page_access_token !== '')
         foreach($need_to_whitelist_array as $value)
         {
 
@@ -5543,14 +5835,29 @@ class Messenger_bot extends Home
             $insert_data['postback_id'] = implode(',', $keywordtype_postback_id);
 
         // $template_type = str_replace(' ', '_', $template_type);
-        // domain white list section
-        $facebook_rx_fb_user_info_id = $this->basic->get_data("facebook_rx_fb_page_info",array("where"=>array("id"=>$page_table_id)),array("facebook_rx_fb_user_info_id","page_access_token"));
-        $page_access_token = $facebook_rx_fb_user_info_id[0]['page_access_token'];
-        $facebook_rx_fb_user_info_id = $facebook_rx_fb_user_info_id[0]["facebook_rx_fb_user_info_id"];
-        $white_listed_domain = $this->basic->get_data("messenger_bot_domain_whitelist",array("where"=>array("user_id"=>$this->user_id,"messenger_bot_user_info_id"=>$facebook_rx_fb_user_info_id,"page_id"=>$page_table_id)),"domain");
+        // domain white list section — OpenWA has no Graph page tokens
+        $is_openwa_save = (isset($media_type) && $media_type === 'wa');
+        if (!$is_openwa_save && $this->db->table_exists('openwa_accounts')) {
+            $owa_check = $this->basic->get_data('openwa_accounts', array('where'=>array('id'=>(int)$page_table_id,'user_id'=>$this->user_id)), array('id','session_id'), '', 1);
+            if (!empty($owa_check)) {
+                $is_openwa_save = true;
+                $insert_data['media_type'] = 'wa';
+                $media_type = 'wa';
+                if (empty($insert_data['fb_page_id'])) $insert_data['fb_page_id'] = $owa_check[0]['session_id'];
+            }
+        }
+
+        $page_access_token = '';
+        $facebook_rx_fb_user_info_id = 0;
         $white_listed_domain_array = array();
-        foreach ($white_listed_domain as $value) {
-            $white_listed_domain_array[] = $value['domain'];
+        if (!$is_openwa_save) {
+            $facebook_rx_fb_user_info_id = $this->basic->get_data("facebook_rx_fb_page_info",array("where"=>array("id"=>$page_table_id)),array("facebook_rx_fb_user_info_id","page_access_token"));
+            $page_access_token = $facebook_rx_fb_user_info_id[0]['page_access_token'];
+            $facebook_rx_fb_user_info_id = $facebook_rx_fb_user_info_id[0]["facebook_rx_fb_user_info_id"];
+            $white_listed_domain = $this->basic->get_data("messenger_bot_domain_whitelist",array("where"=>array("user_id"=>$this->user_id,"messenger_bot_user_info_id"=>$facebook_rx_fb_user_info_id,"page_id"=>$page_table_id)),"domain");
+            foreach ($white_listed_domain as $value) {
+                $white_listed_domain_array[] = $value['domain'];
+            }
         }
         $need_to_whitelist_array = array();
         // domain white list section
@@ -6410,6 +6717,7 @@ class Messenger_bot extends Home
         // domain white list section start
         $this->load->library("fb_rx_login");
         $domain_whitelist_insert_data = array();
+        if (empty($is_openwa_save) && $page_access_token !== '')
         foreach($need_to_whitelist_array as $value)
         {
              $domain_only_whitelist= get_domain_only_with_http($value);
@@ -10804,6 +11112,16 @@ class Messenger_bot extends Home
         $updated_data['sequence_email_api_id'] = $sequence_email_api_id;
         $updated_data['sequence_sms_campaign_id'] = $sequence_sms_campaign_id;
         $updated_data['sequence_email_campaign_id'] = $sequence_email_campaign_id;
+        if ($media_type === 'wa' && $this->db->table_exists('openwa_accounts')) {
+            $this->basic->update_data('openwa_accounts', array('id' => $table_id, 'user_id' => $this->user_id), array(
+                'no_match_found_reply' => $no_match_found_reply,
+            ));
+            $response['status'] = '1';
+            $response['message'] = $this->lang->line('General settings have been stored successfully.');
+            echo json_encode($response);
+            return;
+        }
+
         if($media_type == "ig") {
             $updated_data['ig_chat_human_email'] = $chat_human_email;
             $updated_data['ig_no_match_found_reply'] = $no_match_found_reply;
@@ -11199,8 +11517,13 @@ class Messenger_bot extends Home
                 exit();
             }
         }
-        $id=$this->input->post("id");
-        $bot_posback_ids = $this->basic->get_data('messenger_bot',array('where'=>array('id'=>$id)));
+        $id=(int)$this->input->post("id");
+        $bot_posback_ids = $this->basic->get_data('messenger_bot',array('where'=>array('id'=>$id)),'','',1);
+        if (empty($bot_posback_ids) || !$this->user_can_manage_bot_row($bot_posback_ids[0])) {
+            echo '0';
+            return;
+        }
+
         $postback_id = array();
         if($bot_posback_ids[0]['keyword_type'] == 'post-back')
         {
@@ -11208,7 +11531,7 @@ class Messenger_bot extends Home
         }
 
         $this->db->trans_start();
-        $this->basic->delete_data("messenger_bot",array("id"=>$id,"user_id"=>$this->user_id));
+        $this->basic->delete_data("messenger_bot",array("id"=>$id));
 
         if(!empty($postback_id))
         {

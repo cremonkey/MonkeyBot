@@ -13,6 +13,102 @@ mkdir -p \
   "$APP_ROOT/download" \
   "$RUNTIME_CONFIG"
 
+write_database_config() {
+  db_file="$RUNTIME_CONFIG/database.php"
+
+  if [ -z "${MYSQL_DATABASE:-}" ] || [ -z "${MYSQL_USER:-}" ]; then
+    return 0
+  fi
+
+  cat > /tmp/monkeybot-inject-db.php <<'PHP'
+<?php
+$file = $argv[1];
+$host = getenv('MYSQL_HOST') ?: 'db';
+$database = getenv('MYSQL_DATABASE') ?: '';
+$username = getenv('MYSQL_USER') ?: '';
+$password = getenv('MYSQL_PASSWORD') ?: '';
+
+if ($database === '' || $username === '') {
+    exit(0);
+}
+
+$content = file_exists($file) ? file_get_contents($file) : '';
+$needsWrite = trim($content) === '';
+
+if (!$needsWrite) {
+    foreach (['hostname', 'username', 'database'] as $field) {
+        if (!preg_match("/\\\$db\\['default'\\]\\['".$field."'\\]\\s*=\\s*'([^']*)';/", $content, $matches)) {
+            $needsWrite = true;
+            break;
+        }
+
+        if (trim($matches[1]) === '') {
+            $needsWrite = true;
+            break;
+        }
+    }
+}
+
+if (!$needsWrite) {
+    exit(0);
+}
+
+$databaseConfig = <<<PHP_CONFIG
+<?php  if ( ! defined('BASEPATH')) exit('No direct script access allowed');
+
+     \$active_group = 'default';
+     \$active_record = TRUE;
+     \$db['default']['hostname'] = '__HOST__';
+     \$db['default']['username'] = '__USER__';
+     \$db['default']['password'] = '__PASS__';
+     \$db['default']['database'] = '__DB__';
+     \$db['default']['dbdriver'] = 'mysqli';
+     \$db['default']['dbprefix'] = '';
+     \$db['default']['pconnect'] = FALSE;
+     \$db['default']['db_debug'] = FALSE;
+     \$db['default']['cache_on'] = FALSE;
+     \$db['default']['cachedir'] = '';
+     \$db['default']['char_set'] = 'utf8';
+     \$db['default']['dbcollat'] = 'utf8_general_ci';
+     \$db['default']['swap_pre'] = '';
+     \$db['default']['autoinit'] = TRUE;
+     \$db['default']['stricton'] = FALSE;
+PHP_CONFIG;
+
+$databaseConfig = strtr($databaseConfig, [
+    '__HOST__' => addslashes($host),
+    '__USER__' => addslashes($username),
+    '__PASS__' => addslashes($password),
+    '__DB__' => addslashes($database),
+]);
+
+file_put_contents($file, $databaseConfig);
+PHP
+  php /tmp/monkeybot-inject-db.php "$db_file"
+  rm -f /tmp/monkeybot-inject-db.php
+}
+
+configure_php_fpm_pool() {
+  php_fpm_conf="/usr/local/etc/php-fpm.d/www.conf"
+
+  if [ ! -f "$php_fpm_conf" ]; then
+    return 0
+  fi
+
+  sed -i \
+    -e 's/^pm.max_children = .*/pm.max_children = 20/' \
+    -e 's/^pm.start_servers = .*/pm.start_servers = 4/' \
+    -e 's/^pm.min_spare_servers = .*/pm.min_spare_servers = 2/' \
+    -e 's/^pm.max_spare_servers = .*/pm.max_spare_servers = 6/' \
+    "$php_fpm_conf"
+
+  if grep -q '^;*pm.max_requests = ' "$php_fpm_conf"; then
+    sed -i 's/^;*pm.max_requests = .*/pm.max_requests = 500/' "$php_fpm_conf"
+  else
+    printf '\npm.max_requests = 500\n' >> "$php_fpm_conf"
+  fi
+}
+
 # Seed config files once into the persistent config volume. This also gates
 # the base_url injection below so it only ever applies on the very first
 # boot of a fresh volume - once the installer or an admin has written a real
@@ -36,6 +132,9 @@ PHP
     rm -f /tmp/monkeybot-inject-baseurl.php
   fi
 fi
+
+write_database_config
+configure_php_fpm_pool
 
 # Keep writable paths accessible for the www-data user.
 chown -R www-data:www-data \

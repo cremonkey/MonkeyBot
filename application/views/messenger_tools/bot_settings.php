@@ -1,5 +1,11 @@
 <?php
-  $redirect_url = site_url('messenger_bot/bot_settings/').$page_info['id'].'/1?media_type='.$this->using_media_type;
+  if (!isset($media_type) || $media_type === '') {
+    $media_type = !empty($this->using_media_type) ? $this->using_media_type : 'fb';
+  }
+  if (!isset($THEMECOLORCODE) || $THEMECOLORCODE === '') {
+    $THEMECOLORCODE = '#6777ef';
+  }
+  $redirect_url = site_url('messenger_bot/bot_settings/').$page_info['id'].'/1?media_type='.$media_type;
   $this->load->view("include/upload_js");
 
   $image_upload_limit = 1; 
@@ -150,7 +156,7 @@
         <div class="row">
           <div class="<?php if($iframe=="1") echo 'col-12'; else echo 'col-12 col-md-9';?>">
             <form action="#" method="post" id="messenger_bot_form" style="padding-left: 0;">
-              <input type="hidden" name="media_type" id="media_type" value="fb">
+              <input type="hidden" name="media_type" id="media_type" value="<?php echo htmlspecialchars(isset($media_type) ? $media_type : $this->using_media_type); ?>">
               <input type="hidden" name="page_id" id="page_id" value="<?php echo  $page_info['page_id'];?>">
               <input type="hidden" name="page_table_id" id="page_table_id" value="<?php echo  $page_info['id'];?>">
               <input type="hidden" name="keyword_type" id="keyword_type" value="reply">
@@ -1085,23 +1091,44 @@
           }
 
           $editurl = base_url("messenger_bot/edit_bot/".$value['id']);
-
           if ($value['status'] == '1') {
-
             $state_text = $this->lang->line("Stop");
             $state_icon = '<i class="far fa-stop-circle"></i>';
           } else {
-
             $state_text = $this->lang->line("Start");
             $state_icon = '<i class="far fa-play-circle"></i>';
           }
+          if(isset($iframe) && $iframe=='1') $editurl .= '/1';
+          else $editurl .= '/0';
+          if ($media_type === 'wa') $editurl .= '/0/wa';
 
-          if(isset($iframe) && $iframe=='1') 
-          {
-            $editurl.='/1';
+          echo "<td class='text-center actions-cell'>";
+
+          // WhatsApp: direct links (no AJAX/swal) — most reliable in this settings page
+          if ($media_type === 'wa') {
+            $csrf = $this->session->userdata('csrf_token_session');
+            $toggle_url = base_url('openwa_bot/toggle_bot/'.$value['id'].'?t='.rawurlencode((string)$csrf));
+            $remove_url = base_url('openwa_bot/remove_bot/'.$value['id'].'?t='.rawurlencode((string)$csrf));
+            $action_content = '<div class="btn-group" role="group">';
+            $action_content .= '<a href="'.$toggle_url.'" class="btn btn-outline-warning btn-circle" title="'.htmlspecialchars($state_text).'" onclick="return confirm(\''.($value['status']=='1'?'Stop this bot?':'Start this bot?').'\');">'.$state_icon.'</a>';
+            if(addon_exist($module_id=315,$addon_unique_name="visual_flow_builder") && isset($value['visual_flow_type']) && $value['visual_flow_type'] == 'flow') {
+              $flow_edit_url = base_url()."visual_flow_builder/edit_builder_data/".$value['visual_flow_campaign_id']."/0/".$media_type;
+              $action_content .= '<a class="btn btn-outline-primary btn-circle" target="_BLANK" href="'.$flow_edit_url.'" title="'.htmlspecialchars($this->lang->line("Edit Bot Reply")).'"><i class="fas fa-edit"></i></a>';
+            } else {
+              $action_content .= '<a class="btn btn-outline-primary btn-circle" href="'.$editurl.'" title="'.htmlspecialchars($this->lang->line("Edit Bot Reply")).'"><i class="fas fa-edit"></i></a>';
+            }
+            if (($value['visual_flow_type'] ?? 'general') == 'general') {
+              $action_content .= '<a class="btn btn-outline-danger btn-circle" href="'.$remove_url.'" title="'.htmlspecialchars($this->lang->line("Delete Bot Reply")).'" onclick="return confirm(\'Delete this bot reply?\');"><i class="fas fa-trash-alt"></i></a>';
+            }
+            $action_content .= '</div>';
+            echo $action_content;
+            echo "</td>";
+            echo "</tr>";
+            continue;
           }
-          echo "<td class='text-center'>";
-            $action_content = '<a href="#" data-toggle="dropdown" class="btn btn-outline-primary btn-circle dropdown-toggle bot_actions no_caret"><i class="fas fa-briefcase"></i></a> 
+
+            $action_content = '<div class="dropdown d-inline bot_actions_wrap">
+            <a href="#" data-toggle="dropdown" class="btn btn-outline-primary btn-circle dropdown-toggle bot_actions no_caret" aria-haspopup="true" aria-expanded="false"><i class="fas fa-briefcase"></i></a> 
             
             <ul class="dropdown-menu dropdown-menu-sm dropdown-menu-right">
              <div class="dropdown-title">'.$this->lang->line("Actions").'</div>
@@ -1109,7 +1136,7 @@
 
             if(addon_exist($module_id=315,$addon_unique_name="visual_flow_builder") && isset($value['visual_flow_type']) && $value['visual_flow_type'] == 'flow')
             {
-              $flow_edit_url = base_url()."visual_flow_builder/edit_builder_data/".$value['visual_flow_campaign_id']."/0";
+              $flow_edit_url = base_url()."visual_flow_builder/edit_builder_data/".$value['visual_flow_campaign_id']."/0/".$media_type;
               $action_content .= '<li><a class="dropdown-item has-icon" target="_BLANK" href="'.$flow_edit_url.'"><i class="fas fa-edit"></i> '.$this->lang->line("Edit Bot Reply").'</a></li>';
             }
             else
@@ -1123,7 +1150,7 @@
             }
               
 
-            $action_content .= '</ul>';
+            $action_content .= '</ul></div>';
             echo $action_content;
           echo "</td>";
 
@@ -2051,6 +2078,7 @@ $drop_menu = '<a href="'.$builder_load_url.'" class="float-right btn btn-primary
       var somethingwentwrong = "<?php echo $somethingwentwrong; ?>";
       var doyoureallywanttodeletethisbot = "<?php echo $doyoureallywanttodeletethisbot; ?>";
       var link="<?php echo $redirect_url; ?>"; 
+      var deleteUrl = "<?php echo ($media_type === 'wa') ? site_url('openwa_bot/delete_bot') : site_url('messenger_bot/delete_bot'); ?>";
       swal({
         title: '<?php echo $this->lang->line("Delete Bot Reply"); ?>',
         text: doyoureallywanttodeletethisbot,
@@ -2065,8 +2093,8 @@ $drop_menu = '<a href="'.$builder_load_url.'" class="float-right btn btn-primary
           $.ajax({
             context: this,
             type:'POST' ,
-            url:"<?php echo site_url();?>messenger_bot/delete_bot",
-            data: {id:id},
+            url: deleteUrl,
+            data: {id:id, csrf_token: '<?php echo $this->session->userdata("csrf_token_session"); ?>'},
             success:function(response){ 
               $(this).removeClass('btn-progress');
               if(response == '1')
@@ -2079,6 +2107,10 @@ $drop_menu = '<a href="'.$builder_load_url.'" class="float-right btn btn-primary
               {
                 swal('<?php echo $this->lang->line("Error"); ?>', somethingwentwrong, 'error');
               }
+            },
+            error: function() {
+              $(this).removeClass('btn-progress');
+              swal('<?php echo $this->lang->line("Error"); ?>', somethingwentwrong, 'error');
             }
           });
         } 
@@ -2959,6 +2991,7 @@ $drop_menu = '<a href="'.$builder_load_url.'" class="float-right btn btn-primary
         event.preventDefault();
         
         let table_id = $(this).attr('table_id');
+        var statusUrl = "<?php echo ($media_type === 'wa') ? base_url('openwa_bot/change_bot_state') : base_url('messenger_bot/change_bot_state'); ?>";
 
         swal({
             title: 'Warning',
@@ -2969,10 +3002,10 @@ $drop_menu = '<a href="'.$builder_load_url.'" class="float-right btn btn-primary
         }).then(willChangeState => {
             if (willChangeState) {
                 $.ajax({
-                  url: '<?php echo base_url("messenger_bot/change_bot_state"); ?>',
+                  url: statusUrl,
                   type: 'POST',
                   dataType: 'json',
-                  data: {table_id: table_id},
+                  data: {table_id: table_id, csrf_token: '<?php echo $this->session->userdata("csrf_token_session"); ?>'},
                   success: function (response) {
 
                       if (response.status == 'success') {
@@ -2990,6 +3023,13 @@ $drop_menu = '<a href="'.$builder_load_url.'" class="float-right btn btn-primary
                       }
 
                       window.location.reload();
+                  },
+                  error: function () {
+                      iziToast.error({
+                        title: '<?php echo $this->lang->line("Error"); ?>',
+                        message: '<?php echo $this->lang->line("Something went wrong."); ?>',
+                        position: 'bottomRight'
+                      });
                   }
                 });
                 

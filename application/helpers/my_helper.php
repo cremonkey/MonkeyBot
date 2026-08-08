@@ -32,10 +32,9 @@ if (!function_exists('str_contains')) {
 if (!function_exists('get_media_type')) {
   function get_media_type() {
     $ci = &get_instance();
-    // sidebar menu links carry ?media_type=fb|ig (Facebook Tools vs Instagram
-    // Tools sections) — honor it and persist, otherwise fall back to session
+    // sidebar menu links carry ?media_type=fb|ig|wa — honor it and persist
     $from_url = $ci->input->get('media_type');
-    if (in_array($from_url, array('fb', 'ig'), true)) {
+    if (in_array($from_url, array('fb', 'ig', 'wa'), true)) {
       $ci->session->set_userdata('selected_global_media_type', $from_url);
       return $from_url;
     }
@@ -43,7 +42,7 @@ if (!function_exists('get_media_type')) {
     if (empty($media_type)) {
       $media_type = 'fb';
     }
-    return in_array($media_type, array('fb', 'ig')) ? $media_type : 'fb';
+    return in_array($media_type, array('fb', 'ig', 'wa'), true) ? $media_type : 'fb';
   }
 }
 

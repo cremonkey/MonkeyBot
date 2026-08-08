@@ -92,11 +92,34 @@ if (!function_exists('channel_send_fb_ig')) {
 if (!function_exists('channel_send_wa')) {
     function channel_send_wa($ci, $user_id, $subscribe_id, $text, $page_id)
     {
+        $ci->load->helper('secret');
+
+        // Prefer OpenWA gateway when configured (same channel as inbound OpenWA bots)
+        if ($ci->db->table_exists('openwa_accounts')) {
+            $owhere = array('user_id' => $user_id, 'status' => '1');
+            if ($page_id !== '') {
+                if ((int) $page_id > 0) $owhere['id'] = (int) $page_id;
+                else $owhere['session_id'] = $page_id;
+            }
+            $oacc = $ci->basic->get_data('openwa_accounts', array('where' => $owhere), '', '', 1);
+            if (!empty($oacc)) {
+                $ci->load->library('Openwa_api');
+                $key = secret_decrypt($oacc[0]['api_key']);
+                $res = $ci->openwa_api->send_text($oacc[0]['base_url'], $key, $oacc[0]['session_id'], $subscribe_id, $text);
+                $http = (int)($res['_http'] ?? 0);
+                if ($http < 200 || $http >= 300) {
+                    return array(false, 'openwa: ' . json_encode(isset($res['error']) ? $res['error'] : $res));
+                }
+                channel_log_message($ci, $user_id, $subscribe_id, 'wa', $text, '', (int) $oacc[0]['id']);
+                return array(true, '');
+            }
+        }
+
+        // Fallback: Meta WhatsApp Cloud API
         $where = array('user_id' => $user_id, 'status' => '1');
         if ($page_id !== '' && (int) $page_id > 0) $where['id'] = (int) $page_id;
         $acc = $ci->basic->get_data('whatsapp_accounts', array('where' => $where), '', '', 1);
-        if (empty($acc)) return array(false, 'no active whatsapp account');
-        $ci->load->helper('secret');
+        if (empty($acc)) return array(false, 'no active whatsapp/OpenWA account');
         $ci->load->library('Whatsapp_api');
         $token = secret_decrypt($acc[0]['access_token']);
         $res = $ci->whatsapp_api->send_text($token, $acc[0]['phone_number_id'], $subscribe_id, $text);

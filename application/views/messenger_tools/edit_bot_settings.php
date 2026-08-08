@@ -10,6 +10,9 @@
     $redirect_url = site_url('messenger_bot/ig_bot_settings/').$page_info['id'].'/1?media_type='.$media_type;
     $hide_generic_item = true;
   }
+  if($media_type == 'wa') {
+    $redirect_url = site_url('messenger_bot/bot_settings/').$page_info['id'].'/1?media_type=wa';
+  }
 
   $image_upload_limit = 1; 
   if($this->config->item('messengerbot_image_upload_limit') != '')
@@ -156,7 +159,7 @@
 <?php if($iframe!='1') : ?>
 <section class="section section_custom">
   <div class="section-header">
-    <h1><i class='fa fa-edit'></i> <?php echo $this->lang->line("Edit Bot Settings");?> : <a target='_BLANK' href='https://facebook.com/<?php echo $page_info['page_id'];?>'><?php echo $page_info['page_name'];?></a></h1>
+    <h1><i class='fa fa-edit'></i> <?php echo $this->lang->line("Edit Bot Settings");?> : <?php if($media_type === 'wa'): ?><span><?php echo htmlspecialchars($page_info['page_name']);?></span><?php else: ?><a target='_BLANK' href='https://facebook.com/<?php echo $page_info['page_id'];?>'><?php echo $page_info['page_name'];?></a><?php endif; ?></h1>
     <div class="section-header-breadcrumb">
       <div class="breadcrumb-item"><a href="<?php echo base_url('messenger_bot/bot_menu_section'); ?>"><?php echo $this->lang->line('Messenger Tools'); ?></a></div>
       <div class="breadcrumb-item"><?php echo $page_title; ?></div>

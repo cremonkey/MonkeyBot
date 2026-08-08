@@ -2,7 +2,7 @@
 
 ## Stack
 - Nginx: serves the public site and routes PHP requests to PHP-FPM
-- PHP: 7.4 FPM with the extensions required by CodeIgniter + legacy integrations
+- PHP: 8.1 FPM with the extensions required by CodeIgniter + legacy integrations
 - Database: MariaDB 10.11 with compatibility-oriented defaults
 
 ## Runtime volumes
@@ -21,6 +21,7 @@ Example:
 
 ## Database values
 Set these before first boot:
+- `MYSQL_HOST` (usually `db`)
 - `MYSQL_DATABASE`
 - `MYSQL_USER`
 - `MYSQL_PASSWORD`
@@ -35,5 +36,7 @@ Set these before first boot:
 
 ## Notes
 - The app writes its DB and app config during installation, so `application/config` must stay writable.
+- The repo copy of `application/config/database.php` is only a seed; the live container uses the persisted `app_config` volume.
+- If `application/install.txt` is gone but the DB config is still blank, the app must still be treated as not installed.
 - The Nginx config blocks direct access to `application/`, `system/`, `ci/`, `docker/`, and `assets/backup_db`.
 - Upload paths are kept writable because the app stores media and exports there.

@@ -37,7 +37,23 @@ class Visual_flow_builder extends Home
         6 => 'Missing a temporary folder',
         7 => 'Failed to write file to disk.',
         8 => 'A PHP extension stopped the file upload.',
-    ];   
+    ];
+
+    /** OpenWA account row for a builder page_table_id, or empty. */
+    protected function get_openwa_account($page_table_id)
+    {
+        if (!$page_table_id || !$this->db->table_exists('openwa_accounts')) return array();
+        return $this->basic->get_data('openwa_accounts', array(
+            'where' => array('id' => (int) $page_table_id, 'user_id' => $this->user_id),
+        ), '', '', 1);
+    }
+
+    /** Resolve media_type for builder AJAX/save: wa | ig | fb */
+    protected function resolve_builder_media_type($page_table_id, $instagram_bot_addon = 0)
+    {
+        if (!empty($this->get_openwa_account($page_table_id))) return 'wa';
+        return ((int) $instagram_bot_addon === 1) ? 'ig' : 'fb';
+    }
 
     public $addon_data=array(); 
     public $need_to_whitelist_array = [];
@@ -152,8 +168,9 @@ class Visual_flow_builder extends Home
 
         $page_table_id = $this->input->post('page_table_id',true);
         $instagram_bot_addon = (bool) $this->input->post('instagram_bot_addon',true);
+        $media = $this->resolve_builder_media_type($page_table_id, $instagram_bot_addon);
 
-        $postback_data=$this->basic->get_data("messenger_bot_postback",array("where"=>array("page_id"=>$page_table_id,"media_type" => $instagram_bot_addon ? 'ig' : 'fb',"user_id"=>$this->user_id,"is_template"=>"1",'template_for'=>'reply_message')),['postback_id','template_name','postback_type'],$join='',$limit='',$start=NULL,$order_by='postback_type ASC');
+        $postback_data=$this->basic->get_data("messenger_bot_postback",array("where"=>array("page_id"=>$page_table_id,"media_type" => $media,"user_id"=>$this->user_id,"is_template"=>"1",'template_for'=>'reply_message')),['postback_id','template_name','postback_type'],$join='',$limit='',$start=NULL,$order_by='postback_type ASC');
         
         $push_postback="";
         $push_postback.="<option value=''>".$this->lang->line("Select")."</option>";
@@ -227,9 +244,10 @@ class Visual_flow_builder extends Home
         // {
             $page_id=$this->input->post('page_table_id',true);// database 
             $instagram_bot_addon = (bool) $this->input->post('instagram_bot_addon',true);
+            $media = $this->resolve_builder_media_type($page_id, $instagram_bot_addon);
 
             $table_type = 'user_input_flow_campaign';
-            $where_type['where'] = array('user_id'=>$this->user_id,"media_type" => $instagram_bot_addon ? 'ig' : 'fb',"page_table_id"=>$page_id);
+            $where_type['where'] = array('user_id'=>$this->user_id,"media_type" => $media,"page_table_id"=>$page_id);
             $info_type = $this->basic->get_data($table_type,$where_type);
             
             $str = '<option value="">'.$this->lang->line('Select Flow campaign').'</option>';
@@ -252,10 +270,11 @@ class Visual_flow_builder extends Home
         $page_id=$this->input->post('page_table_id'); // database id
         $requested_from=$this->input->post('requested_from'); // Request from what?
         $instagram_bot_addon = (bool) $this->input->post('instagram_bot_addon',true);
+        $media = $this->resolve_builder_media_type($page_id, $instagram_bot_addon);
 
         $response = [];
         $table_type = 'messenger_bot_broadcast_contact_group';
-        $where_type['where'] = array('user_id'=>$this->user_id,"page_id"=>$page_id,"social_media" => $instagram_bot_addon ? "ig" : "fb","unsubscribe"=>"0","invisible"=>"0");
+        $where_type['where'] = array('user_id'=>$this->user_id,"page_id"=>$page_id,"social_media" => $media,"unsubscribe"=>"0","invisible"=>"0");
         $info_type = $this->basic->get_data($table_type,$where_type,$select='', $join='', $limit='', $start='', $order_by='group_name');
         $label_str = '';
         // $label_str = '<option value="0">'.$this->lang->line('Select Labels').'</option>';
@@ -367,7 +386,14 @@ class Visual_flow_builder extends Home
 
         $response = [];
         $table_type = 'user_input_custom_fields';
-        $where_type['where'] = array('user_id'=>$this->user_id,"media_type"=>('ig' == $media_type ? "ig" : "fb"));
+        // Allow wa when URL/session says so; otherwise ig vs fb
+        $resolved = in_array($media_type, array('wa','ig','fb'), true)
+            ? $media_type
+            : (('ig' == $media_type) ? 'ig' : 'fb');
+        if ($resolved !== 'wa' && $this->session->userdata('selected_global_media_type') === 'wa') {
+            $resolved = 'wa';
+        }
+        $where_type['where'] = array('user_id'=>$this->user_id,"media_type"=>$resolved);
         $info_type = $this->basic->get_data($table_type,$where_type,$select='', $join='', $limit='', $start='', $order_by='name');
 
         $options = '<option value="">' . $this->lang->line("Select") . '</option>';
@@ -494,6 +520,11 @@ class Visual_flow_builder extends Home
         $page_table_id = $this->input->post('page_table_id',true);
         $instagram_bot_addon = $this->input->post('instagram_bot_addon',true);
 
+        // OpenWA: SPA only sends instagram_bot_addon 0/1 — detect by page_table_id
+        $openwa_account = $this->get_openwa_account($page_table_id);
+        $is_openwa = !empty($openwa_account);
+        $forced_media_type = $is_openwa ? 'wa' : (((int)$instagram_bot_addon === 1) ? 'ig' : 'fb');
+
         // Get the visual flow campaign information , this is needed if it comes from creation & or edit without inserting the unique id 
         if(!$builder_table_id){
             $flow_where['where']=array("unique_id"=>$unique_id);
@@ -514,8 +545,7 @@ class Visual_flow_builder extends Home
                     'action_type' => $action_button_type
                 ]
             ];
-            if($instagram_bot_addon == 1) $system_flow_where['where']['media_type'] = 'ig';
-            else $system_flow_where['where']['media_type'] = 'fb';
+            $system_flow_where['where']['media_type'] = $forced_media_type;
             $system_flow_data = $this->basic->get_data('visual_flow_builder_campaign',$system_flow_where,'id');
             if(!empty($system_flow_data))
               $builder_table_id = $system_flow_data[0]['id'];  
@@ -530,7 +560,7 @@ class Visual_flow_builder extends Home
                         'reference_name' => $reference_name,
                         'unique_id' => $unique_id
                     ];
-        if($instagram_bot_addon == 1) $insert_data['media_type'] = 'ig';
+        if($forced_media_type === 'ig' || $forced_media_type === 'wa') $insert_data['media_type'] = $forced_media_type;
 
         $existing_bot_data = [];
         $existing_postback_data = [];
@@ -603,20 +633,36 @@ class Visual_flow_builder extends Home
         else
             unset($bot_settings_array['unique_ids']);
 
-        $facebook_rx_fb_page_info = $this->basic->get_data("facebook_rx_fb_page_info",array("where"=>array("id"=>$page_table_id)),array("facebook_rx_fb_user_info_id","page_access_token","page_id","page_name"));
-        $page_access_token = $facebook_rx_fb_page_info[0]['page_access_token'];
-        $fb_page_id = $facebook_rx_fb_page_info[0]["page_id"];
-        $fb_page_name = $facebook_rx_fb_page_info[0]["page_name"];
-        $facebook_rx_fb_user_info_id = $facebook_rx_fb_page_info[0]["facebook_rx_fb_user_info_id"];
+        if ($is_openwa) {
+            $page_access_token = '';
+            $fb_page_id = $openwa_account[0]['session_id'];
+            $fb_page_name = $openwa_account[0]['label'] !== '' ? $openwa_account[0]['label'] : ($openwa_account[0]['display_phone'] ?: 'OpenWA');
+            $facebook_rx_fb_user_info_id = 0;
+            $fb_app_id = '';
+            $white_listed_domain_array = array();
+            // Synthetic shape used later for fb_page_id assignment
+            $facebook_rx_fb_page_info = array(array(
+                'page_id' => $fb_page_id,
+                'page_name' => $fb_page_name,
+                'page_access_token' => '',
+                'facebook_rx_fb_user_info_id' => 0,
+            ));
+        } else {
+            $facebook_rx_fb_page_info = $this->basic->get_data("facebook_rx_fb_page_info",array("where"=>array("id"=>$page_table_id)),array("facebook_rx_fb_user_info_id","page_access_token","page_id","page_name"));
+            $page_access_token = $facebook_rx_fb_page_info[0]['page_access_token'];
+            $fb_page_id = $facebook_rx_fb_page_info[0]["page_id"];
+            $fb_page_name = $facebook_rx_fb_page_info[0]["page_name"];
+            $facebook_rx_fb_user_info_id = $facebook_rx_fb_page_info[0]["facebook_rx_fb_user_info_id"];
 
-        $facebook_rx_config_info = $this->basic->get_data('facebook_rx_fb_user_info',['where'=>['facebook_rx_fb_user_info.id'=>$facebook_rx_fb_user_info_id,'facebook_rx_fb_user_info.user_id'=>$this->user_id]],['api_id'],['facebook_rx_config'=>'facebook_rx_fb_user_info.facebook_rx_config_id=facebook_rx_config.id,left']);
-        $fb_app_id = $facebook_rx_config_info[0]['api_id'];
+            $facebook_rx_config_info = $this->basic->get_data('facebook_rx_fb_user_info',['where'=>['facebook_rx_fb_user_info.id'=>$facebook_rx_fb_user_info_id,'facebook_rx_fb_user_info.user_id'=>$this->user_id]],['api_id'],['facebook_rx_config'=>'facebook_rx_fb_user_info.facebook_rx_config_id=facebook_rx_config.id,left']);
+            $fb_app_id = $facebook_rx_config_info[0]['api_id'];
 
-        $white_listed_domain = $this->basic->get_data("messenger_bot_domain_whitelist",array("where"=>array("user_id"=>$this->user_id,"messenger_bot_user_info_id"=>$facebook_rx_fb_user_info_id,"page_id"=>$page_table_id)),"domain");
+            $white_listed_domain = $this->basic->get_data("messenger_bot_domain_whitelist",array("where"=>array("user_id"=>$this->user_id,"messenger_bot_user_info_id"=>$facebook_rx_fb_user_info_id,"page_id"=>$page_table_id)),"domain");
 
-        $white_listed_domain_array = array();
-        foreach ($white_listed_domain as $value) {
-            $white_listed_domain_array[] = $value['domain'];
+            $white_listed_domain_array = array();
+            foreach ($white_listed_domain as $value) {
+                $white_listed_domain_array[] = $value['domain'];
+            }
         }
 
         $postback_id_table_id_info = [];
@@ -699,11 +745,11 @@ class Visual_flow_builder extends Home
             $insert_data_to_bot['visual_flow_type'] = 'flow';
             $insert_data_to_bot['visual_flow_campaign_id'] = $visual_flow_campaign_id;
 
-            if($instagram_bot_addon == 1)
+            if($forced_media_type === 'ig' || $forced_media_type === 'wa')
             {
-                $media_type = 'ig';
-                $insert_data['media_type'] = 'ig';
-                $insert_data_to_bot['media_type'] = 'ig';
+                $media_type = $forced_media_type;
+                $insert_data['media_type'] = $forced_media_type;
+                $insert_data_to_bot['media_type'] = $forced_media_type;
             }
             else
                 $media_type = 'fb';
@@ -1082,8 +1128,8 @@ class Visual_flow_builder extends Home
         // Process new Messenger Sequence Campaign 
         foreach($this->new_sequence_information_array as $key_postback=>$new_sequence_campaign)
         {
-            if($instagram_bot_addon == 1)
-                $insert_info['media_type'] = 'ig';
+            if($forced_media_type === 'ig' || $forced_media_type === 'wa')
+                $insert_info['media_type'] = $forced_media_type;
             $insert_info['campaign_name']= $new_sequence_campaign['name'] ?? "" ;
             $insert_info['between_start']= $new_sequence_campaign['startingTime'] ?? "";
             $insert_info['between_end']= $new_sequence_campaign['closingTime'] ?? "";
@@ -2219,9 +2265,15 @@ class Visual_flow_builder extends Home
                     $reply_bot[$single_reply_key]['message']['flow_campaign_id'] = $flow_campaign_id;
                     if($webhook_url != '')
 					{
-                        $facebook_rx_fb_page_info = $this->basic->get_data("facebook_rx_fb_page_info",array("where"=>array("id"=>$page_table_id)),array("page_id","page_name")); 
-                        $fb_page_id = $facebook_rx_fb_page_info[0]["page_id"];
-                        $fb_page_name = $facebook_rx_fb_page_info[0]["page_name"];
+                        $openwa = $this->get_openwa_account($page_table_id);
+                        if (!empty($openwa)) {
+                            $fb_page_id = $openwa[0]['session_id'];
+                            $fb_page_name = $openwa[0]['label'] !== '' ? $openwa[0]['label'] : ($openwa[0]['display_phone'] ?: 'OpenWA');
+                        } else {
+                            $facebook_rx_fb_page_info = $this->basic->get_data("facebook_rx_fb_page_info",array("where"=>array("id"=>$page_table_id)),array("page_id","page_name")); 
+                            $fb_page_id = $facebook_rx_fb_page_info[0]["page_id"];
+                            $fb_page_name = $facebook_rx_fb_page_info[0]["page_name"];
+                        }
 
 						$insert_data_messenger_bot_thirdparty_webhooks = [];
                         $insert_data_messenger_bot_thirdparty_webhooks['user_id'] = $this->user_id;
@@ -2720,10 +2772,23 @@ class Visual_flow_builder extends Home
           exit();
         }
 
-        $info = $this->basic->get_data('facebook_rx_fb_page_info',['where'=>['id'=>$page_table_id,'user_id'=>$this->user_id]],['id', 'page_id', 'page_name', 'insta_username']);
-
-        if($page_table_id == '' || empty($info))
-            redirect('visual_flow_builder/flowbuilder_manager', 'location');
+        $openwa = array();
+        if ($media_type === 'wa') {
+            $openwa = $this->get_openwa_account($page_table_id);
+            if ($page_table_id == '' || empty($openwa)) {
+                redirect('openwa_bot', 'location');
+            }
+            $info = array(array(
+                'id' => $openwa[0]['id'],
+                'page_id' => $openwa[0]['session_id'],
+                'page_name' => $openwa[0]['label'] !== '' ? $openwa[0]['label'] : ($openwa[0]['display_phone'] ?: 'OpenWA'),
+                'insta_username' => '',
+            ));
+        } else {
+            $info = $this->basic->get_data('facebook_rx_fb_page_info',['where'=>['id'=>$page_table_id,'user_id'=>$this->user_id]],['id', 'page_id', 'page_name', 'insta_username']);
+            if($page_table_id == '' || empty($info))
+                redirect('visual_flow_builder/flowbuilder_manager', 'location');
+        }
 
         $user_input_flow_addon = 0;
         if($this->basic->is_exist("add_ons",array("project_id"=>49)))
@@ -2738,9 +2803,12 @@ class Visual_flow_builder extends Home
         $data['messenger_bot_connectivity_thirdparty_webhook'] = $messenger_bot_connectivity_thirdparty_webhook;
 
         $messenger_engagement_plugin = 0;
-        if($this->basic->is_exist("add_ons",array("project_id"=>30)))
-            if($this->session->userdata('user_type') == 'Admin' || count(array_intersect(array(213,214,215,217),$this->module_access))>0)
-                $messenger_engagement_plugin = 1;
+        // FB/IG engagement plugins are not applicable to WhatsApp/OpenWA
+        if ($media_type !== 'wa') {
+            if($this->basic->is_exist("add_ons",array("project_id"=>30)))
+                if($this->session->userdata('user_type') == 'Admin' || count(array_intersect(array(213,214,215,217),$this->module_access))>0)
+                    $messenger_engagement_plugin = 1;
+        }
         $data['messenger_engagement_plugin'] = $messenger_engagement_plugin;
 
         $sequence_addon = 0;
@@ -2750,8 +2818,11 @@ class Visual_flow_builder extends Home
         $data['sequence_addon'] = $sequence_addon;
 
         if($go_back_link == 1) {
-        	// $data['go_back_link'] = base_url('visual_flow_builder/flowbuilder_manager');
-            $data['go_back_link'] = base_url("messenger_bot/bot_list")."?media_type={$media_type}";
+            if ($media_type === 'wa') {
+                $data['go_back_link'] = base_url('openwa_bot');
+            } else {
+                $data['go_back_link'] = base_url("messenger_bot/bot_list")."?media_type={$media_type}";
+            }
         }
         else {
         	$data['go_back_link'] = base_url('messenger_bot/template_manager')."?media_type={$media_type}";
@@ -2770,6 +2841,11 @@ class Visual_flow_builder extends Home
             $data['instagram_bot_addon'] = 0;
             $data['page_name_or_insta_username'] = $info[0]['page_name'];
             $data['fb_page_id'] = $info[0]['page_id'];
+        }
+        // Persist WA context for AJAX dropdowns that only send instagram_bot_addon
+        $this->session->set_userdata('selected_global_media_type', $media_type === 'wa' ? 'wa' : ($media_type === 'ig' ? 'ig' : 'fb'));
+        if ($media_type === 'wa') {
+            $this->session->set_userdata('openwa_builder_page_id', (int) $page_table_id);
         }
 
         $team_member_access = 0;
@@ -2908,16 +2984,40 @@ class Visual_flow_builder extends Home
                 $messenger_engagement_plugin = 1;
         $data['messenger_engagement_plugin'] = $messenger_engagement_plugin;
 
-        $data['go_back_link'] = base_url("messenger_bot/bot_list");
+        $data['go_back_link'] = ($media_type === 'wa')
+            ? base_url('openwa_bot')
+            : base_url("messenger_bot/bot_list")."?media_type={$media_type}";
 
-        $info2 = $this->basic->get_data('facebook_rx_fb_page_info',['where'=>['id'=>$info[0]['page_id'],'user_id'=>$this->user_id]],['id', 'page_name', 'insta_username','page_id']);
-        if($media_type == 'ig') {
-            $data['instagram_bot_addon'] = 1;
-            $data['page_name_or_insta_username'] = $info2[0]['insta_username'];
-        } else  {
+        $campaign_media = $info[0]['media_type'] ?? $media_type;
+        if ($campaign_media === 'wa' || $media_type === 'wa') {
+            $media_type = 'wa';
+            $openwa = $this->get_openwa_account($info[0]['page_id']);
+            if (empty($openwa)) {
+                redirect('openwa_bot', 'location');
+            }
+            $info2 = array(array(
+                'id' => $openwa[0]['id'],
+                'page_name' => $openwa[0]['label'] !== '' ? $openwa[0]['label'] : ($openwa[0]['display_phone'] ?: 'OpenWA'),
+                'insta_username' => '',
+                'page_id' => $openwa[0]['session_id'],
+            ));
             $data['instagram_bot_addon'] = 0;
             $data['page_name_or_insta_username'] = $info2[0]['page_name'];
             $data['fb_page_id'] = $info2[0]['page_id'];
+            $data['messenger_engagement_plugin'] = 0;
+            $this->session->set_userdata('selected_global_media_type', 'wa');
+            $this->session->set_userdata('openwa_builder_page_id', (int) $info[0]['page_id']);
+        } else {
+            $info2 = $this->basic->get_data('facebook_rx_fb_page_info',['where'=>['id'=>$info[0]['page_id'],'user_id'=>$this->user_id]],['id', 'page_name', 'insta_username','page_id']);
+            if($media_type == 'ig') {
+                $data['instagram_bot_addon'] = 1;
+                $data['page_name_or_insta_username'] = $info2[0]['insta_username'];
+            } else  {
+                $data['instagram_bot_addon'] = 0;
+                $data['page_name_or_insta_username'] = $info2[0]['page_name'];
+                $data['fb_page_id'] = $info2[0]['page_id'];
+            }
+            $this->session->set_userdata('selected_global_media_type', $media_type === 'ig' ? 'ig' : 'fb');
         }
 
         $team_member_access = 0;
@@ -3114,6 +3214,22 @@ class Visual_flow_builder extends Home
             array_push($group_page_list,$ig_flow_page_list);
         }
 
+        // OpenWA WhatsApp sessions as flow builder targets
+        if ($this->db->table_exists('openwa_accounts')) {
+            $openwa_info = $this->basic->get_data('openwa_accounts', array(
+                'where' => array('user_id' => $this->user_id, 'status' => '1', 'bot_enabled' => '1'),
+            ), array('id', 'label', 'display_phone', 'session_name'), '', '', '', 'label ASC');
+            if (!empty($openwa_info)) {
+                $wa_flow_page_list = array('media_name' => 'OpenWA WhatsApp', 'page_list' => array());
+                foreach ($openwa_info as $wa) {
+                    $name = $wa['label'] !== '' ? $wa['label'] : ($wa['session_name'] ?: 'OpenWA');
+                    $phone = $wa['display_phone'] !== '' ? ' ['.$wa['display_phone'].']' : '';
+                    $wa_flow_page_list['page_list'][$wa['id'].'-wa'] = $name.$phone;
+                }
+                array_push($group_page_list, $wa_flow_page_list);
+            }
+        }
+
         $data['group_page_list'] = $group_page_list;
 
         $page_list2 = array();
@@ -3174,6 +3290,32 @@ class Visual_flow_builder extends Home
         $join = array('facebook_rx_fb_page_info' => "visual_flow_builder_campaign.page_id = facebook_rx_fb_page_info.id,left");
         $select =array('visual_flow_builder_campaign.*','facebook_rx_fb_page_info.page_name');
         $info=$this->basic->get_data($table,$where='',$select,$join,$limit,$start,$order_by,$group_by='');
+
+        // Fill page_name for OpenWA campaigns (not in facebook_rx_fb_page_info)
+        if (!empty($info) && $this->db->table_exists('openwa_accounts')) {
+            $wa_ids = array();
+            foreach ($info as $row) {
+                if (($row['media_type'] ?? '') === 'wa' && empty($row['page_name'])) {
+                    $wa_ids[] = (int) $row['page_id'];
+                }
+            }
+            $wa_ids = array_unique(array_filter($wa_ids));
+            if (!empty($wa_ids)) {
+                $this->db->where_in('id', $wa_ids);
+                $this->db->where('user_id', $this->user_id);
+                $wa_rows = $this->db->get('openwa_accounts')->result_array();
+                $wa_map = array();
+                foreach ($wa_rows as $w) {
+                    $wa_map[(int)$w['id']] = $w['label'] !== '' ? $w['label'] : ($w['display_phone'] ?: 'OpenWA');
+                }
+                foreach ($info as &$row) {
+                    if (($row['media_type'] ?? '') === 'wa' && empty($row['page_name']) && isset($wa_map[(int)$row['page_id']])) {
+                        $row['page_name'] = $wa_map[(int)$row['page_id']];
+                    }
+                }
+                unset($row);
+            }
+        }
 
         $this->db->where($where_custom);
 

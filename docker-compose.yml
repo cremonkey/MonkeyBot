@@ -5,6 +5,10 @@ services:
       dockerfile: docker/php/Dockerfile
     environment:
       APP_BASE_URL: ${APP_BASE_URL:-}
+      MYSQL_HOST: ${MYSQL_HOST:-db}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-monkeybot}
+      MYSQL_USER: ${MYSQL_USER:-monkeybot}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me-now}
       TZ: ${TZ:-UTC}
     volumes:
       - ./:/var/www/html:rw
@@ -61,6 +65,7 @@ services:
       - --sql-mode=
       - --innodb-file-per-table=1
     environment:
+      MARIADB_HOST: ${MYSQL_HOST:-db}
       MARIADB_DATABASE: ${MYSQL_DATABASE:-monkeybot}
       MARIADB_USER: ${MYSQL_USER:-monkeybot}
       MARIADB_PASSWORD: ${MYSQL_PASSWORD:-change-me-now}

@@ -9,6 +9,8 @@
 
 class Home extends CI_Controller
 {
+    const INSTALLATION_SEGMENTS = ['installation', 'installation_action'];
+    const DATABASE_OPTIONAL_SEGMENTS = ['installation', 'installation_action', 'central_webhook_callback', 'webhook_callback_main'];
 
     /**
      * load constructor
@@ -87,14 +89,13 @@ class Home extends CI_Controller
 
         $seg = $this->uri->segment(2);
 
-        if ($seg != "installation" && $seg != "installation_action" && $seg != "central_webhook_callback" && $seg != "webhook_callback_main") {
-            if (file_exists(APPPATH . 'install.txt')) {
+        if (!in_array($seg, self::DATABASE_OPTIONAL_SEGMENTS, true)) {
+            if ($this->installationRequired()) {
                 redirect('home/installation', 'location');
             }
         }
 
-        //if($seg!="central_webhook_callback" && $seg!="webhook_callback_main")
-        if ($seg != "installation" && $seg != "installation_action") {
+        if (!in_array($seg, self::INSTALLATION_SEGMENTS, true)) {
             $this->load->database();
             $this->load->model('basic');
             $this->_time_zone_set();
@@ -207,6 +208,38 @@ class Home extends CI_Controller
         $is_mobile = '0';
         if (is_mobile()) $is_mobile = '1';
         $this->session->set_userdata("is_mobile", $is_mobile);
+    }
+
+    protected function installationRequired()
+    {
+        return file_exists(APPPATH . 'install.txt') || !$this->databaseConfigured();
+    }
+
+    protected function databaseConfigured()
+    {
+        $database_config_path = APPPATH . 'config/database.php';
+        if (!file_exists($database_config_path)) {
+            return false;
+        }
+
+        $db = [];
+        include $database_config_path;
+
+        if (!isset($db['default']) || !is_array($db['default'])) {
+            return false;
+        }
+
+        foreach (['hostname', 'username', 'database'] as $required_database_field) {
+            if (!isset($db['default'][$required_database_field])) {
+                return false;
+            }
+
+            if (trim((string) $db['default'][$required_database_field]) === '') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
 
@@ -383,7 +416,7 @@ class Home extends CI_Controller
 
     public function installation()
     {
-        if (!file_exists(APPPATH . 'install.txt')) {
+        if (!$this->installationRequired()) {
             redirect('home/login', 'location');
         }
         $data = array("body" => "front/install", "page_title" => "Install Package", "language_info" => $this->_language_list());
@@ -393,7 +426,7 @@ class Home extends CI_Controller
 
     public function installation_action()
     {
-        if (!file_exists(APPPATH . 'install.txt')) {
+        if (!$this->installationRequired()) {
             redirect('home/login', 'location');
         }
 
@@ -1230,7 +1263,7 @@ class Home extends CI_Controller
 
     public function login_page($is_team_login = '0')
     {
-        if (file_exists(APPPATH . 'install.txt')) {
+        if ($this->installationRequired()) {
             redirect('home/installation', 'location');
         }
 
@@ -1269,7 +1302,7 @@ class Home extends CI_Controller
 
     public function login($is_team_login = '0') //loads home view page after login (this )
     {
-        if (file_exists(APPPATH . 'install.txt')) {
+        if ($this->installationRequired()) {
             redirect('home/installation', 'location');
         }
 
