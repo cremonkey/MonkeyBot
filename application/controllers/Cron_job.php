@@ -6,7 +6,17 @@ class Cron_job extends Home
     public function __construct()
     {
         parent::__construct();
-        $this->upload_path = realpath( APPPATH . '../upload');        
+        $this->upload_path = realpath( APPPATH . '../upload');
+
+        // Phase 0 / 7.2: almost every job below had its api_key_check() commented out, so
+        // anyone could trigger posting, broadcasts, SMS/email sends and data deletion over
+        // HTTP. Gate them all here: CLI is allowed; HTTP needs a valid native API key as the
+        // first argument (the stock cron URL format cron_job/<method>/<api_key>).
+        // index/get_api are the logged-in "Cron job" settings page and keep their own check.
+        $method = strtolower((string) $this->router->fetch_method());
+        if (!in_array($method, array('index', 'get_api'), true) && !$this->input->is_cli_request()) {
+            $this->api_key_check((string) $this->uri->segment(3));
+        }
     }
 
 

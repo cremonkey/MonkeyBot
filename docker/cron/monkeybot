@@ -15,3 +15,6 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # TikTok bot: poll comments for active campaigns
 */5 * * * * root flock -n /run/monkeybot-tiktok.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 280 php /var/www/html/index.php tiktok_bot/tiktok_cron poll_comments >> /var/log/monkeybot-cron.log 2>&1
+
+# Lead scoring (SPEC-07): -1 point per day for subscribers idle 7+ days. Daily, 03:15 server time.
+15 3 * * * root flock -n /run/monkeybot-lead-decay.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 280 php /var/www/html/index.php cron_job lead_score_decay >> /var/log/monkeybot-cron.log 2>&1
