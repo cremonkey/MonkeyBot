@@ -388,6 +388,83 @@ class Inbox extends Home
         echo json_encode(array('status' => '1', 'message' => 'Note saved', 'note_id' => (int) $this->db->insert_id()));
     }
 
+    // ------------------------------------------------------------------ AI summary
+
+    /**
+     * AJAX: short, factual AI summary of the thread (brief §13/§51). Generated ON DEMAND from
+     * `livechat_messages` (already linked via the Phase 9.5 trigger — ADR-001), NOT from
+     * `ai_conversation_history` (that table is keyed per-subscriber, not per-conversation; see
+     * docs/product/unified-inbox.md "Deferred"). Cached on `conversations.last_summary` /
+     * `last_summary_at` and only regenerated when a newer message has arrived since the cache
+     * was written, or when the agent explicitly clicks "Regenerate" (refresh=1).
+     */
+    public function summarize()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+
+        $conversation_id = (int) $this->input->post('conversation_id');
+        $refresh = (bool) $this->input->post('refresh');
+
+        $conv = conversation_get($conversation_id, $this->uid); // tenant guard
+        if (empty($conv)) { echo json_encode(array('status' => '0', 'message' => 'Conversation not found')); return; }
+
+        $this->load->helper('conversation_summary');
+        $needs_new = $refresh || conversation_summary_should_regenerate(
+            isset($conv['last_summary_at']) ? $conv['last_summary_at'] : null,
+            isset($conv['last_message_at']) ? $conv['last_message_at'] : null
+        );
+
+        if (!$needs_new && !empty($conv['last_summary'])) {
+            echo json_encode(array(
+                'status' => '1', 'summary' => $conv['last_summary'],
+                'generated_at' => $conv['last_summary_at'], 'cached' => true,
+            ));
+            return;
+        }
+
+        $ai_cfg = $this->db->from('open_ai_config')->where('user_id', $this->uid)->limit(1)->get()->row_array();
+        if (empty($ai_cfg)) {
+            // Same wording ai_agent_helper.php's preview already uses for the identical case —
+            // never fabricate a summary when there is nothing to generate it with (brief §51).
+            echo json_encode(array('status' => '0', 'message' => 'No AI credentials configured'));
+            return;
+        }
+
+        $this->db->select('id, sender, agent_name, message_content, conversation_time')
+            ->from('livechat_messages')->where('conversation_id', $conv['id'])
+            ->order_by('id', 'DESC')->limit(50);
+        $messages = array_reverse($this->db->get()->result_array());
+
+        // TEST-ONLY seam (see application/config/config.php's conversation_summary_test_fixture
+        // docblock): always FALSE in production, flipped only by
+        // docker/scripts/staging_summary_billing_tests.sh so the real endpoint can be proven
+        // end-to-end without a real AI provider API key.
+        $fixture_name = $this->config->item('conversation_summary_test_fixture');
+        if (!empty($fixture_name)) {
+            $this->load->helper('conversation_summary_test_fixture');
+            $fixture_text = conversation_summary_test_fixture($fixture_name);
+            $this->load->library('Conversation_summarizer', array('ai_caller' => function ($cfg, $msgs, $overrides) use ($fixture_text) {
+                return json_encode(array('choices' => array(array('text' => $fixture_text))));
+            }));
+        } else {
+            $this->load->library('Conversation_summarizer');
+        }
+
+        $result = $this->conversation_summarizer->summarize($ai_cfg, $messages);
+        if (empty($result['ok'])) {
+            echo json_encode(array('status' => '0', 'message' => $result['message']));
+            return;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->where('id', $conv['id'])->where('user_id', $this->uid)
+            ->update('conversations', array('last_summary' => $result['summary'], 'last_summary_at' => $now, 'updated_at' => $now));
+
+        echo json_encode(array('status' => '1', 'summary' => $result['summary'], 'generated_at' => $now, 'cached' => false));
+    }
+
     // ------------------------------------------------------------------ canned responses
 
     /**

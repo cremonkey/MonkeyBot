@@ -21,6 +21,7 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
         array('Unanswered questions', $totals['missed'], 'fas fa-question-circle', $totals['missed'] ? 'warning' : 'success'),
         array('Leads (' . $days . 'd)', $totals['leads_30'], 'fas fa-funnel-dollar', 'success'),
         array('AI cost (' . $days . 'd)', '$' . number_format($totals['ai_cost_30'], 2), 'fas fa-robot', 'secondary'),
+        array('Renewals due soon', $totals['renewals_due_soon'], 'fas fa-calendar-times', $totals['renewals_due_soon'] ? 'danger' : 'success'),
       ) as $k): ?>
       <div class="col-lg-2 col-md-4 col-6"><div class="card card-statistic-1">
         <div class="card-icon bg-<?php echo $k[3]; ?>"><i class="<?php echo $k[2]; ?>"></i></div>
@@ -32,7 +33,9 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
     <div class="card"><div class="card-header"><h4>Clients — needs attention first</h4></div>
       <div class="card-body p-0"><div class="table-responsive">
         <table class="table table-striped mb-0">
-          <thead><tr><th>Client</th><th>Channels</th><th title="Customer messages in the last 7 days">In (7d)</th><th title="Bot replies per customer message">Bot %</th>
+          <thead><tr><th>Client</th><th>Package</th><th title="Days until package expiry">Renewal</th>
+            <th title="Usage vs the package's monthly_limit for AI replies (module 340)">AI usage</th>
+            <th>Channels</th><th title="Customer messages in the last 7 days">In (7d)</th><th title="Bot replies per customer message">Bot %</th>
             <th>Last message</th><th>Leads</th><th>Won</th><th title="Waiting for a human">Waiting</th><th title="Unanswered questions">Missed</th>
             <th title="Price-guard blocks, 7d">Guard</th><th>AI cost</th><th>Attention</th></tr></thead>
           <tbody>
@@ -40,6 +43,20 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
             <tr>
               <td><b><?php echo htmlspecialchars($r['name']); ?></b><?php if ($r['type'] === 'Admin'): ?> <span class="badge badge-light">agency</span><?php endif; ?>
                 <br><small class="text-muted"><?php echo htmlspecialchars($r['email']); ?></small></td>
+              <td><?php echo htmlspecialchars($r['package_name']); ?></td>
+              <td><?php if ($r['expiry']['status'] === 'none'): ?><span class="text-muted">—</span>
+                <?php else: ?><span class="badge badge-<?php echo $r['expiry']['flag'] ? $r['expiry']['flag'] : 'light'; ?>"><?php echo htmlspecialchars($r['expiry']['label']); ?></span>
+                <?php endif; ?></td>
+              <td style="min-width:110px">
+                <?php if ($r['usage']['unlimited']): ?><span class="text-muted">Unlimited</span>
+                <?php else: ?>
+                  <div class="progress" style="height:14px" title="<?php echo $r['usage']['usage'] . ' / ' . $r['usage']['limit']; ?>">
+                    <div class="progress-bar bg-<?php echo $r['usage']['percent'] >= 90 ? 'danger' : ($r['usage']['percent'] >= 70 ? 'warning' : 'success'); ?>"
+                      style="width:<?php echo $r['usage']['percent']; ?>%"></div>
+                  </div>
+                  <small class="text-muted"><?php echo $r['usage']['usage'] . '/' . $r['usage']['limit'] . ' (' . $r['usage']['percent'] . '%)'; ?></small>
+                <?php endif; ?>
+              </td>
               <td style="white-space:nowrap"><?php foreach ($r['channels'] as $k => $n): if ($n > 0): ?>
                 <span class="mr-1" title="<?php echo $k . ': ' . $n; ?>"><i class="<?php echo $ch_icon[$k]; ?>"></i><?php echo $n > 1 ? '<sup>' . $n . '</sup>' : ''; ?></span>
                 <?php endif; endforeach; ?><?php if (!array_sum($r['channels'])): ?><span class="text-muted">none</span><?php endif; ?></td>
@@ -61,7 +78,9 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
       </div></div>
     </div>
     <p class="text-muted"><small>Read-only. Figures are per client account; no client can open this page.
-      AI cost uses recorded estimates where available, otherwise the model price table.</small></p>
+      AI cost uses recorded estimates where available, otherwise the model price table.
+      Package/renewal/AI-usage figures are readiness &amp; visibility only, not billing or invoicing —
+      that already runs through Payment.php's own gateways.</small></p>
   </div>
 </section>
 

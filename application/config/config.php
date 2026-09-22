@@ -413,3 +413,15 @@ $config['entitlement_enforce_custom_modules'] = TRUE;
 | docker/scripts/staging_sequences_tests.sh flips automation_engine_enabled.
 */
 $config['prompt_to_flow_test_fixture'] = FALSE;
+
+/*
+| AI conversation summary (brief §13) — TEST-ONLY escape hatch, never set in production.
+| When truthy (a fixture name string), Inbox::summarize() loads
+| application/helpers/conversation_summary_test_fixture_helper.php and calls
+| Conversation_summarizer through a fake ai_caller instead of Ai_provider::completion(), so
+| docker/scripts/staging_summary_billing_tests.sh can exercise the real HTTP endpoint
+| end-to-end (caching, regeneration-on-new-message, tenant isolation) without a real AI
+| provider API key. Always FALSE here; the staging test script flips it with sed, exactly
+| like prompt_to_flow_test_fixture above.
+*/
+$config['conversation_summary_test_fixture'] = FALSE;
