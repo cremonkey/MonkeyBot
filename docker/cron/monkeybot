@@ -1,9 +1,17 @@
-# MonkeyBot scheduled jobs — install once on the host with:
-#   sudo cp docker/cron/monkeybot /etc/cron.d/ && sudo chmod 644 /etc/cron.d/monkeybot
-# (replaces the older monkeybot-tiktok file; remove it if present)
+# MonkeyBot scheduled jobs. Install once on the host with:
+#   sudo cp docker/cron/monkeybot /etc/cron.d/monkeybot && sudo chmod 644 /etc/cron.d/monkeybot
+#
+# Jobs run through the PHP CLI inside the app container, as www-data (so files they
+# create in cache/logs stay writable by PHP-FPM). CLI needs no secret; the HTTP
+# endpoints stay closed unless config 'cron_secret' is set.
+# flock stops a slow tick from stacking docker execs; Cron_hub also holds a DB lock.
+# Container name comes from the Dokploy compose project (monkeybot-app-ojzrhf).
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Sales automation: silent-lead follow-ups + daily digest
-*/5 * * * * root /usr/bin/docker exec monkeybot-web-1 curl -s -o /dev/null --max-time 280 http://127.0.0.1/cron_hub/run
+# Sales automation: follow-ups, coupon reminders, digest, re-engage, 8xCRM push,
+# missed-question alerts, retention cleanup
+*/5 * * * * root flock -n /run/monkeybot-cron-hub.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 280 php /var/www/html/index.php cron_hub run >> /var/log/monkeybot-cron.log 2>&1
 
 # TikTok bot: poll comments for active campaigns
-*/5 * * * * root /usr/bin/docker exec monkeybot-web-1 curl -s -o /dev/null --max-time 280 http://127.0.0.1/tiktok_bot/tiktok_cron/poll_comments
+*/5 * * * * root flock -n /run/monkeybot-tiktok.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 280 php /var/www/html/index.php tiktok_bot/tiktok_cron poll_comments >> /var/log/monkeybot-cron.log 2>&1

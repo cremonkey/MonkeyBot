@@ -73,8 +73,6 @@ class Cron_job extends Home
 
     public function api_key_check($api_key="")
     {
-
-        return TRUE;
         if($this->input->is_cli_request()) return TRUE;
 
         $user_id="";

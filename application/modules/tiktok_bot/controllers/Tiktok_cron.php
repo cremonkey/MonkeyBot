@@ -1,8 +1,8 @@
 <?php
 /**
  * TikTok Bot cron endpoints.
- * Called by external cron every 5 minutes:
- *   curl https://bot.cremonkey.com/tiktok_bot/tiktok_cron/poll_comments >/dev/null 2>&1
+ * Called by the host cron every 5 minutes via CLI (docker/cron/monkeybot):
+ *   php index.php tiktok_bot/tiktok_cron poll_comments
  */
 require_once(APPPATH . "controllers/Home.php");
 
@@ -11,6 +11,13 @@ class Tiktok_cron extends Home
     public function __construct()
     {
         parent::__construct();
+        // Host cron calls this via CLI. Over HTTP require the shared cron secret.
+        if (!is_cli()) {
+            $secret = (string) $this->config->item('cron_secret');
+            if ($secret === '' || !hash_equals($secret, (string) $this->input->get('key', true))) {
+                show_404();
+            }
+        }
         set_time_limit(0);
         $this->load->config('tiktok');
         $this->load->library('Tiktok_api');

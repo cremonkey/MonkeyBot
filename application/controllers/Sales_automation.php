@@ -61,11 +61,11 @@ class Sales_automation extends Home
     {
         $this->csrf_token_check();
         header('Content-Type: application/json');
-        $ch = curl_init(site_url('cron_hub/run'));
-        curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 120, CURLOPT_SSL_VERIFYPEER => true));
-        $raw = curl_exec($ch);
-        $err = curl_error($ch);
-        curl_close($ch);
+        // Run one tick through the CLI, same as the host cron. The HTTP endpoint is closed
+        // unless a cron_secret is configured, so the button must not depend on it.
+        $cmd = 'timeout 120 /usr/local/bin/php ' . escapeshellarg(FCPATH . 'index.php') . ' cron_hub run 2>&1';
+        $raw = trim((string) shell_exec($cmd));
+        $err = $raw === '' ? 'no output' : '';
         echo json_encode(['status' => $raw ? '1' : '0', 'message' => $raw ?: ('cron call failed: ' . $err)]);
     }
 }

@@ -12,9 +12,8 @@ require_once("Home.php");
  * runs routinely exceed 5 min because ignore_user_abort keeps PHP going past the curl
  * timeout. The lock makes a second concurrent tick a no-op.
  *
- * Optionally protected by a shared secret: set config 'cron_secret' and pass ?key=... .
- * When no secret is configured the endpoint stays open (backwards compatible), but the
- * cron file passes the key when one is set.
+ * Scheduled by the host cron via CLI (docker/cron/monkeybot). Over HTTP it needs config
+ * 'cron_secret' passed as ?key=... ; without a configured secret HTTP calls are refused.
  *
  * Jobs:
  *  - follow-ups: one nudge per silent conversation, inside Meta's 24h window
@@ -190,11 +189,16 @@ class Cron_hub extends Home
         return empty($deleted) ? array('nothing_to_prune' => true) : $deleted;
     }
 
-    /** Optional shared-secret gate. No secret configured -> open (unchanged behaviour). */
+    /**
+     * CLI (the host cron) is always allowed. Over HTTP a shared secret is required:
+     * config 'cron_secret' + ?key=... . No secret configured -> HTTP is refused, because an
+     * open run() lets anyone on the internet trigger real customer sends.
+     */
     private function _authorized()
     {
+        if (is_cli()) return true;
         $secret = (string) $this->config->item('cron_secret');
-        if ($secret === '') return true;
+        if ($secret === '') return false;
         return hash_equals($secret, (string) $this->input->get('key', true));
     }
 
