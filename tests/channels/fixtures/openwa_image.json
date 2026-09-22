@@ -1,0 +1,20 @@
+{
+  "event": "message.received",
+  "sessionId": "monkey-main",
+  "timestamp": 1758542401,
+  "data": {
+    "id": "3EB0C431D8F6A1B2IMG1",
+    "from": "123456789012345@lid",
+    "chatId": "123456789012345@lid",
+    "fromMe": false,
+    "isGroup": false,
+    "author": "201001234567@c.us",
+    "body": "شوف الصورة دي",
+    "type": "imageMessage",
+    "timestamp": 1758542401,
+    "contact": {
+      "pushName": "Sara",
+      "name": "Sara"
+    }
+  }
+}

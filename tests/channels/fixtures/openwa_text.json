@@ -1,0 +1,20 @@
+{
+  "event": "message.received",
+  "sessionId": "monkey-main",
+  "timestamp": 1758542400,
+  "data": {
+    "id": "3EB0C431D8F6A1B2C3D4",
+    "from": "201001234567@c.us",
+    "chatId": "201001234567@c.us",
+    "fromMe": false,
+    "isGroup": false,
+    "body": "مرحبا، عايز أعرف سعر الغرفة 🙏",
+    "type": "conversation",
+    "timestamp": 1758542400,
+    "contact": {
+      "number": "201001234567",
+      "pushName": "أحمد",
+      "name": "أحمد"
+    }
+  }
+}

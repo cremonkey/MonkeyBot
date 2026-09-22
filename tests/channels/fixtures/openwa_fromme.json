@@ -1,0 +1,16 @@
+{
+  "event": "message.received",
+  "sessionId": "monkey-main",
+  "timestamp": 1758542402,
+  "data": {
+    "id": "3EB0FROMME",
+    "from": "201001234567@c.us",
+    "chatId": "201001234567@c.us",
+    "fromMe": true,
+    "isGroup": false,
+    "body": "our own reply",
+    "type": "conversation",
+    "timestamp": 1758542402,
+    "contact": {}
+  }
+}

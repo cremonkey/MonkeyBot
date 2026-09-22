@@ -1,0 +1,27 @@
+{
+  "object": "page",
+  "entry": [
+    {
+      "id": "104857600000001",
+      "time": 1758542400123,
+      "messaging": [
+        {
+          "sender": {
+            "id": "7101234567890123"
+          },
+          "recipient": {
+            "id": "104857600000001"
+          },
+          "timestamp": 1758542400000,
+          "message": {
+            "mid": "m_AbCdEf123-fb-text",
+            "text": "مرحبا، عايز أعرف سعر الغرفة 🙏",
+            "reply_to": {
+              "mid": "m_prev-fb-1"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
