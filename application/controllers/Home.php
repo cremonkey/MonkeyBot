@@ -4628,7 +4628,7 @@ class Home extends CI_Controller
 
     public function send_reply_ez($access_token = '', $reply = '')
     {
-        $url = graph_url("me/messages?access_token=$access_token", TRUE);
+        $url = graph_url_group("send", "me/messages?access_token=$access_token");
         $ch = curl_init();
         $headers = array("Content-type: application/json");
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -4652,15 +4652,15 @@ class Home extends CI_Controller
     protected function subscriber_info($access_token = '', $sender_id = '', $social_media_type = "fb")
     {
         if ($social_media_type == 'fb')
-            $url = graph_url("$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,profile_pic,locale,timezone,gender", TRUE);
+            $url = graph_url_group("reads", "$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,profile_pic,locale,timezone,gender");
         else
-            $url = graph_url("$sender_id?access_token=$access_token&fields=id,name,profile_pic", TRUE);
+            $url = graph_url_group("reads", "$sender_id?access_token=$access_token&fields=id,name,profile_pic");
 
         $result = $this->subscriber_info_curl_call($url);
 
         if (isset($result['error']) && $result['error']['code'] == 10 && $result['error']['error_subcode'] == 2018336) {
             $result = array();
-            $url = graph_url("$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,locale,timezone,gender", TRUE);
+            $url = graph_url_group("reads", "$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,locale,timezone,gender");
             $result = $this->subscriber_info_curl_call($url);
             $result['profile_pic'] = "";
         }
@@ -4688,7 +4688,7 @@ class Home extends CI_Controller
 
     protected function send_reply($access_token = '', $reply = '')
     {
-        $url = graph_url("me/messages?access_token=$access_token", TRUE);
+        $url = graph_url_group("send", "me/messages?access_token=$access_token");
         $ch = curl_init();
         $headers = array("Content-type: application/json");
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -4715,7 +4715,7 @@ class Home extends CI_Controller
         $access_token = $_POST['access_token'];
         $reply = $_POST['reply'];
 
-        $url = graph_url("me/messages?access_token=$access_token", TRUE);
+        $url = graph_url_group("send", "me/messages?access_token=$access_token");
         $ch = curl_init();
         $headers = array("Content-type: application/json");
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -4910,7 +4910,7 @@ class Home extends CI_Controller
     public function sender_action($sender_id, $action_type, $post_access_token = '')
     {
 
-        $url = graph_url("me/messages?access_token={$post_access_token}", TRUE);
+        $url = graph_url_group("send", "me/messages?access_token={$post_access_token}");
 
         $post_data_array['recipient']['id'] = $sender_id;
         $post_data_array['sender_action'] = $action_type;

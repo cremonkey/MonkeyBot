@@ -378,8 +378,8 @@ $config['proxy_ips'] = '';
 | Facebook Graph API version
 |--------------------------------------------------------------------------
 |
-| Single source of truth, consumed through graph_url() in
-| application/helpers/fb_graph_helper.php.
+| Single source of truth, consumed through graph_url() and (Phase 3)
+| graph_url_group() in application/helpers/fb_graph_helper.php.
 |
 | 'fb_graph_version'        the version everything is being migrated to.
 | 'fb_graph_version_legacy' v20.0 - the version Meta ACTUALLY serves today for every
@@ -391,6 +391,39 @@ $config['proxy_ips'] = '';
 */
 $config['fb_graph_version']        = 'v26.0';
 $config['fb_graph_version_legacy'] = 'v20.0';
+
+/*
+|--------------------------------------------------------------------------
+| Facebook Graph API version - Phase 3 per-group cutover
+|--------------------------------------------------------------------------
+|
+| Consumed through graph_url_group($group, $path) in the same helper. Each
+| group below is independently flippable from v20.0 (today's pinned legacy
+| behaviour) to v26.0, so the cutover can happen one group at a time instead
+| of all at once. See docs/GRAPH_API_MIGRATION.md Phase 3 for the full
+| rollout plan and the runbook for using Graph_diagnostics before flipping
+| each one.
+|
+| Every key below is commented out on purpose: when unset, fb_graph_group_version()
+| falls back to fb_graph_version_legacy (v20.0) -- so leaving this whole block
+| commented out is byte-identical to today's behaviour. Uncomment ONE line at a
+| time, after running Graph_diagnostics for that group against a real page.
+|
+| $config['fb_graph_group_reads_version']              = 'v26.0'; // /{post_id} fields, /{page_id}/conversations, /{thread_id}/messages, /debug_token, /me/picture
+| $config['fb_graph_group_send_version']               = 'v26.0'; // me/messages (Send API)
+| $config['fb_graph_group_messenger_profile_version']  = 'v26.0'; // me/messenger_profile
+| $config['fb_graph_group_oauth_version']              = 'v26.0'; // oauth/access_token, oauth/access_token_info -- flip LAST
+| $config['fb_graph_group_insights_version']           = 'v26.0'; // me/insights, {id}/insights -- see docs for dropped metrics
+| $config['fb_graph_group_labels_version']             = 'v26.0'; // me/custom_labels, {label_id}/label
+| $config['fb_graph_group_page_admin_version']         = 'v26.0'; // delete/hide comment, block commenter, IG mention auto-reply, test-user roles
+|
+| NOT overridable here, by design (see docs/GRAPH_API_MIGRATION.md):
+|   - 'messaging_feature_review' group is hard-pinned to v20.0 in code; a
+|     config key for it is deliberately not read at all.
+|   - Whatsapp_api.php stays hardcoded to v21.0 (WhatsApp Cloud API, a
+|     separate product Meta actually honours that version for).
+|
+*/
 
 /* End of file config.php */
 /* Location: ./application/config/config.php */
