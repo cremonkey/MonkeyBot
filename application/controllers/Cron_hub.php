@@ -58,7 +58,10 @@ class Cron_hub extends Home
             }
             $sql = file_get_contents($path);
             foreach (array_filter(array_map('trim', preg_split('/;\s*[\r\n]/', $sql))) as $stmt) {
-                if ($stmt === '' || strpos($stmt, '--') === 0) continue;
+                // Drop '--' comment lines instead of skipping the whole piece: a file (or
+                // statement) that opens with a comment block used to lose its first statement.
+                $stmt = trim(preg_replace('/^\s*--.*$/m', '', $stmt));
+                if ($stmt === '') continue;
                 try { $this->db->query($stmt); } catch (Exception $e) { echo "  ! {$name}: " . $e->getMessage() . "\n"; }
             }
             $this->db->insert('schema_migrations', array('filename' => $name, 'applied_at' => date('Y-m-d H:i:s')));
