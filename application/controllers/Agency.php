@@ -85,6 +85,13 @@ class Agency extends Home
             'leads_30' => array_sum(array_column($rows, 'leads_30')),
             'ai_cost_30' => round(array_sum(array_column($rows, 'ai_cost_30')), 2),
         );
+        // For the "New client" modal (brief §31/§32 — provisioning, read-only queries here
+        // too: the write lives entirely in Agency_provision::provision_client()).
+        $data['packages'] = $this->db->select('id, package_name, validity')->from('package')
+            ->where('deleted', '0')->order_by('package_name', 'ASC')->get()->result_array();
+        $this->load->helper('industry_template');
+        $data['templates'] = industry_templates_all();
+
         $data['days'] = $days;
         $data['page_title'] = 'Agency Control Center';
         $data['body'] = 'admin/agency/index';
