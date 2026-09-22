@@ -1486,6 +1486,8 @@ class Messenger_bot extends Home
     public function webhook_callback_main()
     {
         $currenTime=date("Y-m-d H:i:s");
+        $this->load->helper('webhook_security');   // Phase 0 / 7.3: only central (or an internal forwarder) may call this
+        if (!mb_internal_gate(isset($_POST['response_raw']) ? (string) $_POST['response_raw'] : '')) { $this->output->set_status_header(403); exit; }
         $response_raw=$this->input->post("response_raw");
         
         // file_put_contents("fb.txt",$response_raw, FILE_APPEND | LOCK_EX);

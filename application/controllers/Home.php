@@ -4544,7 +4544,15 @@ class Home extends CI_Controller
         if (!isset($response_raw) || $response_raw == '')
             exit;
 
+        // Phase 0 / 7.3: verify X-Hub-Signature-256 (log-only until verified on live traffic)
+        $this->load->helper('webhook_security');
+        if (!meta_signature_gate((string) $response_raw)) {
+            $this->output->set_status_header(403);
+            exit;
+        }
+
         $json_response = array("response_raw" => $response_raw);
+        $forward_headers = mb_internal_headers($response_raw);
         $response = json_decode($response_raw, true);
 
         if (isset($response['entry'][0]['messaging'])) {
@@ -4611,6 +4619,7 @@ class Home extends CI_Controller
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_POST, 1);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $json_response);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $forward_headers);
         curl_setopt($ch, CURLOPT_TIMEOUT, 60);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);

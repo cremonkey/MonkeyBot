@@ -4260,6 +4260,8 @@ class Comment_automation extends Home
     
     public function webhook_callback_main()
     {
+        $this->load->helper('webhook_security');   // Phase 0 / 7.3: only central (or an internal forwarder) may call this
+        if (!mb_internal_gate(isset($_POST['response_raw']) ? (string) $_POST['response_raw'] : '')) { $this->output->set_status_header(403); exit; }
         $response_raw=$this->input->post("response_raw"); 
         // file_put_contents("fb.txt", $response_raw, FILE_APPEND | LOCK_EX);
         // $response_raw= '{"entry": [{"id": "218002968934338", "time": 1705914118, "changes": [{"value": {"from": {"id": "1618664901587376", "name": "Mostofa Zaman"}, "post": {"status_type": "shared_story", "is_published": true, "updated_time": "2024-01-22T09:01:55+0000", "permalink_url": "https://www.facebook.com/mostofa.club/posts/pfbid02kmt5rxTNsbZFE31PTBsmBAMKUBKYh5gUPg6yM9Qh896fJZ2WbtiZXgyYLWxHsTd2l", "promotion_status": "ineligible", "id": "218002968934338_1108394953908441"}, "message": "1", "post_id": "218002968934338_1108394953908441", "comment_id": "1108394953908441_2846390318833892", "created_time": 1705914115, "item": "comment", "parent_id": "218002968934338_1108394953908441", "verb": "add"}, "field": "feed"}]}], "object": "page"}';
