@@ -213,6 +213,8 @@ class Cron_hub extends Home
             echo json_encode(array('skipped' => 'another run in progress')) . "\n";
             return;
         }
+        $this->load->helper('ops_health');
+        $t0 = microtime(true);
         try {
             $out = array();
             $out['followups'] = $this->_run_followups();
@@ -222,7 +224,12 @@ class Cron_hub extends Home
             $out['external_crm'] = $this->_run_external_crm();
             $out['deflect_alerts'] = $this->_run_deflect_alerts();
             $out['retention'] = $this->_run_retention();
+            ops_health_record('cron_hub', true, microtime(true) - $t0, $out);
             echo json_encode($out) . "\n";
+        } catch (Throwable $e) {
+            ops_health_record('cron_hub', false, microtime(true) - $t0, get_class($e) . ': ' . $e->getMessage());
+            log_message('error', 'cron_hub run failed: ' . $e->getMessage());
+            echo json_encode(array('error' => $e->getMessage())) . "\n";
         } finally {
             $this->db->query("SELECT RELEASE_LOCK('monkeybot_cron_hub')");
         }
