@@ -73,6 +73,40 @@ class Cron_hub extends Home
         echo ($mode === 'baseline' ? 'baselined' : 'applied') . " {$done} migration(s)\n";
     }
 
+    /**
+     * CLI: Phase 9.5 conversation-core backfill + verification report (ADR-001,
+     * docs/database/conversation-core.md). Resumable and idempotent - run it again after an
+     * interruption, or any time, to re-verify. Never prints message content.
+     *   php index.php cron_hub backfill_conversations [batch=5000] [max_batches=0]
+     *   php index.php cron_hub backfill_conversations report     (verification only, no writes)
+     * Exit code 0 when verification passes, 1 otherwise.
+     */
+    public function backfill_conversations($batch = 5000, $max_batches = 0)
+    {
+        if (!is_cli()) { show_404(); return; }
+        if (!$this->db->table_exists('conversations') || !$this->db->field_exists('conversation_id', 'livechat_messages')) {
+            echo "conversation tables missing: run php index.php cron_hub migrate first\n"; exit(1);
+        }
+        $this->load->helper('conversation_backfill');
+        $lock = $this->db->query("SELECT GET_LOCK('mb_conversation_backfill', 0) AS l")->row_array();
+        if (empty($lock['l'])) { echo "another backfill_conversations run holds the lock\n"; exit(1); }
+        $t0 = microtime(true);
+        try {
+            if ($batch !== 'report') {
+                conversation_backfill_run((int) $batch, (int) $max_batches, function ($s) { echo $s, "\n"; });
+            }
+            $t1 = microtime(true);
+            list($text, $fail) = conversation_backfill_format_report(conversation_backfill_report());
+            echo "\n", $text, "\n";
+            printf("runtime: backfill %.2fs, verification %.2fs\n", $t1 - $t0, microtime(true) - $t1);
+        } catch (Throwable $e) {
+            echo 'backfill aborted: ', $e->getMessage(), "\n";
+            $fail = 1;
+        }
+        $this->db->query("SELECT RELEASE_LOCK('mb_conversation_backfill')");
+        exit($fail === 0 ? 0 : 1);
+    }
+
     /** CLI: re-chunk a KB source (or all) with the AI chunker and re-embed. Reprocesses
      *  content already stored, replacing length-based chunks with clean semantic ones.
      *  php index.php cron_hub rechunk_kb [source_id]   (omit id = all active sources) */
