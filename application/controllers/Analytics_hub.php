@@ -224,18 +224,25 @@ class Analytics_hub extends Home
         );
     }
 
-    // rough public price estimates (USD per 1M tokens: [input, output]) — estimates only
+    // Estimated AI cost (USD). Rows written since the usage-accounting migration carry
+    // estimated_cost_usd; older rows are priced from ai_model_pricing (editable, not hardcoded).
     private function ai_cost($since)
     {
-        $prices = array(
-            'gpt-4o-mini'=>array(0.15,0.60), 'gpt-4o'=>array(2.50,10.0), 'gpt-4.1'=>array(2.0,8.0),
-            'gpt-4.1-mini'=>array(0.40,1.60), 'gpt-3.5-turbo'=>array(0.50,1.50),
-            'claude-haiku-4-5'=>array(1.0,5.0), 'claude-sonnet-4-5'=>array(3.0,15.0),
-        );
-        $rows = $this->db->select('model, SUM(input_tokens) i, SUM(output_tokens) o')->from('ai_usage_log')
-            ->where('user_id',$this->uid)->where('created_at >=',$since)->group_by('model')->get()->result_array();
-        $total=0;
-        foreach ($rows as $r){ $p = $prices[$r['model']] ?? array(1.0,3.0); $total += ($r['i']/1000000*$p[0]) + ($r['o']/1000000*$p[1]); }
+        $this->load->helper('ai_usage');
+        $has_cost = $this->db->field_exists('estimated_cost_usd', 'ai_usage_log');
+        $total = 0.0;
+        if ($has_cost) {
+            $r = $this->db->select('SUM(estimated_cost_usd) c')->from('ai_usage_log')->where('user_id',$this->uid)
+                ->where('created_at >=',$since)->where('estimated_cost_usd IS NOT NULL', null, false)->get()->row_array();
+            $total += (float) ($r['c'] ?? 0);
+        }
+        $q = $this->db->select('provider, model, SUM(input_tokens) i, SUM(output_tokens) o')->from('ai_usage_log')
+            ->where('user_id',$this->uid)->where('created_at >=',$since);
+        if ($has_cost) $q->where('estimated_cost_usd IS NULL', null, false);
+        foreach ($q->group_by('provider, model')->get()->result_array() as $r) {
+            list($pin, $pout) = ai_usage_price((string) $r['provider'], (string) $r['model']);
+            $total += ($r['i']/1000000*$pin) + ($r['o']/1000000*$pout);
+        }
         return round($total, 2);
     }
 }

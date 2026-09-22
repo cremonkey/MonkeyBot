@@ -298,6 +298,8 @@ if (!function_exists('ai_chunk_text_ai')) {
             $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
             if ($code !== 200) return $fallback;
             $d = json_decode($raw, true);
+            if (!function_exists('ai_usage_record')) get_instance()->load->helper('ai_usage');
+            ai_usage_record_openai_response($user_id, AI_GUARD_MODEL, 'kb_chunking', $d);
             $content = $d['choices'][0]['message']['content'] ?? '';
             $parsed = json_decode($content, true);
             $arr = is_array($parsed) && isset($parsed['chunks']) ? $parsed['chunks'] : (is_array($parsed) ? $parsed : null);
@@ -466,6 +468,8 @@ if (!function_exists('ai_embed_texts')) {
         }
 
         $decoded = json_decode($response, true);
+        if (!function_exists('ai_usage_record')) get_instance()->load->helper('ai_usage');
+        ai_usage_record_openai_response($user_id, AI_EMBEDDING_MODEL, 'embedding', $decoded);
         if (!isset($decoded['data']) || !is_array($decoded['data']) || count($decoded['data']) !== count($inputs)) {
             log_message('error', 'ai_embed_texts: unexpected response shape');
             return false;
@@ -1205,6 +1209,8 @@ if (!function_exists('ai_verify_price_grounding')) {
         }
 
         $decoded = json_decode($response, true);
+        if (!function_exists('ai_usage_record')) get_instance()->load->helper('ai_usage');
+        ai_usage_record_openai_response($user_id, AI_GUARD_MODEL, 'price_judge', $decoded);
         $verdict = isset($decoded['choices'][0]['message']['content'])
             ? trim($decoded['choices'][0]['message']['content'])
             : '';

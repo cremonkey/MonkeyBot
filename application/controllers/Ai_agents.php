@@ -102,6 +102,8 @@ class Ai_agents extends Home
         ));
         $raw = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
         $d = json_decode($raw, true);
+        $this->load->helper('ai_usage');
+        ai_usage_record_openai_response($this->uid, $model, 'agent_preview', $d);
         $reply = $d['choices'][0]['message']['content'] ?? '';
         if ($reply === '') { echo json_encode(['status'=>'0','message'=>'Preview failed (HTTP '.$code.')']); return; }
         echo json_encode(['status'=>'1','reply'=>$reply, 'chars'=>mb_strlen($sp)]);
