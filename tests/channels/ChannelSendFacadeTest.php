@@ -119,14 +119,16 @@ t('facade fb: Graph error -> legacy error string, nothing logged', function () {
     assert_count(0, $ci->basic->inserts);
 });
 
-t('facade fb: LEGACY QUIRK preserved — network failure still reported as sent', function () {
+t('facade fb: network failure is a failed send and is NOT logged as delivered', function () {
     // Pre-9.0 code only failed when Graph returned an `error` object, so a dead
-    // network looked like success. Kept on purpose; see adapters.md "Known legacy quirks".
+    // network looked like success and the message silently vanished. Fixed in 9.0.
     $ci = facade_ci();
     $ci->db->rows = array(array('page_id' => 'P1', 'page_access_token' => 'T'));
     ChannelRegistry::useTransport(FakeTransport::failing());
-    assert_same(array(true, ''), channel_send_text(5, 'fb', '71', 'hi', 'P1'));
-    assert_count(1, $ci->basic->inserts);
+    list($ok, $err) = channel_send_text(5, 'fb', '71', 'hi', 'P1');
+    assert_same(false, $ok);
+    assert_true($err !== '', 'error text is returned');
+    assert_count(0, $ci->basic->inserts);
 });
 
 t('facade fb: no page token -> legacy error, no HTTP', function () {

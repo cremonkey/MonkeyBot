@@ -174,12 +174,12 @@ if (!function_exists('channel_send_meta_legacy_ok')) {
      */
     function channel_send_meta_legacy_ok(\MonkeyBot\Channels\SendResult $result)
     {
-        if ($result->ok) return true;
-        // Only results of an actual Graph request start with 'graph: '. Anything
-        // else (unsupported, missing token, empty recipient) was never sent.
-        if (strpos((string) $result->error, 'graph: ') !== 0) return false;
-        $res = $result->response;
-        return empty($res['error']);
+        // Phase 9.0 decision (brief 51, no silent failure): trust the adapter. The
+        // pre-9.0 rule counted a dead network, timeout or HTML 5xx as "sent" and wrote
+        // it to the chat log, so the message vanished without anyone knowing. Now such
+        // a send fails (retryable) and is not logged as delivered; callers already
+        // treat $ok=false as a failed attempt. Name kept for call-site compatibility.
+        return (bool) $result->ok;
     }
 }
 

@@ -124,7 +124,10 @@ The legacy engines' own reply paths (for example `Messenger_bot` → `Openwa_api
 
 `channel_send_fb_ig`, `channel_send_wa`, `channel_send_tg` and `channel_send_web` remain as thin wrappers. `tiktok` and unknown channels still return `unsupported channel: …`.
 
-### Known legacy quirks (preserved on purpose)
+### Known legacy quirks
+
+**Fixed in 9.0 (owner-approved policy: no silent failure):** fb/ig network failures, timeouts and non-JSON replies used to count as sent and were logged as delivered. `channel_send_text()` now returns `[false, error]` for them and logs nothing, so the caller retries or records the failure.
+ (preserved on purpose)
 
 1. **fb/ig: "sent" unless Graph returned an `error` object.** A network failure, a timeout or a non-JSON 5xx page therefore still counts as success and is logged to `livechat_messages`. That is how the code worked before 9.0. The adapter itself reports these cases correctly (`ok=false`, `retryable=true`). Only the facade function `channel_send_meta_legacy_ok()` keeps the old rule. Removing it is a one-line behaviour change and should be its own reviewed commit. The test `facade fb: LEGACY QUIRK preserved` pins the current behaviour.
 2. **OpenWA: any 2xx counts as sent**, whatever the body says. This is unchanged.
