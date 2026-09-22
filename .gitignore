@@ -15,3 +15,6 @@ download/
 # ad-hoc backups made before live edits (e.g. Foo.php.bak-graphver-20260821)
 *.bak
 *.bak-*
+
+# staging stack credentials (generated per host)
+.env.staging

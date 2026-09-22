@@ -594,3 +594,19 @@ then confirm deliveries in `/system_health` webhook counters. Add an hourly self
 
 ### Scheduler (F-01) — Verified
 `/health` → `{"status":"ok","scheduler":{"last_success_age_s":43}}` and cron log shows 5-minute ticks.
+
+### Staging + verification (added later on 2026-09-22)
+A staging stack now exists (`docker-compose.staging.yml`, runbook `docs/runbooks/staging.md`).
+Building it from `initial_db.sql` + migrations exposed **G-07: 18 production tables had no
+migration** (5 of them Creative Monkey's own: `ai_followups`, `ai_coupon_reminders`,
+`ai_unanswered_questions`, `crm_sheet_config`, `sales_automation_settings`), so a fresh
+install failed at the first cron tick. Fixed by `2026-09-22-baseline-untracked-tables.sql`
+(structure only, IF NOT EXISTS). Also **G-08: `migrate` recorded partly failed migrations**
+— fixed; verified on staging.
+
+Status changes, all **Verified on staging** by `docker/scripts/staging_phase0_tests.sh`
+(18/18 in log mode, 19/19 in enforce mode) plus CLI probes:
+S-02/S-12 cron gates · S-04 key decryption · S-05 KB IDOR · S-06 Meta signature and
+internal HMAC (accept valid, reject forged, in enforce) · S-07 entitlements (member denied,
+admin allowed) · F-01 health/failed-tick recording · S-03 file exposure.
+Production still runs every gate in **log** mode by design.
