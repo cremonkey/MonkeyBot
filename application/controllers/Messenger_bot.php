@@ -898,6 +898,14 @@ class Messenger_bot extends Home
                     return false; // bot is paused for this subscriber
                 }
             }
+
+            if($social_media_type === 'fb' || $social_media_type === 'ig'){
+                $this->load->helper('working_hours');
+                $hours_page_row = $this->basic->get_data('facebook_rx_fb_page_info', array('where'=>array('page_id'=>$page_id)), '', '', 1);
+                if(!empty($hours_page_row) && !working_hours_is_open($hours_page_row[0])){
+                    return false; // staff on shift; bot stays silent
+                }
+            }
         }
 
         $message_str = $value['message'];
@@ -1588,6 +1596,14 @@ class Messenger_bot extends Home
 
         $this->insert_livechat_data($insert_livechat_data);
         if($is_business_suite_message) die('Message from Business suite');
+
+        // Staff-shift mute (FB + IG DMs): inbound livechat already logged. Bot silent while staff are on.
+        $this->load->helper('working_hours');
+        $hours_page_row = $this->basic->get_data('facebook_rx_fb_page_info', array('where'=>array('page_id'=>$page_id)), '', '', 1);
+        if(!empty($hours_page_row) && !working_hours_is_open($hours_page_row[0]))
+        {
+            return;
+        }
 
         /***   Check if it coming from after subscribing by checkbox plugin    ***/
         if(isset($response['entry'][0]['messaging'][0]['prior_message']['source']) && $response['entry'][0]['messaging'][0]['prior_message']['source']=="checkbox_plugin")
@@ -3615,6 +3631,13 @@ class Messenger_bot extends Home
 
         }
 
+        $hours_enabled_attr = isset($page_info[0]['hours_enabled']) ? $page_info[0]['hours_enabled'] : '0';
+        $hours_start_attr = (isset($page_info[0]['hours_start']) && $page_info[0]['hours_start'] !== '') ? $page_info[0]['hours_start'] : '09:00:00';
+        $hours_end_attr = (isset($page_info[0]['hours_end']) && $page_info[0]['hours_end'] !== '') ? $page_info[0]['hours_end'] : '22:00:00';
+        $hours_days_attr = (isset($page_info[0]['hours_days']) && $page_info[0]['hours_days'] !== '') ? $page_info[0]['hours_days'] : '1,2,3,4,5,6,7';
+        $hours_message_attr = isset($page_info[0]['hours_message']) ? (string)$page_info[0]['hours_message'] : '';
+        $hours_message_attr = preg_replace('/\s+/', ' ', (string)$hours_message_attr);
+
         $middle_column_content='
         <div class="card main_card">
           <div class="card-header padding-left-10">
@@ -3678,7 +3701,7 @@ class Messenger_bot extends Home
                   </div>
                   <div class="card-body">
                     <h4>'.$this->lang->line("General Settings").'</h4>                    
-                    <a href="" id="general_settings" class="card-cta enable_general_settings" chat_human_email="'.$chatwith_human_email.'" table_id="'.$page_info[0]['id'].'" mark_seen_status="'.$page_info[0]['enable_mark_seen'].'" no_match_found_reply="'.$nomatch_reply_found_val.'" >'.$this->lang->line("Change Settings").'</a>
+                    <a href="" id="general_settings" class="card-cta enable_general_settings" chat_human_email="'.$chatwith_human_email.'" table_id="'.$page_info[0]['id'].'" mark_seen_status="'.$page_info[0]['enable_mark_seen'].'" no_match_found_reply="'.$nomatch_reply_found_val.'" hours_enabled="'.htmlspecialchars($hours_enabled_attr, ENT_QUOTES).'" hours_start="'.htmlspecialchars($hours_start_attr, ENT_QUOTES).'" hours_end="'.htmlspecialchars($hours_end_attr, ENT_QUOTES).'" hours_days="'.htmlspecialchars($hours_days_attr, ENT_QUOTES).'" hours_message="'.htmlspecialchars($hours_message_attr, ENT_QUOTES).'" >'.$this->lang->line("Change Settings").'</a>
 
                   </div>
                 </div>
@@ -11129,7 +11152,38 @@ class Messenger_bot extends Home
             $updated_data['chat_human_email'] = $chat_human_email;
             $updated_data['no_match_found_reply'] = $no_match_found_reply;
         }
-        $this->basic->update_data('facebook_rx_fb_page_info',array('id'=>$table_id),$updated_data);
+
+        $this->load->helper('working_hours');
+        $hours_enabled = $this->input->post('hours_enabled') == '1' ? '1' : '0';
+        $hours_start = working_hours_normalize_time($this->input->post('hours_start', true), '09:00:00');
+        $hours_end = working_hours_normalize_time($this->input->post('hours_end', true), '22:00:00');
+        $hours_days_raw = $this->input->post('hours_days');
+        if (is_array($hours_days_raw)) {
+            $parts = $hours_days_raw;
+        } else {
+            $parts = explode(',', (string)$hours_days_raw);
+        }
+        $valid_days = array();
+        foreach ($parts as $d) {
+            $n = (int)trim((string)$d);
+            if ($n >= 1 && $n <= 7) $valid_days[] = (string)$n;
+        }
+        $valid_days = array_values(array_unique($valid_days));
+        sort($valid_days, SORT_NUMERIC);
+        if (empty($valid_days)) {
+            $prev_hours = $this->basic->get_data('facebook_rx_fb_page_info', array('where'=>array('id'=>$table_id,'user_id'=>$this->user_id)), array('hours_days'), '', 1);
+            $hours_days = (!empty($prev_hours[0]['hours_days'])) ? $prev_hours[0]['hours_days'] : '1,2,3,4,5,6,7';
+        } else {
+            $hours_days = implode(',', $valid_days);
+        }
+        $hours_message = trim((string)$this->input->post('hours_message'));
+        $updated_data['hours_enabled'] = $hours_enabled;
+        $updated_data['hours_start'] = $hours_start;
+        $updated_data['hours_end'] = $hours_end;
+        $updated_data['hours_days'] = $hours_days;
+        $updated_data['hours_message'] = $hours_message;
+
+        $this->basic->update_data('facebook_rx_fb_page_info',array('id'=>$table_id,'user_id'=>$this->user_id),$updated_data);
         $response['status'] = '1';
         $response['message'] = $this->lang->line('General settings have been stored successfully.');
         echo json_encode($response);

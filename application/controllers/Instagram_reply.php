@@ -2582,6 +2582,14 @@ class Instagram_reply extends Home
       $response_raw=$this->input->post("response_raw");  
       $response = json_decode($response_raw,TRUE);
 
+      $this->load->helper('working_hours');
+      $hours_ig_id = $response['entry'][0]['id'] ?? '';
+      if($hours_ig_id !== '')
+      {
+          $hours_ig_page = $this->basic->get_data('facebook_rx_fb_page_info', array('where'=>array('instagram_business_account_id'=>$hours_ig_id)), '', '', 1);
+          if(!empty($hours_ig_page) && !working_hours_is_open($hours_ig_page[0])) exit;
+      }
+
       // file_put_contents("mostofa.txt",$response_raw, FILE_APPEND | LOCK_EX); exit();
       // $response_raw='{"entry": [{"id": "17841405311782515", "time": 1703587171, "changes": [{"value": {"from": {"id": "5817016181705510", "username": "muraduzzaman"}, "media": {"id": "17945948186075263", "media_product_type": "FEED"}, "id": "17998623518160335", "text": "1"}, "field": "comments"}]}], "object": "instagram"}';
       // $response = json_decode($response_raw,TRUE);

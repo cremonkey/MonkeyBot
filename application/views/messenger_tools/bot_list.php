@@ -340,6 +340,40 @@ else
                                       </label>
                                     </div>
 
+                                    <div class="section" id="working_hours_settings_block" style="margin-top: 20px;">
+                                      <h2 class="section-title">ساعات عمل الموظفين</h2>
+                                      <p class="text-muted small">البوت يسكت خالص أثناء دوام الموظفين، وبيرد بعد ما يخلّصوا. مفيش رسالة اعتذار.</p>
+                                    </div>
+                                    <div class="form-group">
+                                      <label class="custom-switch">
+                                        <input type="checkbox" name="hours_enabled" value="1" id="hours_enabled" class="custom-switch-input">
+                                        <span class="custom-switch-indicator"></span>
+                                        <span class="custom-switch-description">تفعيل ساعات الموظفين</span>
+                                      </label>
+                                    </div>
+                                    <div class="form-row">
+                                      <div class="form-group col-md-6">
+                                        <label>من</label>
+                                        <input type="time" name="hours_start" id="hours_start" class="form-control" value="09:00">
+                                      </div>
+                                      <div class="form-group col-md-6">
+                                        <label>إلى</label>
+                                        <input type="time" name="hours_end" id="hours_end" class="form-control" value="22:00">
+                                      </div>
+                                    </div>
+                                    <div class="form-group">
+                                      <label>الأيام</label>
+                                      <div>
+                                        <label class="mr-2 mb-1 d-inline-block"><input type="checkbox" name="hours_days[]" value="1" class="hours_day_cb"> الإثنين</label>
+                                        <label class="mr-2 mb-1 d-inline-block"><input type="checkbox" name="hours_days[]" value="2" class="hours_day_cb"> الثلاثاء</label>
+                                        <label class="mr-2 mb-1 d-inline-block"><input type="checkbox" name="hours_days[]" value="3" class="hours_day_cb"> الأربعاء</label>
+                                        <label class="mr-2 mb-1 d-inline-block"><input type="checkbox" name="hours_days[]" value="4" class="hours_day_cb"> الخميس</label>
+                                        <label class="mr-2 mb-1 d-inline-block"><input type="checkbox" name="hours_days[]" value="5" class="hours_day_cb"> الجمعة</label>
+                                        <label class="mr-2 mb-1 d-inline-block"><input type="checkbox" name="hours_days[]" value="6" class="hours_day_cb"> السبت</label>
+                                        <label class="mr-2 mb-1 d-inline-block"><input type="checkbox" name="hours_days[]" value="7" class="hours_day_cb"> الأحد</label>
+                                      </div>
+                                    </div>
+
                                     <?php if($this->session->userdata('user_type') == 'Admin' || in_array(265,$this->module_access)) : ?>
                                       <div class="<?php if($media_type == "ig") echo "hidden"; ?>">
                                         <div class="section">                
@@ -1385,6 +1419,25 @@ else
       var mark_seen_status = $(this).attr('mark_seen_status');
       var no_match_found_reply = $(this).attr('no_match_found_reply');
 
+      var hours_enabled = $(this).attr('hours_enabled') || '0';
+      var hours_start = $(this).attr('hours_start') || '09:00:00';
+      var hours_end = $(this).attr('hours_end') || '22:00:00';
+      var hours_days = $(this).attr('hours_days') || '1,2,3,4,5,6,7';
+      var hours_message = $(this).attr('hours_message') || 'نعتذر، خدمة الرد الآلي متاحة من {start} إلى {end}. سنرد عليك خلال ساعات العمل.';
+      $("#hours_enabled").prop("checked", hours_enabled == '1');
+      if(hours_start.length >= 5) hours_start = hours_start.substring(0,5);
+      if(hours_end.length >= 5) hours_end = hours_end.substring(0,5);
+      $("#hours_start").val(hours_start);
+      $("#hours_end").val(hours_end);
+      $("#hours_message").val(hours_message);
+      $("input[name='hours_days[]']").prop("checked", false);
+      var dayList = (''+hours_days).split(',');
+      for(var di=0; di<dayList.length; di++){
+        var dv = $.trim(dayList[di]);
+        if(dv) $("input[name='hours_days[]'][value='"+dv+"']").prop("checked", true);
+      }
+
+
       if(no_match_found_reply == 'enabled')
       {
         $("#no_match_found_reply").prop("checked", true);
@@ -1442,6 +1495,15 @@ else
       var email_reply_message = $("#email_reply_message").val();      
       var email_reply_subject = $("#email_reply_subject").val();
 
+      var hours_enabled = $("#hours_enabled").prop("checked") ? '1' : '0';
+      var hours_start = $("#hours_start").val();
+      var hours_end = $("#hours_end").val();
+      var hours_days_arr = [];
+      $("input[name='hours_days[]']:checked").each(function(){ hours_days_arr.push($(this).val()); });
+      var hours_days = hours_days_arr.join(',');
+      var hours_message = '';
+
+
 
       var sequence_sms_api_id = $("#sequence_sms_api_id").val();
       var sequence_email_api_id = $("#sequence_email_api_id").val();
@@ -1454,7 +1516,7 @@ else
         ({
            type:'POST',
            url:base_url+'messenger_bot/mark_seen_chat_human_settings',
-           data:{table_id:table_id,mark_seen_status:mark_seen_status,chat_human_email:chat_human_email,no_match_found_reply:no_match_found_reply,mailchimp_list_id:mailchimp_list_id,sendinblue_list_id:sendinblue_list_id,activecampaign_list_id:activecampaign_list_id,mautic_list_id:mautic_list_id,acelle_list_id:acelle_list_id,sms_api_id:sms_api_id,sms_reply_message:sms_reply_message,email_api_id:email_api_id,email_reply_message:email_reply_message,email_reply_subject:email_reply_subject,sequence_sms_api_id:sequence_sms_api_id,sequence_email_api_id:sequence_email_api_id,sequence_sms_campaign_id:sequence_sms_campaign_id,sequence_email_campaign_id:sequence_email_campaign_id,media_type:media_type},
+           data:{table_id:table_id,mark_seen_status:mark_seen_status,chat_human_email:chat_human_email,no_match_found_reply:no_match_found_reply,mailchimp_list_id:mailchimp_list_id,sendinblue_list_id:sendinblue_list_id,activecampaign_list_id:activecampaign_list_id,mautic_list_id:mautic_list_id,acelle_list_id:acelle_list_id,sms_api_id:sms_api_id,sms_reply_message:sms_reply_message,email_api_id:email_api_id,email_reply_message:email_reply_message,email_reply_subject:email_reply_subject,sequence_sms_api_id:sequence_sms_api_id,sequence_email_api_id:sequence_email_api_id,sequence_sms_campaign_id:sequence_sms_campaign_id,sequence_email_campaign_id:sequence_email_campaign_id,media_type:media_type,hours_enabled:hours_enabled,hours_start:hours_start,hours_end:hours_end,hours_days:hours_days,hours_message:hours_message},
            dataType:'JSON',
            context: this,
            success:function(response)

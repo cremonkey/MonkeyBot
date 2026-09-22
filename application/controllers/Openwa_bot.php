@@ -178,6 +178,52 @@ class Openwa_bot extends Messenger_bot
         }
     }
 
+
+    public function save_hours()
+    {
+        try {
+            $this->csrf_token_check();
+            $account_id = (int)$this->input->post('account_id', true);
+            $acc = $this->basic->get_data('openwa_accounts', array('where'=>array('id'=>$account_id, 'user_id'=>$this->uid)));
+            if (empty($acc)) {
+                $this->session->set_flashdata('error', 'Account not found');
+                redirect('openwa_bot');
+                return;
+            }
+
+            $hours_enabled = $this->input->post('hours_enabled', true) == '1' ? '1' : '0';
+            $hours_start = $this->normalize_time_value($this->input->post('hours_start', true), '09:00:00');
+            $hours_end = $this->normalize_time_value($this->input->post('hours_end', true), '22:00:00');
+
+            $days_post = $this->input->post('hours_days');
+            $valid_days = array();
+            if (is_array($days_post)) {
+                foreach ($days_post as $d) {
+                    $n = (int)$d;
+                    if ($n >= 1 && $n <= 7) $valid_days[] = (string)$n;
+                }
+                $valid_days = array_values(array_unique($valid_days));
+                sort($valid_days, SORT_NUMERIC);
+            }
+            $hours_days = !empty($valid_days) ? implode(',', $valid_days) : '1,2,3,4,5,6,7';
+            $hours_message = trim((string)$this->input->post('hours_message'));
+
+            $this->basic->update_data('openwa_accounts', array('id'=>$account_id, 'user_id'=>$this->uid), array(
+                'hours_enabled' => $hours_enabled,
+                'hours_start' => $hours_start,
+                'hours_end' => $hours_end,
+                'hours_days' => $hours_days,
+                'hours_message' => $hours_message,
+            ));
+            $this->session->set_flashdata('success', 'Working hours saved.');
+            redirect('openwa_bot');
+        } catch (Exception $e) {
+            log_message('error', 'openwa_bot/save_hours: ' . $e->getMessage());
+            $this->session->set_flashdata('error', 'Save failed: ' . $e->getMessage());
+            redirect('openwa_bot');
+        }
+    }
+
     public function delete($id = 0)
     {
         if (!hash_equals((string)$this->session->userdata('csrf_token_session'), (string)$this->input->get('t'))) {
@@ -426,6 +472,11 @@ class Openwa_bot extends Messenger_bot
 
             // Always reply to the WhatsApp jid we received (LID or phone)
             $send_to = $reply_chat_id !== '' ? $reply_chat_id : $from;
+
+            $this->load->helper('working_hours');
+            if (!working_hours_is_open($acc)) {
+                return; // staff on shift: bot stays completely silent
+            }
 
             $matched = $this->run_keyword_bots($acc, $send_to, $subscriber_info, $text);
             if ($matched) return;
@@ -714,6 +765,22 @@ class Openwa_bot extends Messenger_bot
             'visual_flow_campaign_id' => 0,
         );
         return array_merge($defaults, $row);
+    }
+
+
+    private function normalize_time_value($value, $fallback = '09:00:00')
+    {
+        $value = trim((string)$value);
+        if ($value === '') return $fallback;
+        if (preg_match('/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/', $value, $m)) {
+            $h = (int)$m[1];
+            $i = (int)$m[2];
+            $s = isset($m[3]) ? (int)$m[3] : 0;
+            if ($h >= 0 && $h <= 23 && $i >= 0 && $i <= 59 && $s >= 0 && $s <= 59) {
+                return sprintf('%02d:%02d:%02d', $h, $i, $s);
+            }
+        }
+        return $fallback;
     }
 
     private function log_msg($user_id, $wa_id, $account_id, $sender, $content)

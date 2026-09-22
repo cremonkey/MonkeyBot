@@ -74,6 +74,70 @@
           </form>
         </div>
         <?php endif; ?>
+
+        <?php if(!empty($accounts)): ?>
+        <?php
+          $day_labels = array(
+            '1' => 'الإثنين',
+            '2' => 'الثلاثاء',
+            '3' => 'الأربعاء',
+            '4' => 'الخميس',
+            '5' => 'الجمعة',
+            '6' => 'السبت',
+            '7' => 'الأحد',
+          );
+        ?>
+        <?php foreach($accounts as $a):
+          $sel_days = array_filter(array_map('trim', explode(',', (string)($a['hours_days'] ?? '1,2,3,4,5,6,7'))));
+          $hs = substr((string)($a['hours_start'] ?? '09:00:00'), 0, 5);
+          $he = substr((string)($a['hours_end'] ?? '22:00:00'), 0, 5);
+          if ($hs === '') $hs = '09:00';
+          if ($he === '') $he = '22:00';
+        ?>
+        <div class="card">
+          <div class="card-header">
+            <h4>ساعات عمل الموظفين</h4>
+          </div>
+          <form action="<?php echo base_url('openwa_bot/save_hours'); ?>" method="POST">
+            <input type="hidden" name="csrf_token" value="<?php echo $this->session->userdata('csrf_token_session'); ?>">
+            <input type="hidden" name="account_id" value="<?php echo (int)$a['id']; ?>">
+            <div class="card-body">
+              <p class="text-muted small">خلال الساعات دي الموظفين بيردوا والبوت يسكت خالص. بعد ما يخلصوا البوت هو اللي بيرد. مفيش رسالة اعتذار.</p>
+              <div class="form-group">
+                <label class="custom-switch mt-2">
+                  <input type="checkbox" name="hours_enabled" value="1" class="custom-switch-input" <?php echo (($a['hours_enabled'] ?? '0')==='1')?'checked':''; ?>>
+                  <span class="custom-switch-indicator"></span><span class="custom-switch-description">تفعيل ساعات الموظفين (البوت يسكت أثناء الدوام)</span>
+                </label>
+              </div>
+              <div class="form-row">
+                <div class="form-group col-md-6">
+                  <label>من / Start</label>
+                  <input type="time" name="hours_start" class="form-control" value="<?php echo htmlspecialchars($hs); ?>" required>
+                </div>
+                <div class="form-group col-md-6">
+                  <label>إلى / End</label>
+                  <input type="time" name="hours_end" class="form-control" value="<?php echo htmlspecialchars($he); ?>" required>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>الأيام / Days</label>
+                <div>
+                  <?php foreach($day_labels as $dn => $dlabel): ?>
+                  <label class="mr-2 mb-1 d-inline-block">
+                    <input type="checkbox" name="hours_days[]" value="<?php echo $dn; ?>" <?php echo in_array($dn, $sel_days, true)?'checked':''; ?>>
+                    <?php echo $dlabel; ?>
+                  </label>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+            </div>
+            <div class="card-footer">
+              <button class="btn btn-primary btn-block">حفظ ساعات العمل</button>
+            </div>
+          </form>
+        </div>
+        <?php endforeach; ?>
+        <?php endif; ?>
       </div>
 
       <div class="col-lg-7">
@@ -113,6 +177,12 @@
                   <td>
                     <?php echo $a['bot_enabled']=='1'?'<span class="badge badge-success">Bot</span>':'<span class="badge badge-secondary">Bot off</span>'; ?>
                     <?php echo $a['ai_enabled']=='1'?'<span class="badge badge-info">AI</span>':''; ?>
+                    <?php if (($a['hours_enabled'] ?? '0') === '1'):
+                      $hs_badge = substr($a['hours_start'] ?? '09:00:00', 0, 5);
+                      $he_badge = substr($a['hours_end'] ?? '22:00:00', 0, 5);
+                    ?>
+                      <span class="badge badge-light border">Hours <?php echo htmlspecialchars($hs_badge.'–'.$he_badge); ?></span>
+                    <?php endif; ?>
                     <?php if (isset($a['owa_healthy'])): ?>
                       <br>
                       <?php if ($a['owa_healthy']): ?>
