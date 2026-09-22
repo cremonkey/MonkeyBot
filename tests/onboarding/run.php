@@ -217,6 +217,71 @@ echo "\n== unknown keys ==\n";
 same('an unknown vertical loads as null', null, industry_template_load('barbershop'));
 same('a path-traversal key loads as null', null, industry_template_load('../../config/database'));
 
+echo "\n== step 5 follows the chosen pages ==\n";
+// the wizard's target keys vs pricing's scopes: 'wa' is WhatsApp Cloud, 'openwa' the personal number
+same('fb page maps to fb', array('fb', '12'), industry_template_pricing_scope('fb:12'));
+same("wizard 'wa' is WhatsApp Cloud", array('wa_cloud', '5'), industry_template_pricing_scope('wa:5'));
+same("wizard 'openwa' is the personal number", array('openwa', '5'), industry_template_pricing_scope('openwa:5'));
+check('cloud #5 and personal #5 never share a scope', industry_template_pricing_scope('wa:5') !== industry_template_pricing_scope('openwa:5'));
+same('telegram maps to tg', array('tg', '7'), industry_template_pricing_scope('tg:7'));
+same('web keeps its widget key', array('web', 'wk_ab12'), industry_template_pricing_scope('web:wk_ab12'));
+foreach (array('', 'fb', 'fb:', 'fb:abc', 'ig:12', 'wa_cloud:5', 'x:1', 'web:' . str_repeat('a', 65)) as $bad)
+    same("bad key '" . substr($bad, 0, 12) . "' maps to nothing (never the default list)", null, industry_template_pricing_scope($bad));
+foreach (array('fb:12', 'wa:5', 'openwa:5', 'tg:7', 'web:wk_ab12') as $k) {
+    $sc = industry_template_pricing_scope($k);
+    same("$k is a scope pricing itself accepts", $sc, pricing_normalize_scope($sc));
+}
+
+$sc = array('fb:1' => array('fb', '1'), 'fb:2' => array('fb', '2'), 'wa:3' => array('wa_cloud', '3'));
+$pl = industry_template_pricing_plan($sc, array('fb:2' => true), false, 1);
+same('a page without a list gets one', array('fb:1', 'wa:3'), array_keys($pl['write']));
+same('a page that has a list is kept, not overwritten', array('fb:2'), $pl['kept']);
+same('no tick never writes the default list', false, $pl['default']);
+$pl = industry_template_pricing_plan($sc, array(), false, 0);
+same('even with zero lists, no tick = per page', false, $pl['default']);
+same('even with zero lists, no tick writes every page', 3, count($pl['write']));
+$pl = industry_template_pricing_plan($sc, array(), true, 0);
+same('tick + zero lists = the default list', true, $pl['default']);
+same('tick + zero lists writes no page list', array(), $pl['write']);
+$pl = industry_template_pricing_plan($sc, array(), true, 1);
+check('tick with an existing list is refused', $pl['error'] !== null && !$pl['default'] && empty($pl['write']), json_encode($pl));
+
+same('nothing typed = no catalog (skip)', null, industry_template_catalog_config(array(array('name' => ' ', 'price' => ''), array())));
+$cc = industry_template_catalog_config(array(
+    array('name' => 'كشف', 'price' => '300', 'unit' => 'session'),
+    array('name' => '', 'price' => ''),
+    array('name' => 'متابعة', 'price' => '150.5', 'unit' => 'item'),
+), 'جنيه');
+same('blank rows are dropped', 2, count($cc['catalog']['items']));
+same('whole prices are numbers', 300, $cc['catalog']['items'][0]['price']);
+same('decimal prices stay exact', 150.5, $cc['catalog']['items'][1]['price']);
+same('the unit is kept', 'session', $cc['catalog']['items'][0]['unit']);
+check("'item' unit is the default and not stored", !isset($cc['catalog']['items'][1]['unit']));
+same('currency word kept', 'جنيه', $cc['currency']);
+$perrs = pricing_validate_config($cc);
+check('a typed catalog passes the REAL pricing_validate_config()', empty($perrs), implode('; ', $perrs));
+check('a price with no name is rejected by the real validator',
+    !empty(pricing_validate_config(industry_template_catalog_config(array(array('name' => '', 'price' => '100'))))));
+check('a zero price is rejected by the real validator',
+    !empty(pricing_validate_config(industry_template_catalog_config(array(array('name' => 'x', 'price' => '0'))))));
+check('a word as price is rejected by the real validator',
+    !empty(pricing_validate_config(industry_template_catalog_config(array(array('name' => 'x', 'price' => 'كتير'))))));
+check('an unknown unit is rejected by the real validator',
+    !empty(pricing_validate_config(industry_template_catalog_config(array(array('name' => 'x', 'price' => '5', 'unit' => 'bogus'))))));
+check('a name with no price is rejected by the real validator',
+    !empty(pricing_validate_config(industry_template_catalog_config(array(array('name' => 'x', 'price' => ''))))));
+same('duplicate names are rejected by the real validator', true,
+    count(pricing_validate_config(industry_template_catalog_config(array(array('name' => 'x', 'price' => '5'), array('name' => 'X', 'price' => '6'))))) > 0);
+
+// the controller writes the default list in exactly one place, behind the plan's 'default'
+$src = file_get_contents(APPPATH . 'controllers/Onboarding.php');
+preg_match('/function save_pricing\(\)(.*?)\n    }\n/s', $src, $m);
+$body = $m[1] ?? '';
+same('save_pricing writes the default list in exactly one place', 1, preg_match_all('/pricing_save_config\([^;]*,\s*null\)/', $body));
+check('...and only when the plan said so', (bool) preg_match('/if \(\$plan\[\'default\'\]\) \{\s*list\(\$ok, \$errs\) = pricing_save_config\([^;]*null\)/', $body));
+check('save_pricing validates with the real validator before writing', strpos($body, 'pricing_validate_config($cfg)') !== false
+    && strpos($body, 'pricing_validate_config($cfg)') < strpos($body, 'pricing_save_config('));
+
 echo "\n== deploy boundary: data never lives under application/config ==\n";
 // On production application/config is a Docker volume that shadows the code tree, so any
 // file shipped there is invisible to the running app (this is exactly how the Setup Guide
