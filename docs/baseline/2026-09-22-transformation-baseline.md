@@ -755,3 +755,39 @@ Every item is done except one, held back deliberately:
 (credential issue, flagged earlier) and applying this final consolidation's migrations to
 production (the earlier 9-phase batch is already live; this last batch — sequences-safety,
 prompt-to-flow, provisioning, summary/billing — is staged and tested but not yet deployed).
+
+### Graph API v26 migration — Phase 3 engineering complete (2026-09-22, final)
+Closes the one item previously held back. Built on real Meta changelog research
+(developers.facebook.com/docs/graph-api/changelog, v21.0-v26.0), not guesswork:
+
+- 67 of 69 call sites converted to per-group version resolution
+  (`fb_graph_group_version($group)` / `graph_url_group($group, $path)`), grouped as
+  reads, send, messenger_profile, oauth, insights, labels, page_admin. 2 sites were
+  confirmed-dead code (`me/broadcast_reach_estimations`) and removed instead.
+- **Every group still defaults to today's v20.0 behavior** — proven byte-identical
+  for all 66 real call sites by a regression test, not asserted. Nothing changes
+  until an owner explicitly sets a group's config key.
+- Corrected the original migration doc's assumption that the Custom Labels API was
+  dead (it isn't, per the current changelog) and found a real, separate, already-broken
+  issue (Meta's Feb 2026 deprecation of several message tags/RCN) — documented, not
+  silently fixed, since it's a business-logic problem outside this migration's scope.
+- New admin-only diagnostic tool (`/graph_diagnostics`): compares two safe read-only
+  calls on the legacy vs. candidate version for one real connected page, so the owner
+  can verify compatibility against real Meta traffic before flipping each group -
+  proven in tests to make zero network calls on its own (Reflection + fake transport).
+- `oauth` is deliberately last in the rollout order (breaking it breaks login).
+  `messaging_feature_review` has no config key at all — confirmed live, not dead,
+  hard-pinned until someone re-verifies it.
+
+**Final regression after this merge, fresh DB (50 migrations, 0 errors, 189 tables):**
+unit suites 117+20+65+51+56+90+37+35+71+113+486 = 1,141 assertions;
+staging HTTP suites 19+16+12+44+96+39+47+23+14+33+26 = 369 assertions.
+**All 1,510 assertions passed, 0 failed.** Production `/health` stayed `ok` throughout.
+
+### Roadmap status — complete
+Every phase in the master brief's roadmap (§52-53) is now built and verified on
+`release/9.x-integration`, including Graph API v26 Phase 3's engineering work. The
+one remaining step for ANY of this work is deployment timing and, for the Graph
+migration specifically, the owner running the diagnostic tool against a real page
+before flipping each group's flag — an operational rollout action with real Meta
+traffic, not a development task.
