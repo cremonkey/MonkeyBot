@@ -10,7 +10,7 @@ require_once("Home.php");
  * through its existing save path —
  *   AI Employee  -> ai_agent_profiles (+ ai_agent_assignments for channels with none yet)
  *   Knowledge    -> ai_faq rows, keyed by source_key so re-applying never duplicates
- *   Prices       -> pricing_save_config()  (validated + audited, same as /pricing)
+ *   Prices       -> pricing_save_config() per chosen page (validated + audited, same as /pricing)
  *   Pipeline     -> crm_ensure_pipeline() + crm_stages
  *   Working mode -> the hours_* columns, normalised by working_hours_normalize_time()
  *   Test         -> ai_agent_preview_reply(), the same call /ai_agents/preview makes
@@ -141,10 +141,13 @@ class Onboarding extends Home
                 $data['faq_rows'] = array_values($data['faq_rows']);
                 break;
             case 5:
-                $row = pricing_get_row($this->uid);   // the account-wide default list (per-page lists live on /pricing)
-                $saved = !empty($row['config_json']) ? json_decode($row['config_json'], true) : null;
-                $data['cfg'] = is_array($saved) ? $saved : ($tpl['pricing_config'] ?? null);
-                $data['cfg_saved'] = is_array($saved);
+                // Step 5 writes to the pages chosen in step 2 only; the form starts from the
+                // template skeleton, and pages that already have a list are shown, not edited.
+                $data['pages'] = $this->pricing_pages($this->selected_targets($st));
+                $data['lists_total'] = $this->pricing_lists_total();
+                $data['cfg'] = $tpl['pricing_config'] ?? null;
+                $data['units'] = pricing_catalog_units();
+                $data['can_pricing'] = entitlement_allows('pricing');   // link only to a page the member can open
                 break;
             case 6:
                 $pid = $this->db->from('crm_pipelines')->where('user_id', $this->uid)->order_by('id', 'ASC')->limit(1)->get()->row_array();
@@ -244,6 +247,39 @@ class Onboarding extends Home
             default:   // wa (Cloud) and tg pass their account id, web passes its widget_key
                 return (string) $c['target'];
         }
+    }
+
+    /**
+     * The chosen pages as price-list scopes, each with what it has today:
+     *   has_own   the page has its own list (on or off) — step 5 never overwrites it
+     *   resolves  the AI gets an ACTIVE list on this page (its own, else the default)
+     * A page only counts if pricing's own IDOR gate agrees it is this tenant's connection.
+     */
+    private function pricing_pages($targets)
+    {
+        $owned = array();
+        foreach (pricing_connected_targets($this->uid) as $t) $owned[$t['scope']] = true;
+        $out = array();
+        foreach ($targets as $k => $c) {
+            $scope = industry_template_pricing_scope($k);
+            if ($scope === null || !isset($owned[$scope[0] . ':' . $scope[1]])) continue;
+            $own = pricing_get_row($this->uid, $scope, false);
+            $out[$k] = array(
+                'key' => $k, 'label' => (string) $c['label'], 'note' => (string) ($c['note'] ?? ''),
+                'scope' => $scope, 'scope_key' => $scope[0] . ':' . $scope[1],
+                'has_own' => !empty($own),
+                'own_active' => !empty($own) && (string) $own['status'] === '1',
+                'resolves' => pricing_get_config($this->uid, $scope) !== null,
+            );
+        }
+        return $out;
+    }
+
+    /** How many price lists the account has, in any scope, on or off. */
+    private function pricing_lists_total()
+    {
+        if (!$this->db->table_exists('pricing_config')) return 0;
+        return (int) $this->db->from('pricing_config')->where('user_id', $this->uid)->count_all_results();
     }
 
     /** The one profile this wizard owns for the tenant (tracked in data_json). */
@@ -369,7 +405,8 @@ class Onboarding extends Home
             'temperature'          => 0.4,
             'memory_ttl_hours'     => 24,
             'auto_language'        => '1',
-            'ai_tools_enabled'     => !empty($tpl['pricing_supported']) ? '1' : '0',
+            // the price tool also serves a products & services list saved on step 5
+            'ai_tools_enabled'     => (!empty($tpl['pricing_supported']) || ($st['data']['pricing_mode'] ?? '') === 'catalog') ? '1' : '0',
             'status'               => '1',
         );
 
@@ -458,11 +495,16 @@ class Onboarding extends Home
     }
 
     /**
-     * Step 5 — Products / Pricing. Only templates whose vertical the price calculator
-     * actually supports (accommodation + day-use = hotel today) save a pricing_config, and
-     * they save it through pricing_save_config(): same validation, same audit history as
-     * the Products & Pricing screen. Everything else records that prices live in FAQ /
-     * Knowledge and writes no pricing_config at all.
+     * Step 5 — Products / Pricing. Writes through pricing_save_config() (same validation,
+     * same audited history as the Products & Pricing screen), and ONLY onto the pages chosen
+     * in step 2: one page-scoped list per chosen page that has no list of its own yet. A
+     * page that already has a list keeps it untouched and is reported back (kept_existing).
+     * The account-wide default list is written only when the account has no price list at
+     * all AND the owner ticked "use for all my pages".
+     *   hotel (calculator verticals): the rooms / day-use skeleton.
+     *   other verticals: a few products & services typed right here (name, price, unit),
+     *     saved as a catalog; or skip, which records that prices stay as answers and writes
+     *     no pricing_config at all.
      */
     public function save_pricing()
     {
@@ -471,20 +513,68 @@ class Onboarding extends Home
         $st = $this->state();
         $tpl = $this->template_of($st);
         if ($tpl === null) { $this->jout(array('status' => '0', 'message' => 'Pick a business type first.')); return; }
+        $targets = $this->selected_targets($st);
+        if (empty($targets)) { $this->jout(array('status' => '0', 'message' => 'Choose the pages for this business first (step 2).')); return; }
 
         if (empty($tpl['pricing_supported'])) {
-            $this->save_state(array('pricing_mode' => 'faq_only', 'pricing_done_at' => date('Y-m-d H:i:s')), 5);
-            $this->jout(array('status' => '1', 'mode' => 'faq_only', 'message' => industry_template_text($tpl['pricing_note'], 'ar')));
-            return;
+            $cfg = $this->input->post('skip', true) === '1' ? null
+                : industry_template_catalog_config($this->input->post('items', true), (string) $this->input->post('currency', true));
+            if ($cfg === null) {
+                $this->save_state(array('pricing_mode' => 'faq_only', 'pricing_done_at' => date('Y-m-d H:i:s')), 5);
+                $this->jout(array('status' => '1', 'mode' => 'faq_only', 'message' => industry_template_text($tpl['pricing_note'], 'ar')));
+                return;
+            }
+            $mode = 'catalog';
+            $summary = 'Setup Guide: products & services';
+        } else {
+            $cfg = json_decode((string) $this->input->post('config_json'), true);
+            if (!is_array($cfg)) $cfg = $tpl['pricing_config'];
+            $mode = 'calculator';
+            $summary = 'Setup Guide: starter price list';
         }
 
-        $cfg = json_decode((string) $this->input->post('config_json'), true);
-        if (!is_array($cfg)) $cfg = $tpl['pricing_config'];
-        list($ok, $errors) = pricing_save_config($this->uid, $cfg, (int) $this->session->userdata('user_id'), 'Setup Guide: starter price list');
-        if (!$ok) { $this->jout(array('status' => '0', 'errors' => $errors)); return; }
+        // Validate once, before touching any page, so a bad row never leaves half the pages written.
+        $errors = pricing_validate_config($cfg);
+        if (!empty($errors)) { $this->jout(array('status' => '0', 'message' => 'Please fix these first:', 'errors' => $errors)); return; }
 
-        $this->save_state(array('pricing_mode' => 'calculator', 'pricing_done_at' => date('Y-m-d H:i:s')), 5);
-        $this->jout(array('status' => '1', 'mode' => 'calculator'));
+        $pages = $this->pricing_pages($targets);
+        $scopes = array(); $has = array();
+        foreach ($pages as $k => $p) { $scopes[$k] = $p['scope']; if ($p['has_own']) $has[$k] = true; }
+        $plan = industry_template_pricing_plan($scopes, $has, $this->input->post('use_for_all', true) === '1', $this->pricing_lists_total());
+        if ($plan['error'] !== null) { $this->jout(array('status' => '0', 'message' => $plan['error'])); return; }
+
+        $by = (int) $this->session->userdata('user_id');
+        $saved = array(); $failed = array();
+        if ($plan['default']) {
+            list($ok, $errs) = pricing_save_config($this->uid, $cfg, $by, $summary, null);
+            if (!$ok) { $this->jout(array('status' => '0', 'errors' => $errs)); return; }
+            $saved[] = 'All pages';
+        }
+        foreach ($plan['write'] as $k => $scope) {
+            // pricing_save_config() audits with the page's channel_type + target_id
+            list($ok, $errs) = pricing_save_config($this->uid, $cfg, $by, $summary, $scope);
+            if ($ok) $saved[] = $pages[$k]['label'];
+            else $failed[] = htmlspecialchars($pages[$k]['label'], ENT_QUOTES, 'UTF-8') . ': ' . implode(' ', $errs);
+        }
+        if (!empty($failed)) {
+            $this->jout(array('status' => '0', 'message' => 'Some pages could not be saved.', 'errors' => $failed, 'saved_pages' => $saved));
+            return;
+        }
+        $kept = array();
+        foreach ($plan['kept'] as $k) $kept[] = $pages[$k]['label'];
+
+        // A products & services list only reaches customers through the price tool, so the
+        // wizard's own AI employee gets tools on (never another profile the owner made).
+        if ($mode === 'catalog') {
+            $profile = $this->wizard_profile($st);
+            if ($profile !== null) {
+                $this->db->where('id', (int) $profile['id'])->where('user_id', $this->uid)->update('ai_agent_profiles', array('ai_tools_enabled' => '1'));
+            }
+        }
+
+        $this->save_state(array('pricing_mode' => $mode, 'pricing_done_at' => date('Y-m-d H:i:s')), 5);
+        $this->jout(array('status' => '1', 'mode' => $mode, 'default' => $plan['default'],
+            'saved' => count($saved), 'saved_pages' => $saved, 'kept_existing' => $kept));
     }
 
     /**
@@ -666,15 +756,29 @@ class Onboarding extends Home
             'done' => $faq > 0, 'required' => true,
             'detail' => $faq . ' question(s)', 'link' => 'onboarding/step/4');
 
-        if (!empty($tpl['pricing_supported'])) {
-            $pc = $this->db->from('pricing_config')->where('user_id', $this->uid)->where('status', '1')->get()->row_array();
-            $out[] = array('key' => 'pricing', 'label_en' => 'Price list saved', 'label_ar' => 'قايمة الأسعار اتحفظت',
-                'done' => !empty($pc), 'required' => false,
-                'detail' => empty($pc) ? '' : ('updated ' . $pc['updated_at']), 'link' => 'pricing');
+        // Prices: judged per chosen page — each must resolve to an ACTIVE list (its own, or
+        // the default one it falls back to), exactly what the AI will use on that page.
+        $pp = $this->pricing_pages($channels);
+        $missing = array();
+        foreach ($pp as $p) if (!$p['resolves']) $missing[] = $p['label'];
+        $all_priced = !empty($pp) && empty($missing);
+        $faq_only = empty($tpl['pricing_supported']) && ($st['data']['pricing_mode'] ?? '') === 'faq_only';
+        if ($all_priced) {
+            $detail = count($pp) . ' page(s) have a price list';
+        } elseif (!empty($pp)) {
+            $detail = 'No price list yet: ' . implode(', ', $missing);
         } else {
+            $detail = '';
+        }
+        if ($faq_only && !$all_priced) {
             $out[] = array('key' => 'pricing', 'label_en' => 'Prices kept as answers', 'label_ar' => 'الأسعار متسجلة كإجابات',
-                'done' => ($st['data']['pricing_mode'] ?? '') === 'faq_only', 'required' => false,
-                'detail' => industry_template_text($tpl['pricing_note'], 'ar'), 'link' => 'onboarding/step/5');
+                'done' => true, 'required' => false,
+                'detail' => trim(industry_template_text($tpl['pricing_note'], 'ar') . ($detail !== '' ? ' — ' . $detail : '')),
+                'link' => 'onboarding/step/5');
+        } else {
+            $out[] = array('key' => 'pricing', 'label_en' => 'Price list on every page', 'label_ar' => 'قايمة الأسعار على كل الصفحات',
+                'done' => $all_priced, 'required' => false,
+                'detail' => $detail, 'link' => 'onboarding/step/5', 'missing' => $missing);
         }
 
         $pl = $this->db->from('crm_pipelines')->where('user_id', $this->uid)->order_by('id', 'ASC')->limit(1)->get()->row_array();
