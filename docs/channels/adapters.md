@@ -36,11 +36,11 @@ A capability is listed only when the adapter implements it **and** a contract te
 
 | Key | Adapter | send_text | send_image | send_media | mark_seen | typing | buttons | templates | receive_webhook |
 |---|---|---|---|---|---|---|---|---|---|
-| `fb` | `FacebookMessengerAdapter` | yes | no | no | no | no | no | no | yes |
-| `ig` | `InstagramAdapter` | yes | no | no | no | no | no | no | yes |
+| `fb` | `FacebookMessengerAdapter` | yes | yes (Note 6) | no | no | no | no | no | yes |
+| `ig` | `InstagramAdapter` | yes | yes (Note 6) | no | no | no | no | no | yes |
 | `wa_openwa` | `OpenWaAdapter` | yes | yes (Note 1) | no | no | no | no | no | yes |
-| `wa_cloud` | `WhatsAppCloudAdapter` | yes | no | no | no | no | no | no (Note 2) | yes |
-| `tg` | `TelegramAdapter` | yes | no | no | no | no | no | no | yes |
+| `wa_cloud` | `WhatsAppCloudAdapter` | yes | yes (Note 7) | no | no | no | no | no (Note 2) | yes |
+| `tg` | `TelegramAdapter` | yes | yes (Note 8) | no | no | no | no | no | yes |
 | `web` | `WebChatAdapter` | yes (Note 3) | no | no | no | no | no | no | yes (Note 4) |
 | `tiktok` | `TikTokAdapter` | no | no | no | no | no | no | no | no (Note 5) |
 
@@ -51,8 +51,13 @@ A capability is listed only when the adapter implements it **and** a contract te
 3. Web chat has no push API. "Sending" means writing the row that the widget's poller reads. The adapter holds no database handle: the caller passes an outbox callable through `withOutbox()`. Without one, `sendText()` fails; it never pretends to deliver.
 4. For web chat, `receive_webhook` means the adapter parses the widget's `send` POST fields.
 5. TikTok has no public DM API (partner-only), and comment polling is out of scope.
+6. `send_image` (added for the Unified Inbox) sends a Send API image attachment by public URL: `message.attachment = {type: image, payload: {url, is_reusable: false}}`, the payload `Livechat::reply_to_conversation` already sends for media. It uses the same endpoint, `messaging_type: RESPONSE` and options as `send_text`. The Send API has no image caption, so a caption is refused (`ok=false`, no HTTP call) instead of being dropped.
+7. `send_image` sends a Cloud API image message by link: `{messaging_product, to, type: image, image: {link, caption?}}`. It uses the same endpoint and options as `send_text`, and the same error wording (`wa: {json}`).
+8. `send_image` calls `sendPhoto` with `photo` set to the public URL and an optional `caption`. It uses the same form encoding and options as `sendMessage`, and the same error wording (`tg: {json}`).
 
-Platform features such as Meta buttons, carousels, OTN/RCN, WhatsApp templates and Telegram `sendPhoto` still live in the legacy engines. Each one is added here only together with its own contract test.
+Notes 6 to 8 are covered by the contract suite with a fake transport: the exact request, the message id, missing credentials, URL or recipient, a channel rejection, a transport failure and a rate limit. A second test checks that `send_image` is declared exactly when the spec has an image request. Video, audio and file sends stay unsupported on every adapter. The provider has to be able to fetch the URL, so it must be public HTTPS.
+
+Platform features such as Meta buttons, carousels, OTN/RCN and WhatsApp templates still live in the legacy engines. Each one is added here only together with its own contract test.
 
 ## Requests (byte-for-byte the legacy ones)
 
@@ -61,7 +66,7 @@ Platform features such as Meta buttons, carousels, OTN/RCN, WhatsApp templates a
 | `fb`, `ig` | `POST graph_url('me/messages?access_token=', TRUE) . urlencode(token)` (legacy tier, v20.0), JSON `{recipient:{id}, messaging_type:RESPONSE, message:{text}}` | 20s; `VERIFYPEER` on; `VERIFYHOST` and connect timeout not set |
 | `wa_openwa` | `POST {base_url}/api/sessions/{rawurlencode(session)}/messages/send-text` (or `send-image`), headers `Content-Type`, `Accept` and `X-API-Key`; `chatId` from `Openwa_api::to_chat_id()` | 15s, connect 5s; `VERIFYHOST` 2 |
 | `wa_cloud` | `POST https://graph.facebook.com/v21.0/{phone_number_id}/messages` (hardcoded v21.0, as before), `Authorization: Bearer` | 30s; `VERIFYHOST` 2 |
-| `tg` | `POST https://api.telegram.org/bot{token}/sendMessage`, form-encoded `chat_id`, `text`, no explicit headers | 30s; `VERIFYHOST` 2 |
+| `tg` | `POST https://api.telegram.org/bot{token}/sendMessage` (or `sendPhoto` with `photo`, `caption`), form-encoded `chat_id`, `text`, no explicit headers | 30s; `VERIFYHOST` 2 |
 
 Error strings are unchanged: `graph: {message} (code {code})`, `openwa: {json}`, `wa: {json}` and `tg: {json}`.
 

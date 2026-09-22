@@ -18,7 +18,10 @@ abstract class MetaMessagingAdapter extends AbstractChannelAdapter
 
     public function capabilities(): array
     {
-        return array(Capability::SEND_TEXT, Capability::RECEIVE_WEBHOOK);
+        // send_image: Messenger Platform Send API, image attachment by public URL (the payload
+        // Livechat::reply_to_conversation already sends for media, with messaging_type RESPONSE
+        // like sendText). Video / audio / file attachments are not implemented here.
+        return array(Capability::SEND_TEXT, Capability::SEND_IMAGE, Capability::RECEIVE_WEBHOOK);
     }
 
     public function sendText(OutboundMessage $message): SendResult
@@ -34,6 +37,40 @@ abstract class MetaMessagingAdapter extends AbstractChannelAdapter
             'recipient'      => array('id' => $message->recipient),
             'messaging_type' => 'RESPONSE',
             'message'        => array('text' => $message->text),
+        ));
+        $res = $this->http->send(new HttpRequest(
+            'POST',
+            graph_url_group('send', 'me/messages?access_token=') . urlencode($token),
+            array('Content-Type: application/json'),
+            $payload,
+            20,
+            null,
+            true,
+            null
+        ));
+        return $this->interpretGraph($res);
+    }
+
+    /**
+     * Image by public URL: {recipient:{id}, messaging_type:RESPONSE,
+     * message:{attachment:{type:image, payload:{url, is_reusable:false}}}}, sent to the same
+     * endpoint with the same options as sendText. The Send API has no image caption, so a
+     * caption is refused instead of being silently dropped.
+     */
+    public function sendMedia(OutboundMessage $message): SendResult
+    {
+        $media = self::arr($message->media);
+        if (($media['type'] ?? '') !== 'image') return parent::sendMedia($message);
+        $token = $message->credential('page_access_token');
+        if ($token === '') return $this->invalid('page_access_token missing');
+        $url = (string) ($media['url'] ?? '');
+        if ((string) $message->recipient === '' || $url === '') return $this->invalid('empty media url or recipient');
+        if ((string) ($media['caption'] ?? '') !== '') return $this->invalid('image captions are not supported on this channel');
+
+        $payload = json_encode(array(
+            'recipient'      => array('id' => $message->recipient),
+            'messaging_type' => 'RESPONSE',
+            'message'        => array('attachment' => array('type' => 'image', 'payload' => array('url' => $url, 'is_reusable' => false))),
         ));
         $res = $this->http->send(new HttpRequest(
             'POST',
