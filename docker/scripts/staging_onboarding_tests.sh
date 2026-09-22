@@ -178,7 +178,10 @@ check "B's step 4 does not show A's hotel questions" "$(curl -s -b "$T/$Bt" "$B/
 check "step numbers are clamped, not trusted" "$(curl -s -o /dev/null -w '%{http_code}' -b "$T/$Bt" "$B/onboarding/step/99")" "200"
 
 echo "== the module gate =="
+check "the sidebar shows the Setup Guide to a member who has it" "$(curl -s -b "$T/$A" "$B/ai_knowledge_base" | grep -c "/onboarding'")" "1"
 sql "UPDATE package SET module_ids='342' WHERE id=90" >/dev/null
+rm -f "$T/$A"; login $A
+check "the sidebar hides it from a member who does not" "$(curl -s -b "$T/$A" "$B/ai_knowledge_base" | grep -c "/onboarding'")" "0"
 login $Bt
 loc=$(curl -s -o /dev/null -w '%{redirect_url}' -b "$T/$Bt" "$B/onboarding")
 case "$loc" in *access_forbidden*) ok "member without the Setup Guide module is denied";; *) bad "member without the Setup Guide module is denied" "$loc";; esac

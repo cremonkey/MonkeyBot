@@ -139,7 +139,7 @@ helper text underneath; the customer-facing strings the AI actually uses are Ara
 | Suite | Scope |
 |---|---|
 | `tests/onboarding/run.php` | offline: all four template files against the schema, the hotel skeleton against the real `pricing_validate_config()` **and** the real calculator, persona compilation, starter-FAQ idempotency against a fake `ai_faq` table with the migration's unique index. 51 cases. |
-| `docker/scripts/staging_onboarding_tests.sh` | HTTP + DB against a running staging stack: all nine steps for a member, what each one writes, re-runs producing no duplicates, an owner's edits surviving a re-run, tenant isolation, the module gate, CSRF, Arabic stored intact, and step 8 refusing to fake a reply. 94 cases. |
+| `docker/scripts/staging_onboarding_tests.sh` | HTTP + DB against a running staging stack: all nine steps for a member, what each one writes, re-runs producing no duplicates, an owner's edits surviving a re-run, tenant isolation, the module gate, CSRF, Arabic stored intact, and step 8 refusing to fake a reply. 96 cases. |
 
 Run the staging suite with `STAGING_URL` / `STAGING_APP` / `STAGING_DB` pointing at your own stack —
 never the shared one — after `assets/backup_db/initial_db.sql`, `cron_hub migrate` and
