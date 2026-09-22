@@ -373,5 +373,17 @@ check('media URL filter: https kept', inbox_safe_media_url('https://x.example/a.
 check('media URL filter: ftp dropped', inbox_safe_media_url('ftp://x.example/a.jpg'), null);
 check('media URL filter: non-string dropped', inbox_safe_media_url(array('https://x')), null);
 
+// ============================================================================================
+echo "\n== AI state keyed to conversations (ai_conversation_history.page_id per channel) ==\n";
+
+check('fb: page_id is the Facebook page id', conversation_ai_history_lookup('fb', '104857600000001'), array('platform' => 'fb', 'mode' => 'fb_page', 'value' => '104857600000001'));
+check('ig: page_id is the Facebook page id', conversation_ai_history_lookup('ig', '104857600000001')['mode'], 'fb_page');
+check('tg: page_id is telegram_accounts.id', conversation_ai_history_lookup('tg', '9303'), array('platform' => 'tg', 'mode' => 'account_id', 'value' => '9303'));
+check('tg: a non-numeric page_id resolves nothing', conversation_ai_history_lookup('tg', 'abc'), null);
+check('wa: Cloud account id OR OpenWA session id (both writers use social_media=wa)', conversation_ai_history_lookup('wa', 'sess-a')['mode'], 'wa_account_or_session');
+check('web: every web conversation has channel_account_id 0, whatever the widget key', conversation_ai_history_lookup('web', 'wk_3f9a'), array('platform' => 'web', 'mode' => 'fixed', 'value' => '0'));
+check('empty page_id (comment replies without a page) resolves nothing', conversation_ai_history_lookup('fb', ''), null);
+check('unknown channel resolves nothing', conversation_ai_history_lookup('tiktok', '1'), null);
+
 echo "\n== $pass passed, $fail failed ==\n";
 exit($fail === 0 ? 0 : 1);

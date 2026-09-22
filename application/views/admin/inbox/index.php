@@ -94,6 +94,19 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
             </select>
           </div></div>
 
+          <div class="card mb-2" id="ib_ai_draft_card" style="display:none"><div class="card-header p-2 d-flex justify-content-between align-items-center">
+            <b><i class="fas fa-magic"></i> AI suggested reply</b>
+            <button class="btn btn-sm btn-outline-primary" id="ib_ai_draft_use" title="Copy into the reply box. Nothing is sent until you press Send.">Use</button>
+          </div>
+            <div class="card-body p-2">
+              <div id="ib_ai_draft_text" style="white-space:pre-wrap;background:#f8f9fa;border:1px dashed #ced4da;border-radius:4px;padding:6px"></div>
+              <small class="text-muted d-block mt-1" id="ib_ai_draft_meta"></small>
+            </div>
+            <div class="card-footer p-2">
+              <small class="text-muted"><i class="fas fa-exclamation-circle"></i> The AI's latest reply in this conversation, read-only. Check it before sending.</small>
+            </div>
+          </div>
+
           <div class="card mb-2"><div class="card-header p-2 d-flex justify-content-between align-items-center">
             <b><i class="fas fa-robot"></i> Summary</b>
             <button class="btn btn-sm btn-outline-secondary" id="ib_summary_refresh" title="Regenerate"><i class="fas fa-sync-alt"></i></button>
@@ -294,12 +307,27 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       $('#ib_assign').val(current.assigned_user_id || 0);
       $('#ib_composer, #ib_send').prop('disabled', false);
       $('#ib_attach').toggle(r.can_send_image === true);
+      renderAiDraft(r.ai_draft);
       $('#ib_deny').hide();
       loadSummary(false);
       loadCanned();
       loadList(true); // refresh unread badges
     });
   }
+
+  var AI_DRAFT = '';
+  function renderAiDraft(d) {
+    AI_DRAFT = d && d.reply ? d.reply : '';
+    if (!AI_DRAFT) { $('#ib_ai_draft_card').hide(); return; }
+    $('#ib_ai_draft_text').text(AI_DRAFT);
+    $('#ib_ai_draft_meta').text((d.answering ? 'Answering: "' + d.answering + '" · ' : '') + (d.created_at || ''));
+    $('#ib_ai_draft_card').show();
+  }
+  $('#ib_ai_draft_use').on('click', function () {
+    if (!AI_DRAFT) return;
+    $('#ib_note_mode').prop('checked', false);
+    $('#ib_composer').val(AI_DRAFT).focus();
+  });
 
   function renderSummary(text, generatedAt) {
     if (!text) { $('#ib_summary_body').html('<small class="text-muted">No summary yet.</small>'); return; }

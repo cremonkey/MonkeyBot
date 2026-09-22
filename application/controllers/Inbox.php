@@ -142,6 +142,7 @@ class Inbox extends Home
         echo json_encode(array('status' => '1', 'conversation' => $conv, 'handoff_label' => inbox_handoff_label($conv['handoff_state']),
             'messages' => $messages, 'notes' => $notes, 'has_more' => count($messages) === $limit,
             'can_send_image' => $before_id === 0 ? $this->can_send_image($conv) : null,
+            'ai_draft' => $before_id === 0 ? $this->latest_ai_draft($conv) : null,
             'labels' => isset($labels[$conv['id']]) ? $labels[$conv['id']] : array()));
     }
 
@@ -200,6 +201,26 @@ class Inbox extends Home
             : $this->write_agent_message($conv, $text, (string) ($result->external_message_id ?: ''), $account['fb_page_id']);
 
         echo json_encode(array('status' => '1', 'message' => 'Sent', 'message_id' => $message_id));
+    }
+
+    /**
+     * The latest AI turn recorded for this conversation (ai_conversation_history.conversation_id,
+     * migration 2026-09-30c), shown read-only as a suggested reply the agent may copy into the
+     * composer. Reads what the AI already produced: no model is called here, nothing is sent.
+     * NULL when the column does not exist yet or no AI turn is linked to this conversation.
+     */
+    private function latest_ai_draft($conv)
+    {
+        static $has = null;
+        if ($has === null) $has = $this->db->table_exists('ai_conversation_history') && $this->db->field_exists('conversation_id', 'ai_conversation_history');
+        if (!$has) return null;
+        $row = $this->db->select('id, human_message, ai_reply, created_at')->from('ai_conversation_history')
+            ->where('user_id', $this->uid)                  // tenant guard
+            ->where('conversation_id', (int) $conv['id'])   // this conversation only
+            ->order_by('id', 'DESC')->limit(1)->get()->row_array();
+        if (empty($row) || trim((string) $row['ai_reply']) === '') return null;
+        return array('id' => (int) $row['id'], 'reply' => (string) $row['ai_reply'],
+            'answering' => mb_substr((string) $row['human_message'], 0, 300), 'created_at' => $row['created_at']);
     }
 
     /** Whether this conversation's channel adapter can send an image (capability matrix,
