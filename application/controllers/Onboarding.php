@@ -99,6 +99,9 @@ class Onboarding extends Home
 
         // Step 1 is the only step that can run without a template.
         if ($n > 1 && $tpl === null) redirect('onboarding/step/1', 'location');
+        // Steps 3+ change live behaviour, so they only run once the owner has said which
+        // pages belong to this business.
+        if ($n > 2 && empty($this->selected_targets($st))) redirect('onboarding/step/2', 'location');
 
         $data = array(
             'step' => $n,
@@ -112,15 +115,30 @@ class Onboarding extends Home
 
         switch ($n) {
             case 2:
-                $data['channels'] = ai_agent_connected_channels($this->uid);
+                $data['channels'] = $this->targets_all();
+                $data['selected'] = $this->selected_targets($st);
                 $data['connect_links'] = $this->connect_links();
+                $data['assigned_to'] = array();   // "channel:target" => agent name already answering there
+                foreach ($this->db->select('a.channel_type, a.target_id, p.agent_name, p.name')
+                    ->from('ai_agent_assignments a')->join('ai_agent_profiles p', 'p.id = a.profile_id', 'left')
+                    ->where('a.user_id', $this->uid)->get()->result_array() as $a) {
+                    $data['assigned_to'][$a['channel_type'] . ':' . $a['target_id']] = $a['agent_name'] ?: $a['name'];
+                }
                 break;
             case 3:
                 $data['profile'] = $this->wizard_profile($st);
                 break;
             case 4:
-                $data['faq_rows'] = $this->db->from('ai_faq')->where('user_id', $this->uid)
-                    ->like('source_key', 'tpl:', 'after')->order_by('id', 'ASC')->get()->result_array();
+                // One row per starter question (the first selected page's copy) — every
+                // selected page carries the same answer.
+                $data['faq_rows'] = array();
+                foreach ($this->db->from('ai_faq')->where('user_id', $this->uid)
+                    ->like('source_key', 'tpl:', 'after')->like('source_key', '@', 'both')
+                    ->order_by('id', 'ASC')->get()->result_array() as $r) {
+                    $base = explode('@', (string) $r['source_key'])[0];
+                    if (!isset($data['faq_rows'][$base])) { $r['source_key'] = $base; $data['faq_rows'][$base] = $r; }
+                }
+                $data['faq_rows'] = array_values($data['faq_rows']);
                 break;
             case 5:
                 $row = $this->db->from('pricing_config')->where('user_id', $this->uid)->get()->row_array();
@@ -135,7 +153,7 @@ class Onboarding extends Home
                     : $this->db->from('crm_stages')->where('pipeline_id', $pid['id'])->order_by('position', 'ASC')->get()->result_array();
                 break;
             case 7:
-                $data['hours'] = $this->current_hours();
+                $data['hours'] = $this->current_hours($this->selected_targets($st));
                 break;
             case 8:
                 $data['profile'] = $this->wizard_profile($st);
@@ -178,6 +196,56 @@ class Onboarding extends Home
         );
     }
 
+    /**
+     * Every channel the tenant has connected, with a stable selection key. OpenWA (personal
+     * WhatsApp) and WhatsApp Cloud both report channel 'wa' with independent numeric ids, so
+     * OpenWA rows get their own 'openwa:' key to keep the two apart.
+     */
+    private function targets_all()
+    {
+        $out = array();
+        foreach (ai_agent_connected_channels($this->uid) as $c) {
+            $kind = ($c['channel'] === 'wa' && empty($c['assignable'])) ? 'openwa' : $c['channel'];
+            $c['kind'] = $kind;
+            $c['key'] = $kind . ':' . $c['target'];
+            $out[$c['key']] = $c;
+        }
+        return $out;
+    }
+
+    /**
+     * The pages/channels the owner picked for THIS business in step 2, re-checked against
+     * what is connected right now (a disconnected page drops out; a crafted key from another
+     * tenant never matches). Everything after step 2 acts on these only — never on the whole
+     * account, which may hold many unrelated businesses.
+     */
+    private function selected_targets($st)
+    {
+        $all = $this->targets_all();
+        $out = array();
+        foreach ((array) ($st['data']['targets'] ?? array()) as $k) {
+            if (isset($all[$k])) $out[$k] = $all[$k];
+        }
+        return $out;
+    }
+
+    /** The page id the AI reply pipeline receives for this target (what ai_faq.page_id must hold). */
+    private function runtime_page_id($c)
+    {
+        switch ($c['kind']) {
+            case 'fb':
+                $r = $this->db->select('page_id')->from('facebook_rx_fb_page_info')
+                    ->where('id', (int) $c['target'])->where('user_id', $this->uid)->get()->row_array();
+                return $r ? (string) $r['page_id'] : null;
+            case 'openwa':
+                $r = $this->db->select('session_id')->from('openwa_accounts')
+                    ->where('id', (int) $c['target'])->where('user_id', $this->uid)->get()->row_array();
+                return $r ? (string) $r['session_id'] : null;
+            default:   // wa (Cloud) and tg pass their account id, web passes its widget_key
+                return (string) $c['target'];
+        }
+    }
+
     /** The one profile this wizard owns for the tenant (tracked in data_json). */
     private function wizard_profile($st)
     {
@@ -197,13 +265,24 @@ class Onboarding extends Home
         return ai_openai_key($this->uid) !== '';
     }
 
-    private function current_hours()
+    /** Ids of the selected targets that carry working hours, per table. */
+    private function hours_ids($targets)
+    {
+        $ids = array('facebook_rx_fb_page_info' => array(), 'openwa_accounts' => array());
+        foreach ($targets as $c) {
+            if ($c['kind'] === 'fb') $ids['facebook_rx_fb_page_info'][] = (int) $c['target'];
+            elseif ($c['kind'] === 'openwa') $ids['openwa_accounts'][] = (int) $c['target'];
+        }
+        return $ids;
+    }
+
+    private function current_hours($targets = array())
     {
         $out = array('rows' => 0, 'enabled' => '0', 'start' => '09:00:00', 'end' => '22:00:00', 'days' => '1,2,3,4,5,6,7');
         $first = null;
-        foreach (array('facebook_rx_fb_page_info', 'openwa_accounts') as $t) {
-            if (!$this->db->table_exists($t)) continue;
-            foreach ($this->db->from($t)->where('user_id', $this->uid)->get()->result_array() as $r) {
+        foreach ($this->hours_ids($targets) as $t => $ids) {
+            if (empty($ids) || !$this->db->table_exists($t)) continue;
+            foreach ($this->db->from($t)->where('user_id', $this->uid)->where_in('id', $ids)->get()->result_array() as $r) {
                 $out['rows']++;
                 if ($first === null) $first = $r;
             }
@@ -240,9 +319,19 @@ class Onboarding extends Home
     {
         $this->ajax_check();
         $this->csrf_token_check();
-        $ch = ai_agent_connected_channels($this->uid);
-        $this->save_state(array('channels_seen_at' => date('Y-m-d H:i:s'), 'channels_count' => count($ch)), 2);
-        $this->jout(array('status' => '1', 'connected' => count($ch)));
+        $all = $this->targets_all();
+        $picked = array();
+        foreach ((array) $this->input->post('targets', true) as $k) {
+            $k = (string) $k;
+            if (isset($all[$k])) $picked[] = $k;   // only this tenant's own, currently connected targets
+        }
+        $picked = array_values(array_unique($picked));
+        if (empty($picked)) {
+            $this->jout(array('status' => '0', 'message' => 'Choose at least one page or channel for this business.'));
+            return;
+        }
+        $this->save_state(array('targets' => $picked, 'channels_seen_at' => date('Y-m-d H:i:s'), 'channels_count' => count($picked)), 2);
+        $this->jout(array('status' => '1', 'selected' => count($picked)));
     }
 
     /**
@@ -258,6 +347,7 @@ class Onboarding extends Home
         $st = $this->state();
         $tpl = $this->template_of($st);
         if ($tpl === null) { $this->jout(array('status' => '0', 'message' => 'Pick a business type first.')); return; }
+        if (empty($this->selected_targets($st))) { $this->jout(array('status' => '0', 'message' => 'Choose the pages for this business first (step 2).')); return; }
 
         $overrides = array(
             'agent_name'    => (string) $this->input->post('agent_name', true),
@@ -294,12 +384,12 @@ class Onboarding extends Home
             $pid = (int) $this->db->insert_id();
         }
 
-        $assigned = 0;
-        foreach (ai_agent_connected_channels($this->uid) as $c) {
+        $assigned = 0; $kept = array();
+        foreach ($this->selected_targets($st) as $c) {
             if (empty($c['assignable'])) continue;
             $has = $this->db->from('ai_agent_assignments')->where('user_id', $this->uid)
                 ->where('channel_type', $c['channel'])->where('target_id', (string) $c['target'])->count_all_results();
-            if ($has > 0) continue;   // owner's own choice wins; never overwritten, never deleted
+            if ($has > 0) { $kept[] = $c['label']; continue; }   // owner's own choice wins; never overwritten, never deleted
             $this->db->insert('ai_agent_assignments', array(
                 'user_id' => $this->uid, 'profile_id' => $pid,
                 'channel_type' => $c['channel'], 'target_id' => (string) $c['target'],
@@ -308,7 +398,7 @@ class Onboarding extends Home
         }
 
         $this->save_state(array('profile_id' => $pid, 'agent_overrides' => $overrides), 3);
-        $this->jout(array('status' => '1', 'profile_id' => $pid, 'assigned' => $assigned));
+        $this->jout(array('status' => '1', 'profile_id' => $pid, 'assigned' => $assigned, 'kept_existing' => $kept));
     }
 
     /**
@@ -323,31 +413,43 @@ class Onboarding extends Home
         $st = $this->state();
         $tpl = $this->template_of($st);
         if ($tpl === null) { $this->jout(array('status' => '0', 'message' => 'Pick a business type first.')); return; }
+        if (empty($this->selected_targets($st))) { $this->jout(array('status' => '0', 'message' => 'Choose the pages for this business first (step 2).')); return; }
 
         $answers = $this->input->post('faq', true);      // faq[<key>] = answer text (optional)
         if (!is_array($answers)) $answers = array();
 
-        // Existing starter rows for THIS tenant, keyed by source_key. Hand-written FAQ rows
-        // have source_key NULL and are never in this map, so the wizard cannot touch them.
-        $existing = array();
-        foreach ($this->db->from('ai_faq')->where('user_id', $this->uid)->where('source_key IS NOT NULL', null, false)->get()->result_array() as $r) {
-            $existing[(string) $r['source_key']] = $r;
-        }
-
+        // Starter answers are scoped to each page picked in step 2 (ai_faq.page_id = the id
+        // the reply pipeline sees), never account-wide: one account can hold many unrelated
+        // businesses. A question the owner has not answered is saved switched OFF, so a
+        // template placeholder can never reach a customer.
         $inserted = 0; $updated = 0; $now = date('Y-m-d H:i:s');
-        foreach (industry_template_faq_plan($tpl, $existing, $answers) as $p) {
-            if ($p['op'] === 'insert') {
-                $this->db->insert('ai_faq', array(
-                    'user_id' => $this->uid, 'page_id' => null, 'source_key' => $p['source_key'],
-                    'question' => $p['question'], 'answer' => $p['answer'], 'status' => '1', 'created_at' => $now,
-                ));
-                $inserted++;
-            } else {
-                $set = array('question' => $p['question']);
-                // answer === null means "the owner typed nothing this time" — keep their text.
-                if ($p['answer'] !== null) $set['answer'] = $p['answer'];
-                $this->db->where('id', (int) $p['id'])->where('user_id', $this->uid)->update('ai_faq', $set);
-                $updated++;
+        foreach ($this->selected_targets($st) as $c) {
+            $pid_rt = $this->runtime_page_id($c);
+            if ($pid_rt === null || $pid_rt === '') continue;
+            $sfx = '@' . substr(md5($c['key']), 0, 8);
+
+            // this page's existing starter rows, keyed by the base source_key
+            $existing = array();
+            foreach ($this->db->from('ai_faq')->where('user_id', $this->uid)
+                ->like('source_key', $sfx, 'before')->get()->result_array() as $r) {
+                $existing[substr((string) $r['source_key'], 0, -strlen($sfx))] = $r;
+            }
+            foreach (industry_template_faq_plan($tpl, $existing, $answers) as $p) {
+                $typed = isset($answers[$p['faq_key']]) && trim((string) $answers[$p['faq_key']]) !== '';
+                if ($p['op'] === 'insert') {
+                    $this->db->insert('ai_faq', array(
+                        'user_id' => $this->uid, 'page_id' => $pid_rt, 'source_key' => $p['source_key'] . $sfx,
+                        'question' => $p['question'], 'answer' => $p['answer'],
+                        'status' => $typed ? '1' : '0', 'created_at' => $now,
+                    ));
+                    $inserted++;
+                } else {
+                    $set = array('question' => $p['question']);
+                    // answer === null means "the owner typed nothing this time" — keep their text.
+                    if ($p['answer'] !== null) { $set['answer'] = $p['answer']; $set['status'] = '1'; }
+                    $this->db->where('id', (int) $p['id'])->where('user_id', $this->uid)->update('ai_faq', $set);
+                    $updated++;
+                }
             }
         }
 
@@ -437,6 +539,7 @@ class Onboarding extends Home
         $st = $this->state();
         $tpl = $this->template_of($st);
         if ($tpl === null) { $this->jout(array('status' => '0', 'message' => 'Pick a business type first.')); return; }
+        if (empty($this->selected_targets($st))) { $this->jout(array('status' => '0', 'message' => 'Choose the pages for this business first (step 2).')); return; }
         $wm = $tpl['working_mode'];
 
         $mode = $this->input->post('mode', true) === 'staff_hours_silent' ? 'staff_hours_silent' : 'always_on';
@@ -457,20 +560,19 @@ class Onboarding extends Home
             // Same rule as Messenger_bot's settings save: an empty/invalid day list keeps
             // what is already stored rather than silently widening the window. Only a brand
             // new setup falls back to the template's recommendation.
-            $cur = $this->current_hours();
+            $cur = $this->current_hours($this->selected_targets($st));
             $hours_days = $cur['rows'] > 0 ? $cur['days'] : (string) $wm['hours_days'];
         } else {
             $hours_days = implode(',', $days);
         }
 
         $set = array('hours_enabled' => $enabled, 'hours_start' => $start, 'hours_end' => $end, 'hours_days' => $hours_days);
+        // Only the pages picked for this business — never every page on the account.
         $touched = 0;
-        foreach (array('facebook_rx_fb_page_info', 'openwa_accounts') as $t) {
-            if (!$this->db->table_exists($t)) continue;
-            $n = $this->db->from($t)->where('user_id', $this->uid)->count_all_results();
-            if ($n === 0) continue;
-            $this->db->where('user_id', $this->uid)->update($t, $set);
-            $touched += $n;
+        foreach ($this->hours_ids($this->selected_targets($st)) as $t => $ids) {
+            if (empty($ids) || !$this->db->table_exists($t)) continue;
+            $this->db->where('user_id', $this->uid)->where_in('id', $ids)->update($t, $set);
+            $touched += (int) $this->db->affected_rows();
         }
 
         $this->save_state(array('working_mode' => $mode, 'hours' => $set, 'hours_done_at' => date('Y-m-d H:i:s')), 7);
@@ -535,10 +637,10 @@ class Onboarding extends Home
             'done' => $tpl !== null, 'required' => true,
             'detail' => $tpl ? industry_template_text($tpl['display_name'], 'ar') : '');
 
-        $channels = ai_agent_connected_channels($this->uid);
-        $out[] = array('key' => 'channels', 'label_en' => 'At least one channel connected', 'label_ar' => 'قناة واحدة على الأقل متوصّلة',
+        $channels = $this->selected_targets($st);
+        $out[] = array('key' => 'channels', 'label_en' => 'Pages chosen for this business', 'label_ar' => 'اخترت صفحات النشاط ده',
             'done' => count($channels) > 0, 'required' => true,
-            'detail' => count($channels) . ' channel(s)', 'link' => 'onboarding/step/2');
+            'detail' => implode(', ', array_map(function ($c) { return $c['label']; }, $channels)), 'link' => 'onboarding/step/2');
 
         $profile = $this->wizard_profile($st);
         $out[] = array('key' => 'agent', 'label_en' => 'AI employee created', 'label_ar' => 'الموظف الذكي اتعمل',
@@ -551,8 +653,16 @@ class Onboarding extends Home
             'done' => $assigned > 0, 'required' => false,
             'detail' => $assigned . ' channel(s)', 'link' => 'ai_agents');
 
-        $faq = (int) $this->db->from('ai_faq')->where('user_id', $this->uid)->where('status', '1')->count_all_results();
-        $out[] = array('key' => 'knowledge', 'label_en' => 'Starter questions added', 'label_ar' => 'الأسئلة الشائعة اتضافت',
+        // Live answers the chosen pages will actually use: their own rows plus account-wide ones.
+        $rt = array();
+        foreach ($channels as $c) { $x = $this->runtime_page_id($c); if ($x !== null && $x !== '') $rt[] = $x; }
+        $faq = 0;
+        if (!empty($rt)) {
+            $faq = (int) $this->db->from('ai_faq')->where('user_id', $this->uid)->where('status', '1')
+                ->group_start()->where_in('page_id', $rt)->or_where('page_id', null)->or_where('page_id', '')->group_end()
+                ->count_all_results();
+        }
+        $out[] = array('key' => 'knowledge', 'label_en' => 'At least one real answer written', 'label_ar' => 'فيه إجابة حقيقية واحدة على الأقل',
             'done' => $faq > 0, 'required' => true,
             'detail' => $faq . ' question(s)', 'link' => 'onboarding/step/4');
 
@@ -589,7 +699,7 @@ class Onboarding extends Home
         $done = 0;
         $flags = array(
             1 => $tpl !== null,
-            2 => !empty($st['data']['channels_seen_at']),
+            2 => !empty($st['data']['targets']),
             3 => !empty($st['data']['profile_id']),
             4 => !empty($st['data']['faq_applied_at']),
             5 => !empty($st['data']['pricing_done_at']),
