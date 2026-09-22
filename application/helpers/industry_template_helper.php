@@ -4,7 +4,7 @@ defined('BASEPATH') or exit('No direct script access allowed');
 /**
  * Phase 11 / brief §33 — industry templates are DATA, not code.
  *
- * A vertical is one JSON file in application/config/industry_templates/. Nothing in the
+ * A vertical is one JSON file in application/data/industry_templates/ (NOT under application/config: on production that directory is a Docker volume that shadows the code tree, so files added there never reach the container). Nothing in the
  * platform branches on the template key: the onboarding wizard reads the file and then
  * drives the EXISTING features through their existing save paths (pricing_save_config,
  * ai_agent_profiles, ai_faq, crm_ensure_pipeline, the hours_* columns). Adding a vertical
@@ -19,7 +19,7 @@ defined('BASEPATH') or exit('No direct script access allowed');
 if (!function_exists('industry_template_dir')) {
     function industry_template_dir()
     {
-        return APPPATH . 'config/industry_templates/';
+        return APPPATH . 'data/industry_templates/';
     }
 }
 

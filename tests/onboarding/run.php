@@ -6,7 +6,7 @@
  *   docker run --rm -v "$PWD":/app -w /app monkeybot-app-ojzrhf-app:latest php tests/onboarding/run.php
  *
  * What it proves:
- *   - every vertical file in application/config/industry_templates/ satisfies the schema
+ *   - every vertical file in application/data/industry_templates/ satisfies the schema
  *   - the hotel price skeleton passes the REAL pricing_validate_config(), not a copy
  *   - verticals the calculator cannot serve carry no pricing_config at all
  *   - the compiled persona actually contains the template's rules and questions
@@ -216,6 +216,20 @@ check('source keys fit ai_faq.source_key VARCHAR(64)', max(array_map('strlen', $
 echo "\n== unknown keys ==\n";
 same('an unknown vertical loads as null', null, industry_template_load('barbershop'));
 same('a path-traversal key loads as null', null, industry_template_load('../../config/database'));
+
+echo "\n== deploy boundary: data never lives under application/config ==\n";
+// On production application/config is a Docker volume that shadows the code tree, so any
+// file shipped there is invisible to the running app (this is exactly how the Setup Guide
+// shipped with zero business types). Templates must live somewhere the image actually sees.
+check('template dir is not under application/config', strpos(industry_template_dir(), '/config/') === false, industry_template_dir());
+$root = dirname(__DIR__, 2);
+$stock = array('autoload.php','config.php','constants.php','database.php','doctypes.php','foreign_chars.php','frontend_config.php','grocery_crud.php','hooks.php','index.html','method_check.php','migration.php','mimes.php','my_config.php','package_config.php','profiler.php','pusher.php','recommendation_config.php','routes.php','smileys.php','tiktok.php','user_agents.php');
+$extra = array();
+foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/application/config', FilesystemIterator::SKIP_DOTS)) as $f) {
+    $rel = substr($f->getPathname(), strlen($root . '/application/config/'));
+    if (!in_array($rel, $stock, true) && !preg_match('/\.bak/', $rel)) $extra[] = $rel;
+}
+check('no new files under application/config (they would never reach production)', empty($extra), implode(', ', $extra));
 
 echo "\n$PASS passed, $FAIL failed\n";
 exit($FAIL === 0 && $PASS > 0 ? 0 : 1);

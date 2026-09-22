@@ -10,6 +10,13 @@
   <small class="form-text text-muted">Used in what your AI employee says about itself.</small>
 </div>
 
+<?php if (empty($templates)): ?>
+  <div class="alert alert-danger">
+    Business types could not be loaded, so this step cannot be saved. Please contact support.
+    <br><span dir="rtl">مقدرناش نحمّل أنواع النشاط، فالخطوة دي مش هتتحفظ. كلّم الدعم الفني.</span>
+  </div>
+<?php endif; ?>
+<p class="mb-2"><strong>Business type</strong> <small class="text-muted" dir="rtl">نوع النشاط</small></p>
 <div class="row">
   <?php foreach ($templates as $k => $t): $sel = ($state['template_key'] ?? '') === $k; ?>
     <div class="col-md-6 col-lg-3">
@@ -35,6 +42,7 @@
 </div>
 
 <button class="btn btn-primary ob-save" id="ob_go" disabled>Save and continue</button>
+<small class="text-muted ml-2" id="ob_go_hint">Choose a business type above to continue. <span dir="rtl">اختار نوع النشاط الأول.</span></small>
 <?php $this->load->view('admin/onboarding/_foot'); ?>
 <script>
 $(function () {
@@ -43,6 +51,7 @@ $(function () {
     $('.ob-card').removeClass('border-primary').find('.ob-badge').removeClass('badge-primary').addClass('badge-light').text('Choose');
     if (key) $('.ob-card[data-key="' + key + '"]').addClass('border-primary').find('.ob-badge').removeClass('badge-light').addClass('badge-primary').text('Selected');
     $('#ob_go').prop('disabled', !key);
+    $('#ob_go_hint').toggle(!key);
   }
   $('.ob-card').on('click', function () { key = $(this).data('key'); paint(); });
   $('#ob_go').on('click', function () {
