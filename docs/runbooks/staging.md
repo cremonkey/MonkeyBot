@@ -23,7 +23,7 @@ tables, 0 column/index differences (diffed 2026-09-22 against the production str
 into a scratch `prod_schema` DB — structure only, never data).
 
 ## Seed for the Phase 0 suite
-Admin (id 1), members 11 and 12 on a package containing only module 342, KB source 501 owned by
+Run `docker/scripts/staging_seed.sh` (synthetic data, idempotent). It creates: admin (id 1), members 11 and 12
 user 11 with one chunk containing `TENANT-A-CONFIDENTIAL`, and a `facebook_rx_config` row with
 `api_secret = 'staging-app-secret'`. Password for all: set via `password_hash` in the seed.
 

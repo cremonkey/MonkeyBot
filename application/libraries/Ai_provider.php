@@ -66,10 +66,8 @@ class Ai_provider
             $in = 0; $out = 0;
             if (isset($dec['usage']['prompt_tokens'])) { $in = (int) $dec['usage']['prompt_tokens']; $out = (int) ($dec['usage']['completion_tokens'] ?? 0); }
             elseif (isset($dec['usage']['input_tokens'])) { $in = (int) $dec['usage']['input_tokens']; $out = (int) ($dec['usage']['output_tokens'] ?? 0); }
-            $CI->db->insert('ai_usage_log', array(
-                'user_id' => (int) ($cfg['user_id'] ?? 0), 'provider' => $provider, 'model' => $model,
-                'input_tokens' => $in, 'output_tokens' => $out, 'purpose' => $purpose, 'created_at' => date('Y-m-d H:i:s'),
-            ));
+            $CI->load->helper('ai_usage');
+            ai_usage_record((int) ($cfg['user_id'] ?? 0), $provider, $model, $purpose, $in, $out);
         } catch (Exception $e) { /* ignore */ }
     }
 

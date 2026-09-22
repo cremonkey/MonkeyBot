@@ -63,6 +63,8 @@ if (!function_exists('ai_transcribe_audio')) {
                 CURLOPT_POSTFIELDS     => array(
                     'model' => 'whisper-1',
                     'file'  => new CURLFile($tmp),
+                    // verbose_json still carries `text` and adds `duration`, used for cost accounting
+                    'response_format' => 'verbose_json',
                 ),
                 CURLOPT_SSL_VERIFYPEER => true,
             ));
@@ -71,7 +73,11 @@ if (!function_exists('ai_transcribe_audio')) {
             @unlink($tmp);
 
             $res = json_decode((string) $raw, true);
-            if (!empty($res['text'])) return trim($res['text']);
+            if (!empty($res['text'])) {
+                if (!function_exists('ai_usage_record')) $ci->load->helper('ai_usage');
+                ai_usage_record($user_id, 'openai', 'whisper-1', 'transcription', 0, 0, (float) ($res['duration'] ?? 0));
+                return trim($res['text']);
+            }
             log_message('error', 'ai_transcribe_audio: ' . substr((string) $raw, 0, 300));
             return false;
         } catch (Exception $e) {
