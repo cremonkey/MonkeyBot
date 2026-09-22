@@ -36,9 +36,10 @@ class Ai_provider
             $model = isset($overrides['model']) && $overrides['model'] ? $overrides['model'] : (!empty($cfg['anthropic_model']) ? $cfg['anthropic_model'] : 'claude-haiku-4-5');
             $system = isset($overrides['system']) ? $overrides['system'] : '';
             $CI->load->library('Anthropic_api');
-            if ($tools_on) return $this->anthropic_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $system, $temperature, $tools_context);
+            $purpose = isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply';
+            if ($tools_on) return $this->anthropic_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $system, $temperature, $tools_context, $cfg, $purpose);
             $raw = $CI->anthropic_api->anthropic_completion($api_key, $messages, $model, $max_tokens, $system, $temperature);
-            $this->log_usage($CI, $cfg, 'anthropic', $model, $raw, isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply');
+            $this->log_usage($CI, $cfg, 'anthropic', $model, $raw, $purpose);
             return $raw;
         }
 
@@ -50,9 +51,10 @@ class Ai_provider
         $description = isset($overrides['description']) ? $overrides['description'] : '';
         $human = isset($overrides['human']) ? $overrides['human'] : '';
         $CI->load->library('Openai_api');
-        if ($tools_on) return $this->openai_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $tools_context);
+        $purpose = isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply';
+        if ($tools_on) return $this->openai_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $tools_context, $cfg, $purpose);
         $raw = $CI->openai_api->open_ai_completion($api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature);
-        $this->log_usage($CI, $cfg, 'openai', $model, $raw, isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply');
+        $this->log_usage($CI, $cfg, 'openai', $model, $raw, $purpose);
         return $raw;
     }
 
@@ -71,13 +73,16 @@ class Ai_provider
         } catch (Exception $e) { /* ignore */ }
     }
 
-    protected function openai_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $context)
+    // Every round is a billed model call, so every round is logged (tool-enabled replies
+    // were not logged at all before - baseline item 17).
+    protected function openai_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $context, $cfg = array(), $purpose = 'chat_reply')
     {
         $CI->load->library('Ai_tools');
         $tools = $CI->ai_tools->openai_tools($context);   // page-aware calculate_price
         $last = null;
         for ($round = 0; $round < self::MAX_TOOL_ROUNDS; $round++) {
             $raw = $CI->openai_api->open_ai_completion($api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $tools);
+            $this->log_usage($CI, $cfg, 'openai', $model, $raw, $purpose);
             $dec = json_decode($raw, true);
             $last = $raw;
             if (!isset($dec['choices'][0]['message'])) return $raw; // error or unexpected shape
@@ -95,10 +100,11 @@ class Ai_provider
         }
         // ran out of rounds: force a final answer without tools
         $raw = $CI->openai_api->open_ai_completion($api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature);
+        $this->log_usage($CI, $cfg, 'openai', $model, $raw, $purpose);
         return $raw ?: $last;
     }
 
-    protected function anthropic_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $system, $temperature, $context)
+    protected function anthropic_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $system, $temperature, $context, $cfg = array(), $purpose = 'chat_reply')
     {
         $CI->load->library('Ai_tools');
         $tools = $CI->ai_tools->anthropic_tools($context);
@@ -112,6 +118,7 @@ class Ai_provider
         $last = null;
         for ($round = 0; $round < self::MAX_TOOL_ROUNDS; $round++) {
             $raw = $CI->anthropic_api->anthropic_completion($api_key, $convo, $model, $max_tokens, $system, $temperature, $tools);
+            $this->log_usage($CI, $cfg, 'anthropic', $model, $raw, $purpose);
             $dec = json_decode($raw, true);
             $last = $raw;
             if (isset($dec['error'])) return $raw;
@@ -130,6 +137,7 @@ class Ai_provider
             $convo[] = array('role' => 'user', 'content' => $results);
         }
         $raw = $CI->anthropic_api->anthropic_completion($api_key, $convo, $model, $max_tokens, $system, $temperature);
+        $this->log_usage($CI, $cfg, 'anthropic', $model, $raw, $purpose);
         return $raw ?: $last;
     }
 }

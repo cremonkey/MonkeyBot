@@ -7524,12 +7524,29 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                 $guard_source .= "\n\nRoom media (authoritative, from the media tool):\n- " . implode("\n- ", $this->ai_media_facts);
             }
 
-            $verdict = ai_verify_price_grounding($user_id, $human, $response['choices'][0]['text'], $guard_source, $guard_context);
+            // Baseline item 17: config price_guard_fail_closed (unset/FALSE = the behaviour
+            // below, unchanged, plus a "price_guard: would block" log line). TRUE: a reply the
+            // judge cannot verify is only sent if every price figure in it is written in
+            // $guard_source; otherwise it is replaced and the thread handed to a human.
+            $this->load->helper('ai_safety');
+            $pg_closed = ai_price_guard_fail_closed_enabled();
+            try {
+                $verdict = ai_verify_price_grounding($user_id, $human, $response['choices'][0]['text'], $guard_source, $guard_context);
+            } catch (Throwable $pg_e) {
+                $pg = ai_price_guard_action('error', $response['choices'][0]['text'], $guard_source, $pg_closed);
+                if (!$pg_closed) {
+                    if ($pg['action'] === 'would_block') log_message('error', 'price_guard: would block (judge threw) user=' . $user_id . ' figures=' . implode(',', $pg['unverified']) . ' err=' . $pg_e->getMessage());
+                    throw $pg_e;
+                }
+                log_message('error', 'price_guard: judge threw: ' . $pg_e->getMessage());
+                $verdict = 'error';
+            }
+            $pg = ai_price_guard_action($verdict, $response['choices'][0]['text'], $guard_source, $pg_closed);
 
             // The guard fails OPEN (returns 'unknown' on any error, reply untouched). That
             // is safe for availability but means a silently-broken guard leaks bad prices
             // with no alarm. Log 'unknown' verdicts so an outage is visible, not silent.
-            if ($verdict === 'unknown' && $this->db->table_exists('ai_price_guard_log')) {
+            if ($verdict === 'unknown' && $pg['action'] !== 'block' && $this->db->table_exists('ai_price_guard_log')) {
                 @$this->basic->insert_data('ai_price_guard_log', array(
                     'user_id' => $user_id, 'page_id' => (string) $page_id, 'social_media' => $social_media,
                     'subscribe_id' => (string) $subscribe_id, 'question' => $human,
@@ -7556,6 +7573,27 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                         'created_at'    => date('Y-m-d H:i:s'),
                     ));
                 }
+            } elseif ($pg['action'] === 'would_block') {
+                log_message('error', 'price_guard: would block user=' . $user_id . ' ' . $social_media . ':' . $page_id . ':' . $subscribe_id
+                    . ' verdict=' . $verdict . ' figures=' . implode(',', $pg['unverified']));
+            } elseif ($pg['action'] === 'block') {
+                // Logged as verdict 'unknown' WITH a blocked_reply (plain 'unknown' rows have
+                // blocked_reply ''), so the enum needs no migration.
+                $guard_blocked = true;
+                $blocked = $response['choices'][0]['text'];
+                $response['choices'][0]['text'] = ai_price_guard_handoff_text($human);
+                if ($this->db->table_exists('ai_price_guard_log')) {
+                    @$this->basic->insert_data('ai_price_guard_log', array(
+                        'user_id' => $user_id, 'page_id' => (string) $page_id, 'social_media' => $social_media,
+                        'subscribe_id' => (string) $subscribe_id, 'question' => $human,
+                        'blocked_reply' => $blocked, 'sent_reply' => $response['choices'][0]['text'],
+                        'verdict' => 'unknown', 'created_at' => date('Y-m-d H:i:s'),
+                    ));
+                }
+                $pg_h = ai_price_guard_flag_handoff($user_id, $social_media, $page_id, $subscribe_id,
+                    'price_guard: unverifiable price (' . implode(',', $pg['unverified']) . '), team to confirm');
+                log_message('error', 'price_guard: blocked user=' . $user_id . ' verdict=' . $verdict . ' figures=' . implode(',', $pg['unverified'])
+                    . ' handoff=' . ($pg_h['ok'] ? $pg_h['via'] . ':' . $pg_h['conversation_id'] : 'failed:' . $pg_h['error']));
             }
         }
 

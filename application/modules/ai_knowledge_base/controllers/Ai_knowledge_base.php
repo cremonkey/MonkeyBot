@@ -339,6 +339,14 @@ class Ai_knowledge_base extends Home
         $id = (int) $this->input->post('id', true);
         $status = $this->input->post('status', true) === 'active' ? 'active' : 'inactive';
 
+        // S-05 follow-up: refuse another tenant's id instead of reporting "Status updated"
+        // (the update below was already scoped, so nothing changed, but the answer lied).
+        $source = $this->basic->get_data('ai_knowledge_sources', array('where' => array('id' => $id, 'user_id' => $this->user_id)), array('id'), '', 1);
+        if (empty($source)) {
+            echo json_encode(array('status' => '0', 'message' => $this->lang->line('Source not found.')));
+            exit();
+        }
+
         $this->basic->update_data('ai_knowledge_sources', array('id' => $id, 'user_id' => $this->user_id), array('status' => $status, 'updated_at' => date('Y-m-d H:i:s')));
 
         echo json_encode(array('status' => '1', 'message' => $this->lang->line('Status updated.')));

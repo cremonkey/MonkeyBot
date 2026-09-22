@@ -388,7 +388,7 @@ class Integration extends Home
 		if(empty($cfg)){ echo json_encode(array('status'=>'0','message'=>'AI is not configured yet.')); return; }
 		$this->load->library('Ai_provider');
 		$messages = array(array('role'=>'user','content'=>'Reply with the single word: OK'));
-		$raw = $this->ai_provider->completion($cfg[0], $messages, array('max_tokens'=>10,'temperature'=>0,'system'=>'You are a health check. Reply with OK.'));
+		$raw = $this->ai_provider->completion($cfg[0], $messages, array('max_tokens'=>10,'temperature'=>0,'system'=>'You are a health check. Reply with OK.','purpose'=>'health_check'));
 		$dec = json_decode($raw, true);
 		if(isset($dec['error'])){ echo json_encode(array('status'=>'0','provider'=>$cfg[0]['ai_provider'],'message'=>$dec['error']['message'])); return; }
 		$text = isset($dec['choices'][0]['text']) ? trim($dec['choices'][0]['text']) : '';

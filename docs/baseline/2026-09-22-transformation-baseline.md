@@ -791,3 +791,14 @@ one remaining step for ANY of this work is deployment timing and, for the Graph
 migration specifically, the owner running the diagnostic tool against a real page
 before flipping each group's flag — an operational rollout action with real Meta
 traffic, not a development task.
+
+### Items 17 and 18 — AI safety follow-ups (branch `feat/ai-safety-followups`, 2026-09-23)
+
+| Item | Change | Status |
+|---|---|---|
+| 17a preview | `ai_agent_preview_reply()` (Ai_agents::preview, Onboarding test_reply) now calls `Ai_provider::completion()` with the tenant's `open_ai_config` row: Anthropic tenants are answered by Anthropic with the decrypted Anthropic key; no key returns `status '0'` + `No Anthropic key` / `No OpenAI key`, never a reply. | Implemented, unit-tested |
+| 17b price guard | Config flag `price_guard_fail_closed` (unset = FALSE). When the judge returns `unknown` or throws, every price figure in the reply must be written in the authoritative facts (prompt layers, FAQ, KB, `ai_price_facts`). FALSE: reply unchanged, `price_guard: would block ...` logged at `error`. TRUE: reply replaced with a hand-off text, `ai_price_guard_log` row (`verdict='unknown'` with `blocked_reply`), conversation moved to `WAITING_FOR_HUMAN` by actor `ai` (fallback: `handoff_to_human` tool). | Implemented, unit-tested; flag off in production |
+| 17c cost | `Ai_provider` tool loops (every tool-enabled reply) were not logged at all: every round is now logged. Integration health check logged as `health_check`, not `chat_reply`. Preview accounted via `Ai_provider`. `backfill_kb_embeddings.php` no longer dies on `get_instance()` after the first batch and records its embeddings. | Implemented, unit-tested |
+| 18 KB ownership | Every by-id statement in the KB module, Missed_questions, Ai_improvement and Onboarding is tenant-scoped (static sweep in `tests/ai_safety`). `toggle_status_action` now refuses a foreign id instead of answering "Status updated". | Audited, one fix |
+
+Still open: `backfill_kb_embeddings.php` reads the stored `open_ai_secret_key` without `secret_decrypt` (S-04), so it cannot embed for tenants whose key is `enc::`.
