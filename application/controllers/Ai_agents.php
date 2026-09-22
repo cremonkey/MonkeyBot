@@ -63,50 +63,15 @@ class Ai_agents extends Home
     {
         $this->csrf_token_check();
         header('Content-Type: application/json');
-        $msg = trim((string)$this->input->post('message', true));
-        if ($msg === '') { echo json_encode(['status'=>'0','message'=>'Type a test message']); return; }
-
-        $acc = $this->basic->get_data('open_ai_config', ['where'=>['user_id'=>$this->uid]], '', '', 1);
-        if (empty($acc)) { echo json_encode(['status'=>'0','message'=>'No AI credentials configured']); return; }
-        $acc = $acc[0];
-        $this->load->helper('ai_knowledge');
-        $key = ai_openai_key($this->uid);   // decrypted; the stored value is 'enc::...'
-        if ($key === '') { echo json_encode(['status'=>'0','message'=>'No OpenAI key']); return; }
-
-        $agent_name  = trim((string)$this->input->post('agent_name', true));
-        $instruction = trim((string)$this->input->post('instruction_to_ai', true));
-        $agent_sales = trim((string)$this->input->post('sales_system_prompt', true));
-
-        $layers = array();
-        if (!empty($acc['sales_system_prompt'])) $layers[] = "--- MASTER RULES (apply to every page and every agent; never overridden) ---\n".trim($acc['sales_system_prompt']);
-        $bot = array();
-        if ($agent_name !== '')  $bot[] = 'AGENT IDENTITY: '.$agent_name;
-        if ($instruction !== '') $bot[] = $instruction;
-        if ($agent_sales !== '') $bot[] = $agent_sales;
-        if (!empty($bot)) $layers[] = "--- BOT-SPECIFIC INSTRUCTIONS (this business's identity, offers, prices, and rules) ---\n".implode("\n\n", $bot);
-        $sp = implode("\n\n", $layers);
-        // condensed guardrails so the preview behaves like production on scope/price/format
-        $sp .= "\n\nSTRICT SCOPE RULES: Only use the identity, products, services and prices written above. Never invent a price or a fact. If a price is not written, say the team will confirm and ask for a WhatsApp number. Every reply is very short: one direct answer + one question, no lists, no markdown. Mirror the customer's language; Arabic -> Egyptian colloquial.";
-
-        $model = !empty($acc['models']) ? $acc['models'] : 'gpt-4o-mini';
-        $payload = json_encode(array(
-            'model'=>$model, 'temperature'=>0.4,
-            'messages'=>array(array('role'=>'system','content'=>$sp), array('role'=>'user','content'=>$msg)),
-        ), JSON_UNESCAPED_UNICODE);
-
-        $ch = curl_init('https://api.openai.com/v1/chat/completions');
-        curl_setopt_array($ch, array(
-            CURLOPT_POST=>1, CURLOPT_POSTFIELDS=>$payload, CURLOPT_RETURNTRANSFER=>1,
-            CURLOPT_SSL_VERIFYPEER=>true, CURLOPT_TIMEOUT=>60,
-            CURLOPT_HTTPHEADER=>array('Content-Type: application/json','Authorization: Bearer '.$key),
+        $this->load->helper('ai_agent');
+        // Phase 11: the body moved to ai_agent_preview_reply() so the onboarding wizard's
+        // "Test conversation" step runs this exact path instead of a second copy.
+        $res = ai_agent_preview_reply($this->uid, (string)$this->input->post('message', true), array(
+            'agent_name'          => (string)$this->input->post('agent_name', true),
+            'instruction_to_ai'   => (string)$this->input->post('instruction_to_ai', true),
+            'sales_system_prompt' => (string)$this->input->post('sales_system_prompt', true),
         ));
-        $raw = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
-        $d = json_decode($raw, true);
-        $this->load->helper('ai_usage');
-        ai_usage_record_openai_response($this->uid, $model, 'agent_preview', $d);
-        $reply = $d['choices'][0]['message']['content'] ?? '';
-        if ($reply === '') { echo json_encode(['status'=>'0','message'=>'Preview failed (HTTP '.$code.')']); return; }
-        echo json_encode(['status'=>'1','reply'=>$reply, 'chars'=>mb_strlen($sp)]);
+        echo json_encode($res, JSON_UNESCAPED_UNICODE);
     }
 
     public function save_profile()

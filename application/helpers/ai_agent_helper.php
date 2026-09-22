@@ -68,3 +68,106 @@ if (!function_exists('ai_resolve_profile')) {
         }
     }
 }
+
+if (!function_exists('ai_agent_connected_channels')) {
+    /**
+     * Phase 11 - live channel status for the onboarding wizard's Channels step.
+     * READ ONLY: it never creates or changes a connection; the connect flows stay exactly
+     * where they are and the wizard only links to them.
+     *
+     * 'target' is the identifier ai_agent_assignments.target_id uses for that channel.
+     * 'assignable' is false for openwa accounts: their ids share the 'wa' channel namespace
+     * with whatsapp_accounts, so the assignment table cannot tell the two apart. They are
+     * listed (the owner must see the channel is connected) but never auto-assigned.
+     * Ai_agents::connected_channels() is deliberately left untouched - changing which
+     * targets it offers would change existing assignment behaviour.
+     *
+     * @return array[] {channel,target,label,icon,note,assignable}
+     */
+    function ai_agent_connected_channels($user_id)
+    {
+        $CI =& get_instance();
+        $user_id = (int) $user_id;
+        $out = array();
+        foreach ($CI->db->select('id,page_id,page_name')->from('facebook_rx_fb_page_info')->where('user_id', $user_id)->get()->result_array() as $p)
+            $out[] = array('channel' => 'fb', 'target' => $p['id'], 'label' => ($p['page_name'] ?: $p['page_id']), 'icon' => 'fab fa-facebook', 'note' => 'Messenger + Instagram', 'assignable' => true);
+        if ($CI->db->table_exists('whatsapp_accounts'))
+            foreach ($CI->db->select('id,label,display_phone')->from('whatsapp_accounts')->where('user_id', $user_id)->get()->result_array() as $w)
+                $out[] = array('channel' => 'wa', 'target' => $w['id'], 'label' => ($w['label'] ?: $w['display_phone'] ?: ('WA #' . $w['id'])), 'icon' => 'fab fa-whatsapp', 'note' => 'WhatsApp', 'assignable' => true);
+        if ($CI->db->table_exists('openwa_accounts'))
+            foreach ($CI->db->select('id,label,display_phone')->from('openwa_accounts')->where('user_id', $user_id)->get()->result_array() as $o)
+                $out[] = array('channel' => 'wa', 'target' => $o['id'], 'label' => ($o['label'] ?: $o['display_phone'] ?: ('WhatsApp #' . $o['id'])), 'icon' => 'fab fa-whatsapp', 'note' => 'WhatsApp (personal number)', 'assignable' => false);
+        if ($CI->db->table_exists('telegram_accounts'))
+            foreach ($CI->db->select('id,bot_username')->from('telegram_accounts')->where('user_id', $user_id)->get()->result_array() as $t)
+                $out[] = array('channel' => 'tg', 'target' => $t['id'], 'label' => ('@' . $t['bot_username']), 'icon' => 'fab fa-telegram', 'note' => 'Telegram', 'assignable' => true);
+        if ($CI->db->table_exists('webchat_settings'))
+            foreach ($CI->db->select('widget_key,title')->from('webchat_settings')->where('user_id', $user_id)->get()->result_array() as $wc)
+                $out[] = array('channel' => 'web', 'target' => $wc['widget_key'], 'label' => ($wc['title'] ?: 'Web Chat Widget'), 'icon' => 'fas fa-comment-dots', 'note' => 'Website', 'assignable' => true);
+        return $out;
+    }
+}
+
+if (!function_exists('ai_agent_preview_reply')) {
+    /**
+     * SPEC-26 preview, extracted from Ai_agents::preview (Phase 11) so the onboarding
+     * wizard's "Test conversation" step runs the SAME path instead of a second copy.
+     * Assembles master + bot-specific + guardrail layers from the fields passed in, makes
+     * one model call, returns the reply.
+     *
+     * Never fabricates: with no credentials / no key it returns status '0' and the reason.
+     *
+     * @param int    $user_id  tenant
+     * @param string $message  the test message
+     * @param array  $fields   agent_name, instruction_to_ai, sales_system_prompt
+     * @return array {status:'1',reply,chars} | {status:'0',message}
+     */
+    function ai_agent_preview_reply($user_id, $message, $fields = array())
+    {
+        $CI =& get_instance();
+        $user_id = (int) $user_id;
+        $message = trim((string) $message);
+        if ($message === '') return array('status' => '0', 'message' => 'Type a test message');
+
+        $acc = $CI->db->from('open_ai_config')->where('user_id', $user_id)->limit(1)->get()->row_array();
+        if (empty($acc)) return array('status' => '0', 'message' => 'No AI credentials configured');
+
+        $CI->load->helper('ai_knowledge');
+        $key = ai_openai_key($user_id);   // decrypted; the stored value is 'enc::...'
+        if ($key === '') return array('status' => '0', 'message' => 'No OpenAI key');
+
+        $agent_name  = trim((string) ($fields['agent_name'] ?? ''));
+        $instruction = trim((string) ($fields['instruction_to_ai'] ?? ''));
+        $agent_sales = trim((string) ($fields['sales_system_prompt'] ?? ''));
+
+        $layers = array();
+        if (!empty($acc['sales_system_prompt'])) $layers[] = "--- MASTER RULES (apply to every page and every agent; never overridden) ---\n" . trim($acc['sales_system_prompt']);
+        $bot = array();
+        if ($agent_name !== '')  $bot[] = 'AGENT IDENTITY: ' . $agent_name;
+        if ($instruction !== '') $bot[] = $instruction;
+        if ($agent_sales !== '') $bot[] = $agent_sales;
+        if (!empty($bot)) $layers[] = "--- BOT-SPECIFIC INSTRUCTIONS (this business's identity, offers, prices, and rules) ---\n" . implode("\n\n", $bot);
+        $sp = implode("\n\n", $layers);
+        // condensed guardrails so the preview behaves like production on scope/price/format
+        $sp .= "\n\nSTRICT SCOPE RULES: Only use the identity, products, services and prices written above. Never invent a price or a fact. If a price is not written, say the team will confirm and ask for a WhatsApp number. Every reply is very short: one direct answer + one question, no lists, no markdown. Mirror the customer's language; Arabic -> Egyptian colloquial.";
+
+        $model = !empty($acc['models']) ? $acc['models'] : 'gpt-4o-mini';
+        $payload = json_encode(array(
+            'model' => $model, 'temperature' => 0.4,
+            'messages' => array(array('role' => 'system', 'content' => $sp), array('role' => 'user', 'content' => $message)),
+        ), JSON_UNESCAPED_UNICODE);
+
+        $ch = curl_init('https://api.openai.com/v1/chat/completions');
+        curl_setopt_array($ch, array(
+            CURLOPT_POST => 1, CURLOPT_POSTFIELDS => $payload, CURLOPT_RETURNTRANSFER => 1,
+            CURLOPT_SSL_VERIFYPEER => true, CURLOPT_TIMEOUT => 60,
+            CURLOPT_HTTPHEADER => array('Content-Type: application/json', 'Authorization: Bearer ' . $key),
+        ));
+        $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+        $d = json_decode($raw, true);
+        $CI->load->helper('ai_usage');
+        ai_usage_record_openai_response($user_id, $model, 'agent_preview', $d);
+        $reply = $d['choices'][0]['message']['content'] ?? '';
+        if ($reply === '') return array('status' => '0', 'message' => 'Preview failed (HTTP ' . $code . ')');
+        return array('status' => '1', 'reply' => $reply, 'chars' => mb_strlen($sp));
+    }
+}

@@ -1,0 +1,116 @@
+{
+  "key": "hotel",
+  "schema_version": 1,
+  "display_name": {
+    "en": "Hotel / Resort",
+    "ar": "فندق أو قرية سياحية"
+  },
+  "tagline": {
+    "en": "Answers room questions, qualifies the stay, quotes the exact price and captures the booking lead.",
+    "ar": "يرد على أسئلة الغرف، يجمع تفاصيل الإقامة، يقول السعر المظبوط، ويسجّل العميل كفرصة حجز."
+  },
+  "ai_employee": {
+    "name_suggestion": {
+      "en": "Mona",
+      "ar": "منى"
+    },
+    "role": {
+      "en": "Reservations & Sales Agent",
+      "ar": "موظفة حجز ومبيعات"
+    },
+    "goal": {
+      "en": "Turn enquiries into confirmed bookings",
+      "ar": "تحوّل أي استفسار لحجز متأكد"
+    },
+    "tone": "Friendly Egyptian Arabic",
+    "capabilities": [
+      { "key": "answer_questions", "en": "Answer questions about the rooms and the place", "ar": "ترد على الأسئلة عن الغرف والمكان" },
+      { "key": "quote_prices", "en": "Quote prices from the price list", "ar": "تقول الأسعار من قايمة الأسعار" },
+      { "key": "collect_lead", "en": "Collect the guest's name and phone number", "ar": "تاخد اسم العميل ورقم تليفونه" },
+      { "key": "booking_qualification", "en": "Ask the booking questions (dates, nights, guests)", "ar": "تسأل أسئلة الحجز (التواريخ، عدد الليالي، عدد الأفراد)" },
+      { "key": "send_media", "en": "Send room photos when there are any", "ar": "تبعت صور الغرف لو متسجلة" },
+      { "key": "create_crm_deal", "en": "Add the guest to the sales pipeline", "ar": "تضيف العميل على مراحل المبيعات" },
+      { "key": "escalate", "en": "Hand the conversation to a human", "ar": "تحوّل المحادثة لموظف بشري" }
+    ],
+    "restrictions": {
+      "max_discount_percent": 0,
+      "rules": [
+        { "key": "never_confirm_availability", "en": "Never confirm that a room is available — the team confirms availability.", "ar": "متأكدش أبدًا إن الغرفة متاحة، الفريق هو اللي بيأكد الإتاحة." },
+        { "key": "never_invent_prices", "en": "Never invent a price. If a price is not written, say the team will confirm and take a phone number.", "ar": "متألّفش سعر أبدًا. لو السعر مش مكتوب، قول إن الفريق هيأكده واطلب رقم التليفون." },
+        { "key": "no_discount", "en": "Do not offer any discount (maximum discount: 0%).", "ar": "متديش أي خصم (أقصى خصم: صفر بالميّة)." },
+        { "key": "no_medical_or_legal", "en": "Do not answer anything outside the hotel and its services.", "ar": "متردش على أي حاجة بره الفندق وخدماته." },
+        { "key": "escalate_complaints", "en": "Hand any complaint or refund request to a human immediately.", "ar": "أي شكوى أو طلب استرداد فلوس، حوّلها لموظف على طول." }
+      ]
+    }
+  },
+  "starter_faq": [
+    { "key": "checkin_checkout", "question": { "en": "What are the check-in and check-out times?", "ar": "مواعيد الدخول والخروج إيه؟" }, "answer": { "en": "EDIT ME — e.g. check-in from 2 PM, check-out until 12 noon.", "ar": "عدّلني — مثلًا: الدخول من الساعة ٢ الضهر، والخروج لحد الساعة ١٢ الضهر." } },
+    { "key": "breakfast_included", "question": { "en": "Is breakfast included in the price?", "ar": "السعر شامل الفطار؟" }, "answer": { "en": "EDIT ME — say whether breakfast is included and for how many people.", "ar": "عدّلني — اكتب هنا الفطار متضمّن ولا لأ، ولكام فرد." } },
+    { "key": "pool_facilities", "question": { "en": "Is there a pool, and is it included?", "ar": "فيه حمام سباحة؟ وهو متضمّن في السعر؟" }, "answer": { "en": "EDIT ME — describe the pool and other facilities guests can use.", "ar": "عدّلني — اكتب تفاصيل حمام السباحة وباقي الخدمات المتاحة للنزلاء." } },
+    { "key": "children_policy", "question": { "en": "Do children pay?", "ar": "الأطفال بيدفعوا؟" }, "answer": { "en": "EDIT ME — the age bands are set on the Prices page; explain them here in plain words.", "ar": "عدّلني — حدود السن بتتظبط في صفحة الأسعار، اشرحها هنا بكلام بسيط." } },
+    { "key": "location_directions", "question": { "en": "Where are you and how do I get there?", "ar": "مكانكم فين وأوصل إزاي؟" }, "answer": { "en": "EDIT ME — write the address and a landmark or a map link.", "ar": "عدّلني — اكتب العنوان وعلامة مميزة قريبة أو لينك الخريطة." } },
+    { "key": "payment_methods", "question": { "en": "How can I pay?", "ar": "الدفع بيكون إزاي؟" }, "answer": { "en": "EDIT ME — list the payment methods you accept and any deposit rule.", "ar": "عدّلني — اكتب طرق الدفع اللي بتقبلوها وقيمة العربون لو فيه." } },
+    { "key": "cancellation_policy", "question": { "en": "What is the cancellation policy?", "ar": "سياسة الإلغاء إيه؟" }, "answer": { "en": "EDIT ME — how long before arrival a free cancellation is allowed.", "ar": "عدّلني — اكتب قبل الوصول بكام يوم ينفع الإلغاء من غير خصم." } },
+    { "key": "wifi_parking", "question": { "en": "Is there Wi-Fi and parking?", "ar": "فيه واي فاي وجراج؟" }, "answer": { "en": "EDIT ME — say whether Wi-Fi and parking are free.", "ar": "عدّلني — اكتب الواي فاي والجراج مجانيين ولا بمقابل." } }
+  ],
+  "pricing_supported": true,
+  "pricing_note": {
+    "en": "Rooms and day-use are the two shapes the price calculator understands today, so this template fills a starter price list you edit with your real numbers.",
+    "ar": "حاسبة الأسعار دلوقتي بتفهم شكلين بس: الغرف واليوم الواحد (day use). عشان كده القالب بيجهّزلك قايمة أسعار مبدئية تعدّلها بأرقامك الحقيقية."
+  },
+  "pricing_config": {
+    "currency": "جنيه",
+    "accommodation": {
+      "rooms": [
+        { "name": "غرفة دبل - عدّل الاسم والسعر", "capacity": 2, "nightly": 1000, "offers": {} },
+        { "name": "غرفة تريبل - عدّل الاسم والسعر", "capacity": 3, "nightly": 1400, "offers": {} },
+        { "name": "شاليه عائلي - عدّل الاسم والسعر", "capacity": 5, "nightly": 2000, "offers": { "4": 7000 } }
+      ],
+      "note": "عدّلني — مثلًا: السعر للغرفة كاملة مش للفرد، وشامل استخدام حمام السباحة."
+    },
+    "day_use": {
+      "packages": [
+        { "name": "باقة اليوم الواحد - عدّل الاسم والسعر", "per_person": 500 }
+      ],
+      "nth_free": null
+    },
+    "children": {
+      "free_max_age": 5,
+      "free_cap": 2,
+      "half_min_age": 6,
+      "half_max_age": 11,
+      "full_min_age": 12,
+      "half_price_known": false
+    }
+  },
+  "working_mode": {
+    "recommended": "always_on",
+    "hours_enabled": "0",
+    "hours_start": "09:00:00",
+    "hours_end": "22:00:00",
+    "hours_days": "1,2,3,4,5,6,7",
+    "note": {
+      "en": "Hotels get enquiries at night, so the recommendation is to let the AI answer around the clock and hand over to staff on request.",
+      "ar": "الفنادق بيجيلها استفسارات بالليل، فالأفضل إن المساعد يرد على مدار اليوم ويحوّل للموظف لما العميل يطلب."
+    }
+  },
+  "pipeline": {
+    "name": "Booking Pipeline",
+    "stages": [
+      { "name": "New Enquiry", "stage_type": "open", "color": "#6777ef" },
+      { "name": "Dates Collected", "stage_type": "open", "color": "#3abaf4" },
+      { "name": "Quote Sent", "stage_type": "open", "color": "#ffa426" },
+      { "name": "Waiting Deposit", "stage_type": "open", "color": "#fc544b" },
+      { "name": "Booked", "stage_type": "won", "color": "#63ed7a" },
+      { "name": "Lost", "stage_type": "lost", "color": "#cdd3d8" }
+    ]
+  },
+  "qualification_questions": [
+    { "key": "arrival_date", "en": "What is your arrival date?", "ar": "هتوصلوا إمتى؟ (تاريخ الوصول)" },
+    { "key": "nights", "en": "How many nights?", "ar": "هتقعدوا كام ليلة؟" },
+    { "key": "adults", "en": "How many adults?", "ar": "كام فرد كبير؟" },
+    { "key": "children_ages", "en": "How many children, and what are their ages?", "ar": "فيه أطفال؟ كام طفل وسنهم كام؟" },
+    { "key": "room_type", "en": "Which room type do you prefer?", "ar": "تفضلوا نوع غرفة إيه؟" },
+    { "key": "phone", "en": "What is the best WhatsApp number to reach you on?", "ar": "إيه أحسن رقم واتساب نكلمك عليه؟" }
+  ]
+}
