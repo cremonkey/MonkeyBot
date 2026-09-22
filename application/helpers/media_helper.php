@@ -83,25 +83,34 @@ if (!function_exists('media_index')) {
     }
 }
 
-if (!function_exists('media_find')) {
+if (!function_exists('media_match')) {
     /**
-     * Resolve a customer/model-supplied name to exactly one item.
+     * Resolve a customer/model-supplied name to exactly one item, and say why not
+     * when it cannot.
      * Tiers: exact canonical -> exact alias -> substring either way.
-     * Returns null when nothing matches AND when more than one item matches at
-     * the winning tier (e.g. a bare "سويت" that fits two suites).
+     * Returns array('hit' => item|null, 'candidates' => string[] names).
+     * hit is null when nothing matches (candidates empty) AND when more than one item
+     * matches at the winning tier (candidates = those names, e.g. a bare "سويت" that
+     * fits two suites) — callers ask, they never guess.
+     *
+     * $items: optional pre-built index (name => array(name, aliases[], ...)). Defaults to
+     * media_index($cfg). pricing_calc_item() passes the product catalog through here so
+     * rooms, albums and products share ONE resolver instead of three copies.
      */
-    function media_find($cfg, $name)
+    function media_match($cfg, $name, $items = null)
     {
+        $none = array('hit' => null, 'candidates' => array());
         $q = media_normalize($name);
-        if ($q === '') return null;
-        $items = media_index($cfg);
-        if (empty($items)) return null;
+        if ($q === '') return $none;
+        if ($items === null) $items = media_index($cfg);
+        if (empty($items)) return $none;
 
         $exact     = array();
         $alias     = array();
         $part      = array();
         $contained = array();
         foreach ($items as $it) {
+            $it['aliases'] = isset($it['aliases']) && is_array($it['aliases']) ? $it['aliases'] : array();
             $cn = media_normalize($it['name']);
             if ($cn === $q) { $exact[] = $it; continue; }
             $hit_alias = false;
@@ -127,21 +136,37 @@ if (!function_exists('media_find')) {
             if ($best > 0)       $contained[] = array('item' => $it, 'len' => $best);
             elseif ($best === -1) $part[] = $it;
         }
+        $names_of = function ($list) { $o = array(); foreach ($list as $x) $o[] = $x['name']; return $o; };
 
-        if (count($exact) === 1) return $exact[0];
-        if (count($exact) > 1) return null;
-        if (count($alias) === 1) return $alias[0];
-        if (count($alias) > 1) return null;
+        if (count($exact) === 1) return array('hit' => $exact[0], 'candidates' => array());
+        if (count($exact) > 1) return array('hit' => null, 'candidates' => $names_of($exact));
+        if (count($alias) === 1) return array('hit' => $alias[0], 'candidates' => array());
+        if (count($alias) > 1) return array('hit' => null, 'candidates' => $names_of($alias));
 
         if (!empty($contained)) {
             usort($contained, function ($a, $b) { return $b['len'] - $a['len']; });
             if (count($contained) === 1 || $contained[0]['len'] > $contained[1]['len']) {
-                return $contained[0]['item'];
+                return array('hit' => $contained[0]['item'], 'candidates' => array());
             }
-            return null;   // two equally specific names matched: ask
+            // two equally specific names matched: ask
+            $tie = array();
+            foreach ($contained as $c) if ($c['len'] === $contained[0]['len']) $tie[] = $c['item'];
+            return array('hit' => null, 'candidates' => $names_of($tie));
         }
-        if (count($part) === 1) return $part[0];
-        return null;       // nothing, or ambiguous: ask, never guess
+        if (count($part) === 1) return array('hit' => $part[0], 'candidates' => array());
+        return array('hit' => null, 'candidates' => $names_of($part));   // nothing, or ambiguous: ask, never guess
+    }
+}
+
+if (!function_exists('media_find')) {
+    /**
+     * Resolve a customer/model-supplied name to exactly one item (see media_match()).
+     * Returns null when nothing matches AND when the name is ambiguous.
+     */
+    function media_find($cfg, $name)
+    {
+        $m = media_match($cfg, $name);
+        return $m['hit'];
     }
 }
 
