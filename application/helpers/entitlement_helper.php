@@ -12,7 +12,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * Module id block 400-409 is reserved for these features (stock/add-on ids in use top out at
  * 353). The matching `modules` rows are created by
  * assets/backup_db/migrations/2026-09-22-custom-module-entitlements.sql (400-407),
- * 2026-09-23-pricing-admin.sql (408) and 2026-09-24-event-automation.sql (409).
+ * 2026-09-23-pricing-admin.sql (408), 2026-09-24-event-automation.sql (409),
+ * 2026-09-24-onboarding.sql (410) and 2026-09-25-unified-inbox.sql (411).
  *
  * SAFETY SWITCH: enforcement only happens when config item
  * 'entitlement_enforce_custom_modules' is TRUE. Unset/FALSE = log a would-deny and allow.
@@ -35,6 +36,7 @@ if (!function_exists('entitlement_map')) {
             'pricing'             => 408, // Products & Pricing (pricing_config editor)
             'automations'         => 409, // Automations (event-triggered rules)
             'onboarding'          => 410, // Setup Guide (client onboarding wizard, Phase 11)
+            'inbox'               => 411, // Unified Inbox (Phase 9.5)
         );
     }
 }
