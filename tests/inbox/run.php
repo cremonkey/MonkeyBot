@@ -36,8 +36,8 @@ function check($name, $got, $want) {
 class FakeQB
 {
     public $calls = array();
-    public function where($a, $b = null) { $this->calls[] = array('where', $a, $b); return $this; }
-    public function or_where($a) { $this->calls[] = array('or_where', $a); return $this; }
+    public function where($a, $b = null, $escape = null) { $this->calls[] = array('where', $a, $b); return $this; }
+    public function or_where($a, $b = null, $escape = null) { $this->calls[] = $b === null ? array('or_where', $a) : array('or_where', $a, $b); return $this; }
     public function like($a, $b) { $this->calls[] = array('like', $a, $b); return $this; }
     public function or_like($a, $b) { $this->calls[] = array('or_like', $a, $b); return $this; }
     public function group_start() { $this->calls[] = array('group_start'); return $this; }
@@ -186,6 +186,46 @@ check('WAITING_FOR_HUMAN label', inbox_handoff_label('WAITING_FOR_HUMAN'), 'Wait
 check('HUMAN_ACTIVE label', inbox_handoff_label('HUMAN_ACTIVE'), "You're handling this");
 check('AI_ASSIST label', inbox_handoff_label('AI_ASSIST'), 'AI is helping you');
 check('RESOLVED label', inbox_handoff_label('RESOLVED'), 'Closed');
+
+// ============================================================================================
+echo "\n== labels (channel-agnostic, keyed to conversations) ==\n";
+
+$q = new FakeQB();
+inbox_scope_conversations($q, 4321, array('label_id' => 17));
+check('label filter: tenant guard is still call #1', $q->calls[0], array('where', 'c.user_id', 4321));
+check('label filter: exactly one extra condition', count($q->calls), 2);
+check('label filter: EXISTS on conversation_labels, scoped to the SAME tenant and the label id',
+    $q->calls[1][1], 'EXISTS (SELECT 1 FROM conversation_labels cl WHERE cl.conversation_id = c.id AND cl.user_id = 4321 AND cl.label_id = 17)');
+
+$q = new FakeQB();
+inbox_scope_conversations($q, 4321, array('label_id' => '5 OR 1=1'));
+check('label filter: a crafted label id is cast to int, never interpolated raw',
+    strpos($q->calls[1][1], 'OR 1=1') === false && strpos($q->calls[1][1], 'cl.label_id = 5)') !== false, true);
+
+foreach (array(0, '', null, -3, 'abc') as $v) {
+    $q = new FakeQB();
+    inbox_scope_conversations($q, 4321, array('label_id' => $v));
+    check('label filter: ' . var_export($v, true) . ' adds no condition', count($q->calls), 1);
+}
+
+$q = new FakeQB();
+inbox_scope_labels($q, 77, 5);
+check('single label: tenant first, then id', $q->calls, array(array('where', 'user_id', 77), array('where', 'id', 5)));
+$q = new FakeQB();
+inbox_scope_labels($q, 77);
+check('label list: tenant only', $q->calls, array(array('where', 'user_id', 77)));
+
+check('label name: trimmed and whitespace collapsed', inbox_label_normalize_name("  VIP   customer \n"), 'VIP customer');
+check('label name: tags stripped (stored text never carries markup)', inbox_label_normalize_name('<b>Hot</b><script>x</script>'), 'Hotx');
+check('label name: Arabic kept as-is', inbox_label_normalize_name('عميل مهم'), 'عميل مهم');
+check('label name: capped at 60 characters (multibyte-safe)', mb_strlen(inbox_label_normalize_name(str_repeat('ح', 90))), 60);
+check('label name: empty -> NULL', inbox_label_normalize_name('   '), null);
+check('label name: non-string -> NULL', inbox_label_normalize_name(array('x')), null);
+check('label colour: #RRGGBB lower-cased', inbox_label_normalize_color('#AABBCC'), '#aabbcc');
+check('label colour: missing # is added', inbox_label_normalize_color('00ff00'), '#00ff00');
+check('label colour: CSS injection attempt dropped', inbox_label_normalize_color('red;background:url(x)'), null);
+check('label colour: short form rejected', inbox_label_normalize_color('#fff'), null);
+check('label colour: empty -> NULL', inbox_label_normalize_color(''), null);
 
 echo "\n== $pass passed, $fail failed ==\n";
 exit($fail === 0 ? 0 : 1);

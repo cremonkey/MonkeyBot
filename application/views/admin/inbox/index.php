@@ -20,7 +20,11 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
               <select id="ib_status" class="form-control form-control-sm" style="width:auto">
                 <option value="">Open &amp; closed</option><option value="open">Open</option><option value="resolved">Closed</option>
               </select>
+              <select id="ib_label" class="form-control form-control-sm" style="width:auto">
+                <option value="">All labels</option>
+              </select>
               <label class="form-check form-check-sm ml-1 mt-1"><input type="checkbox" id="ib_unread" class="form-check-input"> <span class="form-check-label">Unread only</span></label>
+              <button type="button" id="ib_labels_manage" class="btn btn-sm btn-link p-0 ml-1" title="Create, rename or delete labels"><i class="fas fa-tags"></i> Labels</button>
             </div>
           </div>
           <div id="ib_list" class="card-body p-0" style="overflow-y:auto;flex:1"></div>
@@ -73,6 +77,12 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
           </div></div>
 
           <div class="card mb-2"><div class="card-body">
+            <label class="mb-1"><small class="text-muted">Labels</small></label>
+            <div id="ib_conv_labels" class="mb-1"><small class="text-muted">No labels.</small></div>
+            <select id="ib_label_add" class="form-control form-control-sm"><option value="">+ Add a label…</option></select>
+          </div></div>
+
+          <div class="card mb-2"><div class="card-body">
             <label class="mb-1"><small class="text-muted">Assigned to</small></label>
             <select id="ib_assign" class="form-control form-control-sm">
               <option value="0">Unassigned</option>
@@ -101,18 +111,116 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   </div>
 </section>
 
+<!-- Label manager: create / rename / recolour / delete this account's labels -->
+<div class="modal fade" id="ib_labels_modal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fas fa-tags"></i> Labels</h5>
+      <button type="button" class="close" data-dismiss="modal">&times;</button></div>
+    <div class="modal-body">
+      <p class="text-muted small mb-2">Labels work on every channel. Deleting a label removes it from every conversation.</p>
+      <div id="ib_labels_table" class="mb-3"></div>
+      <div class="input-group input-group-sm">
+        <input id="ib_label_new_name" class="form-control" maxlength="60" placeholder="New label name">
+        <input id="ib_label_new_color" type="color" class="form-control" value="#6777ef" style="max-width:52px;padding:2px">
+        <div class="input-group-append"><button type="button" id="ib_label_create" class="btn btn-primary">Add</button></div>
+      </div>
+    </div>
+  </div></div>
+</div>
+
 <script>
 (function () {
   var TOKEN = "<?php echo $this->session->userdata('csrf_token_session'); ?>", BASE = "<?php echo base_url(); ?>";
   var PLAT_ICON = <?php echo json_encode($plat_icon); ?>, PLAT_NAME = <?php echo json_encode($plat_name); ?>;
-  var current = null, listStart = 0, threadBeforeId = 0;
+  var current = null, listStart = 0, threadBeforeId = 0, LABELS = [];
   var esc = function (s) { return $('<div>').text(s == null ? '' : String(s)).html(); };
   var note = function (m, ok) { if (typeof iziToast !== 'undefined') iziToast[ok ? 'success' : 'error']({message: m, position: 'topRight'}); else alert(m); };
   var post = function (path, data, cb) { data.csrf_token = TOKEN; $.post(BASE + 'inbox/' + path, data, cb, 'json'); };
 
+  function labelBadge(l, removable) {
+    var bg = l.color || '#6c757d';
+    return '<span class="badge mr-1 mb-1" style="background:' + esc(bg) + ';color:#fff">' + esc(l.name) +
+      (removable ? ' <a href="#" class="ib-label-detach text-white" data-id="' + (+l.id) + '" title="Remove">&times;</a>' : '') + '</span>';
+  }
+
+  function loadLabels() {
+    post('labels_list', {}, function (r) {
+      if (r.status !== '1') return;
+      LABELS = r.rows || [];
+      var keep = $('#ib_label').val();
+      $('#ib_label').html('<option value="">All labels</option>' + LABELS.map(function (l) {
+        return '<option value="' + (+l.id) + '">' + esc(l.name) + ' (' + (+l.conversations) + ')</option>';
+      }).join('')).val(keep);
+      if ($('#ib_label').val() !== keep) { $('#ib_label').val(''); }
+      $('#ib_labels_manage, #ib_label').toggle(r.ready !== false);
+      renderLabelTable();
+      if (current) renderConvLabels(current.labels || []);
+    });
+  }
+
+  function renderConvLabels(labels) {
+    current.labels = labels;
+    $('#ib_conv_labels').html(labels.length ? labels.map(function (l) { return labelBadge(l, true); }).join('') : '<small class="text-muted">No labels.</small>');
+    var on = labels.map(function (l) { return +l.id; });
+    $('#ib_label_add').html('<option value="">+ Add a label…</option>' + LABELS.filter(function (l) { return on.indexOf(+l.id) < 0; }).map(function (l) {
+      return '<option value="' + (+l.id) + '">' + esc(l.name) + '</option>';
+    }).join(''));
+  }
+
+  function renderLabelTable() {
+    $('#ib_labels_table').html(LABELS.length ? LABELS.map(function (l) {
+      return '<div class="d-flex align-items-center mb-1" data-id="' + (+l.id) + '">' +
+        '<input class="form-control form-control-sm ib-label-name" maxlength="60" value="' + esc(l.name) + '">' +
+        '<input type="color" class="form-control form-control-sm ib-label-color ml-1" style="max-width:44px;padding:2px" value="' + esc(l.color || '#6c757d') + '">' +
+        '<small class="text-muted mx-2 text-nowrap">' + (+l.conversations) + ' conv.</small>' +
+        '<button type="button" class="btn btn-sm btn-outline-primary ib-label-rename">Save</button>' +
+        '<button type="button" class="btn btn-sm btn-outline-danger ml-1 ib-label-delete"><i class="fas fa-trash"></i></button></div>';
+    }).join('') : '<small class="text-muted">No labels yet.</small>');
+  }
+
+  $('#ib_labels_manage').on('click', function () { renderLabelTable(); $('#ib_labels_modal').modal('show'); });
+  $('#ib_label_create').on('click', function () {
+    post('label_save', {name: $('#ib_label_new_name').val(), color: $('#ib_label_new_color').val()}, function (r) {
+      note(r.message, r.status === '1');
+      if (r.status === '1') { $('#ib_label_new_name').val(''); loadLabels(); }
+    });
+  });
+  $(document).on('click', '.ib-label-rename', function () {
+    var row = $(this).closest('[data-id]');
+    post('label_save', {label_id: row.data('id'), name: row.find('.ib-label-name').val(), color: row.find('.ib-label-color').val()}, function (r) {
+      note(r.message, r.status === '1');
+      if (r.status === '1') { loadLabels(); loadList(true); }
+    });
+  });
+  $(document).on('click', '.ib-label-delete', function () {
+    var row = $(this).closest('[data-id]');
+    if (!confirm('Delete this label? It will be removed from every conversation.')) return;
+    post('label_delete', {label_id: row.data('id')}, function (r) {
+      note(r.message, r.status === '1');
+      if (r.status === '1') { loadLabels(); loadList(true); }
+    });
+  });
+  $('#ib_label_add').on('change', function () {
+    var id = $(this).val();
+    if (!current || !id) return;
+    post('label_attach', {conversation_id: current.id, label_id: id}, function (r) {
+      if (r.status !== '1') return note(r.message, false);
+      renderConvLabels(r.labels); loadLabels(); loadList(true);
+    });
+  });
+  $(document).on('click', '.ib-label-detach', function (e) {
+    e.preventDefault();
+    if (!current) return;
+    post('label_detach', {conversation_id: current.id, label_id: $(this).data('id')}, function (r) {
+      if (r.status !== '1') return note(r.message, false);
+      renderConvLabels(r.labels); loadLabels(); loadList(true);
+    });
+  });
+
   function loadList(reset) {
     if (reset) listStart = 0;
     post('conversations_data', {
+      label_id: $('#ib_label').val(),
       platform: $('#ib_platform').val(), status: $('#ib_status').val(),
       unread_only: $('#ib_unread').is(':checked') ? 1 : 0, search: $('#ib_search').val(),
       start: listStart, length: 20
@@ -126,7 +234,8 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
           '<div class="d-flex justify-content-between"><b><i class="' + icon + ' mr-1"></i>' + esc(c.customer_name) + '</b>' +
           (c.unread_count > 0 ? '<span class="badge badge-primary">' + c.unread_count + '</span>' : '') + '</div>' +
           '<div class="text-muted small text-truncate">' + esc(c.last_message_preview || '') + '</div>' +
-          '<span class="badge badge-light">' + esc(c.handoff_label) + '</span></div>';
+          '<span class="badge badge-light mr-1">' + esc(c.handoff_label) + '</span>' +
+          (c.labels || []).map(function (l) { return labelBadge(l, false); }).join('') + '</div>';
       });
       if (reset) $('#ib_list').html(html || '<p class="text-muted p-3">No conversations.</p>');
       else $('#ib_list').append(html);
@@ -135,7 +244,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   }
 
   $('#ib_more').on('click', function () { listStart += 20; loadList(false); });
-  $('#ib_search, #ib_platform, #ib_status').on('change keyup', function () { loadList(true); });
+  $('#ib_search, #ib_platform, #ib_status, #ib_label').on('change keyup', function () { loadList(true); });
   $('#ib_unread').on('change', function () { loadList(true); });
 
   $(document).on('click', '.ib-row', function () { openConversation($(this).data('id')); });
@@ -149,6 +258,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
         esc(current.external_thread_id) + '</b> <span class="badge badge-light">' + esc(r.handoff_label) + '</span>');
       renderMessages(r.messages, true);
       renderNotes(r.notes);
+      renderConvLabels(r.labels || []);
       $('#ib_right').show();
       $('#ib_c_name').text(current.customer_id ? 'Customer #' + current.customer_id : current.external_thread_id);
       $('#ib_c_phone').text(current.phone || '—'); $('#ib_c_email').text(current.email || '—');
@@ -253,6 +363,8 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   });
   $(document).on('click', '.ib-canned', function (e) { e.preventDefault(); $('#ib_composer').val($(this).data('msg')); });
 
+
+  loadLabels();
   loadList(true);
 })();
 </script>

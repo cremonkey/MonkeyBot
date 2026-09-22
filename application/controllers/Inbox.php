@@ -60,6 +60,7 @@ class Inbox extends Home
             'handoff_state'     => $this->input->post('handoff_state', true),
             'assigned_user_id'  => $this->input->post('assigned_user_id', true),
             'unread_only'       => (bool) $this->input->post('unread_only'),
+            'label_id'          => $this->labels_ready() ? (int) $this->input->post('label_id') : 0,
             'search'            => $this->input->post('search', true),
         );
         $start = max(0, (int) $this->input->post('start'));
@@ -90,6 +91,10 @@ class Inbox extends Home
             $r['customer_name'] = $r['display_name'] !== null && trim((string) $r['display_name']) !== ''
                 ? $r['display_name'] : ($r['phone'] ?: $r['external_thread_id']);
         }
+        unset($r);
+
+        $by_conv = $this->labels_for_conversations(array_column($rows, 'id'));
+        foreach ($rows as &$r) $r['labels'] = isset($by_conv[$r['id']]) ? $by_conv[$r['id']] : array();
         unset($r);
 
         echo json_encode(array('status' => '1', 'total' => $total, 'rows' => $rows));
@@ -129,8 +134,11 @@ class Inbox extends Home
             ->where('conversation_id', $conv['id'])->where('user_id', $this->uid)->order_by('id', 'DESC')->limit(20);
         $notes = $this->db->table_exists('internal_notes') ? $this->db->get()->result_array() : array();
 
+        $labels = $this->labels_for_conversations(array($conv['id']));
+
         echo json_encode(array('status' => '1', 'conversation' => $conv, 'handoff_label' => inbox_handoff_label($conv['handoff_state']),
-            'messages' => $messages, 'notes' => $notes, 'has_more' => count($messages) === $limit));
+            'messages' => $messages, 'notes' => $notes, 'has_more' => count($messages) === $limit,
+            'labels' => isset($labels[$conv['id']]) ? $labels[$conv['id']] : array()));
     }
 
     // ------------------------------------------------------------------ reply
@@ -463,6 +471,161 @@ class Inbox extends Home
             ->update('conversations', array('last_summary' => $result['summary'], 'last_summary_at' => $now, 'updated_at' => $now));
 
         echo json_encode(array('status' => '1', 'summary' => $result['summary'], 'generated_at' => $now, 'cached' => false));
+    }
+
+    // ------------------------------------------------------------------ labels
+
+    /** Both label tables exist (migration 2026-09-30-inbox-labels.sql has run). */
+    private function labels_ready()
+    {
+        static $ready = null;
+        if ($ready === null) $ready = $this->db->table_exists('inbox_labels') && $this->db->table_exists('conversation_labels');
+        return $ready;
+    }
+
+    private function labels_not_ready()
+    {
+        echo json_encode(array('status' => '0', 'message' => 'Labels are not set up on this server yet'));
+    }
+
+    /** conversation id => list of {id, name, color}, for this tenant only. One query. */
+    private function labels_for_conversations(array $conversation_ids)
+    {
+        $ids = array_values(array_filter(array_map('intval', $conversation_ids)));
+        if (empty($ids) || !$this->labels_ready()) return array();
+        $rows = $this->db->select('cl.conversation_id, l.id, l.name, l.color')
+            ->from('conversation_labels cl')
+            ->join('inbox_labels l', 'l.id = cl.label_id AND l.user_id = cl.user_id', 'inner')
+            ->where('cl.user_id', $this->uid)
+            ->where_in('cl.conversation_id', $ids)
+            ->order_by('l.name', 'ASC')->get()->result_array();
+        $out = array();
+        foreach ($rows as $r) {
+            $out[$r['conversation_id']][] = array('id' => (int) $r['id'], 'name' => $r['name'], 'color' => $r['color']);
+        }
+        return $out;
+    }
+
+    /** A label row of this tenant, or NULL (another tenant's id answers "not found"). */
+    private function own_label($label_id)
+    {
+        if ((int) $label_id <= 0) return null;
+        $this->db->from('inbox_labels');
+        inbox_scope_labels($this->db, $this->uid, (int) $label_id);
+        $row = $this->db->limit(1)->get()->row_array();
+        return $row ?: null;
+    }
+
+    /** AJAX: this tenant's labels, with how many conversations carry each. */
+    public function labels_list()
+    {
+        $this->ajax_check();
+        header('Content-Type: application/json');
+        if (!$this->labels_ready()) { echo json_encode(array('status' => '1', 'rows' => array(), 'ready' => false)); return; }
+
+        $rows = $this->db->select('l.id, l.name, l.color, COUNT(cl.conversation_id) AS conversations', false)
+            ->from('inbox_labels l')
+            ->join('conversation_labels cl', 'cl.label_id = l.id AND cl.user_id = l.user_id', 'left')
+            ->where('l.user_id', $this->uid)
+            ->group_by('l.id')->order_by('l.name', 'ASC')->get()->result_array();
+        foreach ($rows as &$r) { $r['id'] = (int) $r['id']; $r['conversations'] = (int) $r['conversations']; }
+        unset($r);
+        echo json_encode(array('status' => '1', 'rows' => $rows, 'ready' => true));
+    }
+
+    /** AJAX POST: create a label (no label_id) or rename / recolour one of this tenant's labels. */
+    public function label_save()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        if (!$this->labels_ready()) { $this->labels_not_ready(); return; }
+
+        $label_id = (int) $this->input->post('label_id');
+        $name = inbox_label_normalize_name((string) $this->input->post('name'));
+        $color = inbox_label_normalize_color((string) $this->input->post('color'));
+        if ($name === null) { echo json_encode(array('status' => '0', 'message' => 'Give the label a name')); return; }
+
+        $dupe = $this->db->select('id')->from('inbox_labels')->where('user_id', $this->uid)->where('name', $name)
+            ->limit(1)->get()->row_array();
+        if (!empty($dupe) && (int) $dupe['id'] !== $label_id) {
+            echo json_encode(array('status' => '0', 'message' => 'A label with this name already exists')); return;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        if ($label_id > 0) {
+            if ($this->own_label($label_id) === null) { echo json_encode(array('status' => '0', 'message' => 'Label not found')); return; }
+            $this->db->where('id', $label_id)->where('user_id', $this->uid)
+                ->update('inbox_labels', array('name' => $name, 'color' => $color, 'updated_at' => $now));
+            echo json_encode(array('status' => '1', 'message' => 'Label updated', 'label' => array('id' => $label_id, 'name' => $name, 'color' => $color)));
+            return;
+        }
+
+        $count = $this->db->from('inbox_labels')->where('user_id', $this->uid)->count_all_results();
+        if ($count >= inbox_label_max_per_tenant()) {
+            echo json_encode(array('status' => '0', 'message' => 'You have reached the maximum of ' . inbox_label_max_per_tenant() . ' labels')); return;
+        }
+        $this->db->insert('inbox_labels', array('user_id' => $this->uid, 'name' => $name, 'color' => $color, 'created_at' => $now, 'updated_at' => $now));
+        $new_id = (int) $this->db->insert_id();
+        if ($new_id <= 0) { echo json_encode(array('status' => '0', 'message' => 'Could not save the label')); return; }
+        echo json_encode(array('status' => '1', 'message' => 'Label created', 'label' => array('id' => $new_id, 'name' => $name, 'color' => $color)));
+    }
+
+    /** AJAX POST: delete one of this tenant's labels and take it off every conversation. */
+    public function label_delete()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        if (!$this->labels_ready()) { $this->labels_not_ready(); return; }
+
+        $label = $this->own_label((int) $this->input->post('label_id'));
+        if ($label === null) { echo json_encode(array('status' => '0', 'message' => 'Label not found')); return; }
+
+        $this->db->trans_start();
+        $this->db->where('label_id', $label['id'])->where('user_id', $this->uid)->delete('conversation_labels');
+        $this->db->where('id', $label['id'])->where('user_id', $this->uid)->delete('inbox_labels');
+        $this->db->trans_complete();
+        if ($this->db->trans_status() === false) { echo json_encode(array('status' => '0', 'message' => 'Could not delete the label')); return; }
+        echo json_encode(array('status' => '1', 'message' => 'Label deleted'));
+    }
+
+    /** AJAX POST: put one of this tenant's labels on one of this tenant's conversations. */
+    public function label_attach()
+    {
+        $this->label_link(true);
+    }
+
+    /** AJAX POST: take a label off a conversation. */
+    public function label_detach()
+    {
+        $this->label_link(false);
+    }
+
+    private function label_link($attach)
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        if (!$this->labels_ready()) { $this->labels_not_ready(); return; }
+
+        $conv = conversation_get((int) $this->input->post('conversation_id'), $this->uid); // tenant guard
+        if (empty($conv)) { echo json_encode(array('status' => '0', 'message' => 'Conversation not found')); return; }
+        $label = $this->own_label((int) $this->input->post('label_id'));             // tenant guard
+        if ($label === null) { echo json_encode(array('status' => '0', 'message' => 'Label not found')); return; }
+
+        if ($attach) {
+            $this->db->query(
+                'INSERT IGNORE INTO conversation_labels (conversation_id, label_id, user_id, created_by, created_at) VALUES (?, ?, ?, ?, ?)',
+                array((int) $conv['id'], (int) $label['id'], (int) $this->uid, (int) $this->actor_id, date('Y-m-d H:i:s'))
+            );
+        } else {
+            $this->db->where('conversation_id', (int) $conv['id'])->where('label_id', (int) $label['id'])
+                ->where('user_id', $this->uid)->delete('conversation_labels');
+        }
+        $labels = $this->labels_for_conversations(array($conv['id']));
+        echo json_encode(array('status' => '1', 'message' => $attach ? 'Label added' : 'Label removed',
+            'labels' => isset($labels[$conv['id']]) ? $labels[$conv['id']] : array()));
     }
 
     // ------------------------------------------------------------------ canned responses

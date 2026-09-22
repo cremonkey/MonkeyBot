@@ -118,7 +118,7 @@ if (!function_exists('inbox_scope_conversations')) {
      * Expects the builder already has FROM conversations c (customers joined as cu when a
      * search is requested).
      *
-     * $filters: platform, status, handoff_state, assigned_user_id, unread_only (bool), search
+     * $filters: platform, status, handoff_state, assigned_user_id, unread_only (bool), label_id, search
      */
     function inbox_scope_conversations($db, $user_id, array $filters = array())
     {
@@ -131,6 +131,11 @@ if (!function_exists('inbox_scope_conversations')) {
             $db->where('c.assigned_user_id', (int) $filters['assigned_user_id']);
         }
         if (!empty($filters['unread_only'])) $db->where('c.unread_count >', 0);
+        if (!empty($filters['label_id']) && (int) $filters['label_id'] > 0) {
+            // Labels are tenant-scoped twice: the conversation (c.user_id, above) and the
+            // label row itself (cl.user_id), so another tenant's label id matches nothing.
+            $db->where(inbox_label_filter_sql((int) $user_id, (int) $filters['label_id']), null, false);
+        }
 
         if (!empty($filters['search'])) {
             $s = trim((string) $filters['search']);
@@ -154,3 +159,57 @@ if (!function_exists('inbox_scope_conversation_owner')) {
         return $db->where('id', (int) $conversation_id)->where('user_id', (int) $user_id);
     }
 }
+
+// ------------------------------------------------------------------ labels (conversation_labels)
+
+if (!function_exists('inbox_label_filter_sql')) {
+    /** EXISTS condition for "conversation c carries label $label_id". Both ids are cast to int
+     *  here, so the string is safe to hand to the query builder unescaped. */
+    function inbox_label_filter_sql($user_id, $label_id)
+    {
+        return 'EXISTS (SELECT 1 FROM conversation_labels cl WHERE cl.conversation_id = c.id AND cl.user_id = '
+            . (int) $user_id . ' AND cl.label_id = ' . (int) $label_id . ')';
+    }
+}
+
+if (!function_exists('inbox_label_max_per_tenant')) {
+    function inbox_label_max_per_tenant() { return 200; }
+}
+
+if (!function_exists('inbox_label_normalize_name')) {
+    /**
+     * A label name as it is stored: tags stripped, whitespace collapsed, trimmed, at most 60
+     * characters (the column width). NULL when nothing usable is left.
+     */
+    function inbox_label_normalize_name($name)
+    {
+        if (!is_string($name)) return null;
+        $name = strip_tags($name);
+        $name = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $name);
+        $name = trim(preg_replace('/\s+/u', ' ', (string) $name));
+        if ($name === '') return null;
+        return mb_substr($name, 0, 60);
+    }
+}
+
+if (!function_exists('inbox_label_normalize_color')) {
+    /** '#rrggbb' (lower case) or NULL. Anything else is dropped, never stored or echoed. */
+    function inbox_label_normalize_color($color)
+    {
+        if (!is_string($color)) return null;
+        $color = strtolower(trim($color));
+        if ($color !== '' && $color[0] !== '#') $color = '#' . $color;
+        return preg_match('/^#[0-9a-f]{6}$/', $color) ? $color : null;
+    }
+}
+
+if (!function_exists('inbox_scope_labels')) {
+    /** Tenant guard for inbox_labels, applied first (same rule as inbox_scope_conversations). */
+    function inbox_scope_labels($db, $user_id, $label_id = null)
+    {
+        $db->where('user_id', (int) $user_id);
+        if ($label_id !== null) $db->where('id', (int) $label_id);
+        return $db;
+    }
+}
+
