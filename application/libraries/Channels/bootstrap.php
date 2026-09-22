@@ -6,8 +6,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * libraries). Safe to include more than once. Inside CodeIgniter prefer
  * $this->load->helper('channel_adapter') and channel_adapter($key).
  *
- * The Meta adapters call graph_url() (fb_graph_helper, autoloaded in CI);
- * outside CI the caller must provide it.
+ * The Meta adapters call graph_url_group() (fb_graph_helper, autoloaded in
+ * CI); outside CI the caller must provide it.
  */
 $__mb_channels = __DIR__;
 

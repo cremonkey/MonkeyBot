@@ -82,7 +82,10 @@ if (!function_exists('ai_agent_connected_channels')) {
      * Ai_agents::connected_channels() is deliberately left untouched - changing which
      * targets it offers would change existing assignment behaviour.
      *
-     * @return array[] {channel,target,label,icon,note,assignable}
+     * 'kind' tells the two 'wa' sources apart (wa_cloud = whatsapp_accounts, openwa =
+     * openwa_accounts) for callers with their own, collision-free namespace (price lists).
+     *
+     * @return array[] {channel,target,label,icon,note,assignable[,kind]}
      */
     function ai_agent_connected_channels($user_id)
     {
@@ -93,10 +96,10 @@ if (!function_exists('ai_agent_connected_channels')) {
             $out[] = array('channel' => 'fb', 'target' => $p['id'], 'label' => ($p['page_name'] ?: $p['page_id']), 'icon' => 'fab fa-facebook', 'note' => 'Messenger + Instagram', 'assignable' => true);
         if ($CI->db->table_exists('whatsapp_accounts'))
             foreach ($CI->db->select('id,label,display_phone')->from('whatsapp_accounts')->where('user_id', $user_id)->get()->result_array() as $w)
-                $out[] = array('channel' => 'wa', 'target' => $w['id'], 'label' => ($w['label'] ?: $w['display_phone'] ?: ('WA #' . $w['id'])), 'icon' => 'fab fa-whatsapp', 'note' => 'WhatsApp', 'assignable' => true);
+                $out[] = array('channel' => 'wa', 'target' => $w['id'], 'label' => ($w['label'] ?: $w['display_phone'] ?: ('WA #' . $w['id'])), 'icon' => 'fab fa-whatsapp', 'note' => 'WhatsApp', 'assignable' => true, 'kind' => 'wa_cloud');
         if ($CI->db->table_exists('openwa_accounts'))
             foreach ($CI->db->select('id,label,display_phone')->from('openwa_accounts')->where('user_id', $user_id)->get()->result_array() as $o)
-                $out[] = array('channel' => 'wa', 'target' => $o['id'], 'label' => ($o['label'] ?: $o['display_phone'] ?: ('WhatsApp #' . $o['id'])), 'icon' => 'fab fa-whatsapp', 'note' => 'WhatsApp (personal number)', 'assignable' => false);
+                $out[] = array('channel' => 'wa', 'target' => $o['id'], 'label' => ($o['label'] ?: $o['display_phone'] ?: ('WhatsApp #' . $o['id'])), 'icon' => 'fab fa-whatsapp', 'note' => 'WhatsApp (personal number)', 'assignable' => false, 'kind' => 'openwa');
         if ($CI->db->table_exists('telegram_accounts'))
             foreach ($CI->db->select('id,bot_username')->from('telegram_accounts')->where('user_id', $user_id)->get()->result_array() as $t)
                 $out[] = array('channel' => 'tg', 'target' => $t['id'], 'label' => ('@' . $t['bot_username']), 'icon' => 'fab fa-telegram', 'note' => 'Telegram', 'assignable' => true);

@@ -80,7 +80,54 @@
         </div>
     </div>
 
-</div> 
+</div>
+
+<!-- Prompt-to-Flow (brief §24/§46): a plain-language draft generator. It only ever creates a
+     DRAFT row in visual_flow_builder_campaign — nothing goes live until the owner opens it in
+     this same editor and clicks Save there, exactly like a hand-drawn flow. -->
+<div id="prompt_to_flow_modal" class="modal fade" role="dialog" data-backdrop="static" data-keyboard="false">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title"><?php echo $this->lang->line("Generate from a description"); ?></h3>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label><?php echo $this->lang->line("Please select a page"); ?></label>
+                    <?php if(addon_exist($module_id=320,$addon_unique_name="instagram_bot")) : ?>
+                        <select class="form-control select2" id="prompt_to_flow_page_table_id" style="width:100%;">
+                            <option value=''><?php echo $this->lang->line('Choose a Page'); ?></option>
+                            <?php foreach ($group_page_list as $key => $value): ?>
+                                <optgroup label="<?php echo $value['media_name']; ?>">
+                                    <?php foreach ($value['page_list'] as $key2 => $value2): ?>
+                                        <option value='<?php echo $key2; ?>'><?php echo $value2; ?></option>
+                                    <?php endforeach; ?>
+                                </optgroup>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php else: ?>
+                        <?php $pt_page_list = $page_list; $pt_page_list[''] = $this->lang->line("Choose a Page"); ?>
+                        <?php echo form_dropdown('prompt_to_flow_page_table_id_plain', $pt_page_list, '', 'id="prompt_to_flow_page_table_id" class="form-control select2" style="width:100%;"'); ?>
+                    <?php endif; ?>
+                </div>
+                <div class="form-group">
+                    <label><?php echo $this->lang->line("Describe what you want the bot to do"); ?></label>
+                    <textarea id="prompt_to_flow_instruction" class="form-control" rows="4" maxlength="4000"
+                        placeholder="<?php echo $this->lang->line('e.g. When someone asks about hotel booking, ask for arrival date, departure date and guest count, then ask for confirmation and save the lead.'); ?>"></textarea>
+                    <small class="form-text text-muted"><?php echo $this->lang->line("We'll create a draft flow — nothing goes live until you review and save it."); ?></small>
+                </div>
+                <div id="prompt_to_flow_error" class="alert alert-danger" style="display:none;"></div>
+                <div id="prompt_to_flow_substitutions" class="alert alert-warning" style="display:none;"></div>
+                <div id="prompt_to_flow_success" class="alert alert-success" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-dismiss="modal"><i class="fas fa-times"></i> <?php echo $this->lang->line("Cancel"); ?></button>
+                <button id="prompt_to_flow_submit" class="btn btn-primary"><i class="fas fa-magic"></i> <?php echo $this->lang->line("Generate"); ?></button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="alert alert-secondary alert-dismissible show fade">
     <div class="alert-body">
@@ -143,15 +190,82 @@
 $areyousure=$this->lang->line("are you sure");
 $builder_load_url = base_url("visual_flow_builder/load_builder/{$page_auto_id}/1/{$media_type}");
 $drop_menu = '<a href="'.$builder_load_url.'" class="float-right btn btn-primary" type="button" target="_BLANK"><i class="fas fa-plus-circle"></i> '.$this->lang->line("Create New Flow").'</a>';
-?> 
+$drop_menu .= ' <a href="#" id="prompt_to_flow_open" class="float-right btn btn-outline-primary" type="button"><i class="fas fa-magic"></i> '.$this->lang->line("Generate from a description").'</a>';
+?>
 
 <script>
 $(document).ready(function(){
 
+    var PROMPT_TO_FLOW_CSRF = "<?php echo $this->session->userdata('csrf_token_session'); ?>";
+
     var drop_menu = '<?php echo $drop_menu;?>';
-    setTimeout(function(){ 
+    setTimeout(function(){
       $("#mytable_filter").append(drop_menu);
     }, 1000);
+
+    $(document).on('click', '#prompt_to_flow_open', function(e){
+        e.preventDefault();
+        $('#prompt_to_flow_error, #prompt_to_flow_substitutions, #prompt_to_flow_success').hide().empty();
+        $('#prompt_to_flow_instruction').val('');
+        $('#prompt_to_flow_submit').prop('disabled', false).html('<i class="fas fa-magic"></i> <?php echo $this->lang->line("Generate"); ?>');
+        $('#prompt_to_flow_modal').modal('show');
+    });
+
+    $(document).on('click', '#prompt_to_flow_submit', function(e){
+        e.preventDefault();
+        var instruction = $.trim($('#prompt_to_flow_instruction').val());
+        var page_id_media = $('#prompt_to_flow_page_table_id').val();
+        $('#prompt_to_flow_error, #prompt_to_flow_substitutions, #prompt_to_flow_success').hide().empty();
+
+        if (!instruction) {
+            $('#prompt_to_flow_error').text('<?php echo $this->lang->line("Please describe what you want the bot to do."); ?>').show();
+            return;
+        }
+        if (!page_id_media) {
+            $('#prompt_to_flow_error').text('<?php echo $this->lang->line("You have to select a page"); ?>').show();
+            return;
+        }
+
+        var page_id_media_array = page_id_media.split('-');
+        var page_table_id = page_id_media_array[0];
+        var instagram_bot_addon = (page_id_media_array[1] === 'ig') ? 1 : 0;
+
+        var $btn = $(this);
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> <?php echo $this->lang->line("Generating..."); ?>');
+
+        $.ajax({
+            url: base_url + 'flow_prompt/generate',
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                csrf_token: PROMPT_TO_FLOW_CSRF,
+                instruction: instruction,
+                page_table_id: page_table_id,
+                instagram_bot_addon: instagram_bot_addon
+            },
+            success: function(response){
+                $btn.prop('disabled', false).html('<i class="fas fa-magic"></i> <?php echo $this->lang->line("Generate"); ?>');
+                if (response.status == 1 || response.status == '1') {
+                    if (response.substitutions && response.substitutions.length) {
+                        var msg = '<?php echo $this->lang->line("A few things were substituted for safety — please review:"); ?><ul>';
+                        $.each(response.substitutions, function(i, s){ msg += '<li>' + s + '</li>'; });
+                        msg += '</ul>';
+                        $('#prompt_to_flow_substitutions').html(msg).show();
+                    }
+                    $('#prompt_to_flow_success').text(response.message || '<?php echo $this->lang->line("Draft ready — nothing is live yet."); ?>').show();
+                    if (response.edit_url) {
+                        window.open(base_url + response.edit_url, '_blank');
+                    }
+                } else {
+                    $('#prompt_to_flow_error').text(response.message || '<?php echo $this->lang->line("Something went wrong."); ?>').show();
+                }
+            },
+            error: function(){
+                $btn.prop('disabled', false).html('<i class="fas fa-magic"></i> <?php echo $this->lang->line("Generate"); ?>');
+                $('#prompt_to_flow_error').text('<?php echo $this->lang->line("Something went wrong."); ?>').show();
+            }
+        });
+    });
 
     var base_url="<?php echo base_url(); ?>";
     var page_auto_id = "<?php echo $page_auto_id; ?>";

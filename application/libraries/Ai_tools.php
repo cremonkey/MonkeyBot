@@ -25,7 +25,7 @@ class Ai_tools
     /**
      * Provider-neutral tool catalog. Each entry: name, description, params (JSON-schema object).
      */
-    public function catalog()
+    public function catalog($context = null)
     {
         $tools = array(
             array(
@@ -96,23 +96,11 @@ class Ai_tools
             $uid = (int) ($this->CI->session->userdata('user_id') ?: 0);
             // catalog() is also called on the reply path where session is absent; there we
             // include the tool unconditionally and t_calculate_price no-ops without config.
-            $tools[] = array(
-                'name' => 'calculate_price',
-                'description' => "Compute an EXACT price total for accommodation or day-use. ALWAYS call this instead of doing the math yourself whenever the customer gives enough to price a stay: for accommodation pass nights + how many adults and children (by age band); for day_use pass the package and how many adults and children. It applies the real offers (multi-night discount, buy-N-get-one-free), picks a room that fits the headcount, and defers to the team for anything it cannot price. Quote its total verbatim.",
-                'params' => array(
-                    'type' => 'object',
-                    'properties' => array(
-                        'type' => array('type' => 'string', 'enum' => array('accommodation', 'day_use'), 'description' => 'accommodation = overnight stay; day_use = day visit without staying.'),
-                        'room_or_package' => array('type' => 'string', 'description' => "For accommodation: the room name if the customer named one (else leave empty and it picks the fitting room). For day_use: the package name if named."),
-                        'nights' => array('type' => 'integer', 'description' => 'Accommodation only: number of nights.'),
-                        'adults' => array('type' => 'integer', 'description' => 'Number of adults (12+ counts as adult).'),
-                        'children_under_5' => array('type' => 'integer', 'description' => 'Children up to 5 years (usually free).'),
-                        'children_6_to_11' => array('type' => 'integer', 'description' => 'Children from 6 to under 12.'),
-                        'children_12_plus' => array('type' => 'integer', 'description' => 'Children 12 or older (billed as full adults).'),
-                    ),
-                    'required' => array('type'),
-                ),
-            );
+            // The definition follows the price list of the page this reply is for: a list
+            // with a product catalog gets type 'item'; any other list (and no context) gets
+            // the original stays/day-use definition unchanged.
+            $this->CI->load->helper('pricing');
+            $tools[] = pricing_tool_definition($this->_price_config($context));
 
             // SPEC-31: photo albums + per-item services. Registered on the same
             // terms as calculate_price — the session is absent on the reply path,
@@ -134,10 +122,10 @@ class Ai_tools
     }
 
     /** OpenAI tools format */
-    public function openai_tools()
+    public function openai_tools($context = null)
     {
         $out = array();
-        foreach ($this->catalog() as $t) {
+        foreach ($this->catalog($context) as $t) {
             $out[] = array('type' => 'function', 'function' => array(
                 'name' => $t['name'], 'description' => $t['description'], 'parameters' => $t['params'],
             ));
@@ -146,10 +134,10 @@ class Ai_tools
     }
 
     /** Anthropic tools format */
-    public function anthropic_tools()
+    public function anthropic_tools($context = null)
     {
         $out = array();
-        foreach ($this->catalog() as $t) {
+        foreach ($this->catalog($context) as $t) {
             $out[] = array('name' => $t['name'], 'description' => $t['description'], 'input_schema' => $t['params']);
         }
         return $out;
@@ -170,8 +158,8 @@ class Ai_tools
                 case 'create_discount_code': return $this->t_create_coupon($user_id, $args);
                 case 'handoff_to_human':  return $this->t_handoff($context, $args);
                 case 'save_lead_to_crm':  return $this->t_save_lead($user_id, $args, $context);
-                case 'calculate_price':   return $this->t_calculate_price($user_id, $args);
-                case 'get_room_media':    return $this->t_room_media($user_id, $args);
+                case 'calculate_price':   return $this->t_calculate_price($user_id, $args, $context);
+                case 'get_room_media':    return $this->t_room_media($user_id, $args, $context);
                 default: return 'Error: unknown tool.';
             }
         } catch (Exception $e) {
@@ -300,11 +288,11 @@ class Ai_tools
      * Ambiguous or unknown names return an instruction to ask, never a guess:
      * a wrong album is the customer-visible twin of a cross-mapped price.
      */
-    protected function t_room_media($user_id, $args)
+    protected function t_room_media($user_id, $args, $context = array())
     {
         $this->CI->load->helper('pricing');
         $this->CI->load->helper('media');
-        $cfg = pricing_get_config($user_id);
+        $cfg = $this->_price_config($context, $user_id);
         if (empty($cfg) || empty(media_index($cfg))) {
             return 'No photo albums are configured; do not send any link. Offer to have the team send photos and ask for the customer\'s number.';
         }
@@ -338,13 +326,34 @@ class Ai_tools
         return $line . ' | Send the link EXACTLY as written, once, as a BARE url — never inside [] () brackets or any markdown, the customer sees those characters raw. One short sentence + one question. Never alter the url.';
     }
 
-    protected function t_calculate_price($user_id, $args)
+    /**
+     * The price list for the page this reply is for: that page's own list, else the
+     * account-wide default list, else null. Without a page in the context this is the
+     * default list — exactly the old per-account behaviour.
+     */
+    protected function _price_config($context, $user_id = 0)
+    {
+        $context = is_array($context) ? $context : array();
+        $uid = (int) ($context['user_id'] ?? $user_id);
+        if ($uid <= 0) return null;
+        $this->CI->load->helper('pricing');
+        $scope = pricing_resolve_scope($uid, (string) ($context['social_media'] ?? ''), (string) ($context['page_id'] ?? ''));
+        return pricing_get_config($uid, $scope);
+    }
+
+    protected function t_calculate_price($user_id, $args, $context = array())
     {
         $this->CI->load->helper('pricing');
-        $cfg = pricing_get_config($user_id);
+        $cfg = $this->_price_config($context, $user_id);
         if (empty($cfg)) return 'Pricing is not configured; tell the customer the team will confirm the exact total and ask for their contact number.';
 
-        $type    = ($args['type'] ?? '') === 'accommodation' ? 'accommodation' : 'day_use';
+        $req = (string) ($args['type'] ?? '');
+        $sections = pricing_config_sections($cfg);
+        if ($req === 'item' || ($req !== 'accommodation' && $req !== 'day_use' && $sections['catalog'] && !$sections['day_use'])) {
+            return $this->_price_item($cfg, $args);
+        }
+
+        $type    = $req === 'accommodation' ? 'accommodation' : 'day_use';
         $item    = trim((string) ($args['room_or_package'] ?? ''));
         $nights  = (int) ($args['nights'] ?? 1);
         $adults  = (int) ($args['adults'] ?? 0);
@@ -383,6 +392,48 @@ class Ai_tools
 
         return 'AUTHORITATIVE TOTAL (quote it exactly): ' . $fact . ($notes ? ' | ' . $notes : '')
              . ' | Present this total to the customer and move to close.';
+    }
+
+    /**
+     * Product/service catalog price (type 'item'). Same contract as stays/day-use: the
+     * figure is computed in PHP and pushed to ai_price_facts so the price guard treats it
+     * as written source; anything the calculator cannot price exactly is handed to the
+     * team, never guessed.
+     */
+    protected function _price_item($cfg, $args)
+    {
+        if (!isset($this->CI->ai_price_facts) || !is_array($this->CI->ai_price_facts)) $this->CI->ai_price_facts = array();
+        $name = trim((string) ($args['item'] ?? ($args['room_or_package'] ?? '')));
+        $r = pricing_calc_item($cfg, $name, (string) ($args['variant'] ?? ''), $args['quantity'] ?? 1);
+        if (empty($r['ok'])) {
+            if (($r['reason'] ?? '') === 'unknown') {
+                return 'UNKNOWN ITEM: "' . $name . '" is not in this page\'s price list. Do not say any price for it: tell the customer the team will confirm it and ask for their WhatsApp number.';
+            }
+            if (($r['reason'] ?? '') === 'no_item') return 'NO ITEM GIVEN: ask the customer which product or service they mean.';
+            return 'Could not price this exactly; tell the customer the team will confirm and ask for their contact number.';
+        }
+        $cur = $r['currency'];
+        $notes = !empty($r['notes']) ? implode('؛ ', $r['notes']) : '';
+        $label = $r['item'] . (!empty($r['variant']) ? ' - ' . $r['variant'] : '');
+        if ($r['reason'] === 'ambiguous') {
+            return 'UNCLEAR ITEM: "' . $name . '" matches more than one item (' . implode(' / ', $r['candidates']) . '). Ask the customer ONE short question: which one they mean. Do not say any price yet.';
+        }
+        if ($r['reason'] === 'variant') {
+            return 'ITEM: ' . $r['item'] . ' | CHOOSE AN OPTION: the price depends on the option (' . implode(' / ', $r['candidates']) . '). Ask the customer which option they want. Do not say any price yet.';
+        }
+        if ($r['total'] === null || !empty($r['needs_team'])) {
+            $this->CI->ai_price_facts[] = $label . ': السعر يتأكد من الفريق' . ($notes ? ' (' . $notes . ')' : '');
+            return 'ITEM: ' . $label . ($notes ? ' | ' . $notes : '')
+                 . ' | NO FINAL TOTAL: this price is confirmed by the team (say so and ask for the customer\'s WhatsApp; do not state any number).';
+        }
+        $unit = $r['unit_word'] !== '' ? ' ' . $r['unit_word'] : '';
+        $unit_price = pricing_fmt($r['unit_price']) . ' ' . $cur;
+        $fact = ((float) $r['quantity'] === 1.0)
+            ? $label . ' = ' . $unit_price . ($unit !== '' ? ' /' . $unit : '')
+            : $label . ' × ' . $r['quantity'] . $unit . ' = ' . pricing_fmt($r['total']) . ' ' . $cur . ' (' . $unit_price . ' للواحد)';
+        $this->CI->ai_price_facts[] = $fact;
+        return 'AUTHORITATIVE TOTAL (quote it exactly): ' . $fact . ($notes ? ' | ' . $notes : '')
+             . ' | Present this price to the customer and move to close.';
     }
 
     protected function t_save_lead($user_id, $args, $context)

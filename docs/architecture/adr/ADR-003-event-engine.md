@@ -121,6 +121,12 @@ trigger source. Merging them would make retention and indexing serve neither wel
   deliberate non-actions.
 - Events chain: an automation that moves a CRM stage emits `lead.stage_changed`, which other
   rules can listen to.
+- **Sequences (brief §25) reuse this, not beside it.** `sequence_advance()`
+  (`application/helpers/sequence_helper.php`) runs a Sequence step through
+  `Automation_engine::execute_action()` — the exact same dispatcher, so channel policy and every
+  action implementation are shared code, not a second copy. The two new action types this added
+  (`create_task`, `start_sequence`) are usable from an Automation Rule too. See
+  `docs/automations/sequences.md`.
 
 **Costs and risks**
 

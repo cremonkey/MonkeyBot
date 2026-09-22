@@ -4,9 +4,12 @@
 - **Built on:** ADR-001 (`docs/architecture/adr/ADR-001-unified-conversation-model.md`),
   `docs/database/conversation-core.md`, `docs/channels/adapters.md`
 - **Code:** `application/controllers/Inbox.php`, `application/helpers/inbox_helper.php`,
-  `application/views/admin/inbox/index.php`
-- **Migration:** `assets/backup_db/migrations/2026-09-25-unified-inbox.sql`
-- **Tests:** `tests/inbox/run.php` (unit, no DB), `docker/scripts/staging_inbox_tests.sh` (HTTP+DB)
+  `application/views/admin/inbox/index.php`; AI summary (brief §13):
+  `application/libraries/Conversation_summarizer.php`, `application/helpers/conversation_summary_helper.php`
+- **Migration:** `assets/backup_db/migrations/2026-09-25-unified-inbox.sql`,
+  `assets/backup_db/migrations/2026-09-28-conversation-summary.sql` (adds `conversations.last_summary`/`last_summary_at`)
+- **Tests:** `tests/inbox/run.php` (unit, no DB), `docker/scripts/staging_inbox_tests.sh` (HTTP+DB);
+  AI summary: `tests/summary_billing/run.php` (unit, no DB), `docker/scripts/staging_summary_billing_tests.sh` (HTTP+DB)
 
 ## What this is
 
@@ -119,6 +122,35 @@ is not part of this branch's own migrations — `Inbox::index()` and `Inbox::ass
 enabled" rather than erroring when the addon isn't installed. `staging_inbox_tests.sh` creates
 a minimal stand-in table (documented inline) purely to exercise the feature end to end.
 
+## AI conversation summary (brief §13, §51)
+
+`Inbox::summarize($conversation_id)` (AJAX, `entitlement_require('inbox')` from the controller
+constructor, `conversation_get($id, $this->uid)` for the tenant guard) generates a short,
+factual summary of the thread — what the customer wants, key facts stated, current status, open
+questions — from the **last 50 `livechat_messages` rows for that `conversation_id`** (already
+linked via the Phase 9.5 trigger, ADR-001), never from `ai_conversation_history` (see
+"Deferred" below for why not).
+
+- **Caching / regeneration.** The summary is cached on `conversations.last_summary` /
+  `last_summary_at`. Reopening the same conversation returns the cached text with **no AI
+  call** unless `conversation_summary_should_regenerate()` (`application/helpers/conversation_summary_helper.php`)
+  says a message has arrived since the cache was written (`last_message_at > last_summary_at`),
+  or the agent clicks "Regenerate" (`refresh=1`, always bypasses the cache check).
+- **Never fabricates.** No `open_ai_config` row for the tenant -> `{status:'0', message:'No AI
+  credentials configured'}`, the exact wording `ai_agent_helper.php`'s existing preview feature
+  already uses for the same case. An AI/provider failure or an empty response is surfaced as a
+  failure, never a placeholder summary. The system prompt (`conversation_summary_system_prompt()`)
+  explicitly forbids inventing facts not in the transcript.
+- **UI.** A "Summary" card in the Customer 360 rail (`application/views/admin/inbox/index.php`)
+  shows the cached summary (or a loading/error state), a "Regenerate" button, and a fixed
+  caption — "AI-generated — verify before acting on it" — per brief §51.
+- **AI seam for tests.** `Conversation_summarizer`'s constructor takes an injectable `ai_caller`
+  (mirrors `Flow_prompt_generator`), used directly by `tests/summary_billing/run.php` (no
+  CodeIgniter, no DB, no network). For the staging HTTP+DB suite, the same seam is reached
+  through the config flag `conversation_summary_test_fixture` (`application/config/config.php`,
+  default `FALSE`, never set in production) — identical pattern to
+  `prompt_to_flow_test_fixture` / `flow_prompt_test_fixture_helper.php`.
+
 ## Deferred (not built in this phase, and why)
 
 - **Realtime (Pusher).** Livechat.php's existing `livechat_channel`/`livechat_event` wiring is
@@ -128,10 +160,21 @@ a minimal stand-in table (documented inline) purely to exercise the feature end 
   (`conversations_data` / `conversation_thread` are cheap, indexed queries); a Pusher channel
   keyed on `conversation_id` is the natural follow-up.
 - **AI-suggested-reply generation.** The brief asks for a read-only display of a recent AI
-  draft from `ai_conversation_history` if one exists — not new AI infrastructure. This phase
-  does not wire that read either; `ai_conversation_history` is not currently keyed to
-  `conversation_id` (ADR-001, "AI state... is not keyed to any conversation"), so showing it
-  correctly needs that linkage first. Left for the pass that keys AI state to conversations.
+  draft from `ai_conversation_history` if one exists — not new AI infrastructure. This is
+  **still** not wired: `ai_conversation_history` is not keyed to `conversation_id` (ADR-001,
+  "AI state... is not keyed to any conversation"), and retrofitting it with that column plus a
+  backfill is a bigger, separate ADR-001-scope change, left for the pass that keys AI state to
+  conversations.
+  The closest safe implementation shipped instead, as a **different, narrower feature**:
+  `Inbox::summarize()` (brief §13) generates a short, factual, on-demand **periodic summary**
+  of the thread — what the customer wants, key stated facts, status, open questions — straight
+  from `livechat_messages` (already linked via the Phase 9.5 trigger), cached on
+  `conversations.last_summary`/`last_summary_at` and only regenerated when a newer message has
+  arrived or the agent clicks "Regenerate". This is explicitly **not** a suggested-reply draft:
+  it never proposes what to say next, only summarizes what already happened, and is always
+  shown with a "AI-generated — verify before acting on it" caption (brief §51). See
+  `application/libraries/Conversation_summarizer.php` and
+  `application/helpers/conversation_summary_helper.php`.
 - **Labels.** The only existing label table, `messenger_bot_subscribers_label`, keys off
   `messenger_bot_subscriber.id` — a row that doesn't exist for wa_cloud/tg/web customers
   (ADR-001). Reusing it would only work for fb/ig and silently exclude the other three

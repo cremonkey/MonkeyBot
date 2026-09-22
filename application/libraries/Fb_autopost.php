@@ -97,7 +97,7 @@ class Fb_autopost{
 		$app_secret=$this->app_secret;
 		$short_token=$short_lived_user_token;
 		
-		$url=graph_url("oauth/access_token?grant_type=fb_exchange_token&client_id={$app_id}&client_secret={$app_secret}&fb_exchange_token={$short_token}", TRUE);
+		$url=graph_url_group("oauth", "oauth/access_token?grant_type=fb_exchange_token&client_id={$app_id}&client_secret={$app_secret}&fb_exchange_token={$short_token}");
 		
 		$headers = array("Content-type: application/json");
 		 	 

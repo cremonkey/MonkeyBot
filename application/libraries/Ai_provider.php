@@ -74,7 +74,7 @@ class Ai_provider
     protected function openai_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $context)
     {
         $CI->load->library('Ai_tools');
-        $tools = $CI->ai_tools->openai_tools();
+        $tools = $CI->ai_tools->openai_tools($context);   // page-aware calculate_price
         $last = null;
         for ($round = 0; $round < self::MAX_TOOL_ROUNDS; $round++) {
             $raw = $CI->openai_api->open_ai_completion($api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $tools);
@@ -101,7 +101,7 @@ class Ai_provider
     protected function anthropic_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $system, $temperature, $context)
     {
         $CI->load->library('Ai_tools');
-        $tools = $CI->ai_tools->anthropic_tools();
+        $tools = $CI->ai_tools->anthropic_tools($context);
         // Anthropic keeps its own running message array (with tool_use/tool_result blocks)
         $convo = array();
         foreach ((array) $messages as $m) {

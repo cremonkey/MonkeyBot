@@ -70,6 +70,9 @@ class Automations extends Home
         $data['triggers'] = event_catalogue();
         $data['operators'] = Automation_engine::operators();
         $data['actions'] = Automation_engine::action_catalogue();
+        // for the 'start_sequence' action's picker; empty when the tenant has none, which is fine
+        $data['sequences'] = $this->db->select('id, name')->from('sequences')->where('user_id', $this->uid)
+            ->where('status !=', 'draft')->order_by('name', 'ASC')->get()->result_array();
         $data['recent_events'] = $this->db->select('id, event_type, subject_type, subject_id, created_at')
             ->from('events')->where('user_id', $this->uid)->order_by('id', 'DESC')->limit(25)->get()->result_array();
         $data['page_title'] = $rule ? 'Edit automation' : 'New automation';
@@ -295,6 +298,12 @@ class Automations extends Home
                     break;
                 case 'call_webhook':
                     if (stripos(trim((string) ($a['url'] ?? '')), 'https://') !== 0) $errors[] = "Step {$n}: the address must start with https:// .";
+                    break;
+                case 'create_task':
+                    if (trim((string) ($a['subject'] ?? '')) === '') $errors[] = "Step {$n}: give the task a title.";
+                    break;
+                case 'start_sequence':
+                    if ((int) ($a['sequence_id'] ?? 0) <= 0) $errors[] = "Step {$n}: choose which sequence to start.";
                     break;
             }
         }

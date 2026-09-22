@@ -720,3 +720,74 @@ stayed `ok` throughout (no prod changes made). Nothing pushed.
 
 **Still pending owner decisions, unchanged:** the S-14 production charset fix (needs a restart,
 timing is the owner's call) and pushing this work to GitHub.
+
+### Full roadmap closed except one deliberate exception (2026-09-22, final consolidation)
+Every remaining phase-work item was built, merged, and verified together on `release/9.x-integration`:
+
+| Phase | Feature | Status |
+|---|---|---|
+| 10.5 | Sequences safety parity (rate limits, quiet hours, jitter, opt-out) | Verified — 90+23/0 |
+| 10.5 | Prompt-to-Flow (AI drafts a Visual Flow Builder flow, human reviews/saves) | Verified — 37+14/0 |
+| 11 | Client provisioning from Agency Control Center | Verified — 35+33/0 |
+| 9.5 | AI conversation summary (Inbox) | Verified — part of 71+26/0 below |
+| 11 | Usage/billing readiness (Agency Control Center) | Verified — part of 71+26/0 below |
+
+**Final full regression, fresh DB (50 migrations, 0 errors, 189 tables):**
+unit suites 117+20+65+51+56+90+37+35+71+486 = 1,028 assertions;
+staging HTTP suites 19+16+12+44+96+39+47+23+14+33+26 = 369 assertions.
+**All 1,397 assertions passed, 0 failed.** Production `/health` stayed `ok` throughout
+(no prod code changes made in this consolidation pass — everything ran on staging).
+
+### Roadmap status vs. the master brief (§52-53) — final
+Every item is done except one, held back deliberately:
+
+- **Graph API v26 migration (phase 3), brief §9/§0 — NOT DONE, by design.** Every Graph call
+  is pinned to v20.0 today (`fb_graph_helper.php`); the config target v26.0 exists but no call
+  site uses it. This cannot be closed by more code alone: it changes behavior against Meta's
+  live API for every connected client Facebook/Instagram page, and the only way to verify it
+  is genuinely safe is testing against real Graph API responses with real page tokens — nothing
+  a sandbox can substitute for. This is an owner decision on timing and rollout (e.g. a single
+  canary page first), not a remaining implementation task.
+- Everything else in §52's four phases (9.0 Stable Core, 9.5 Unified Conversations, 10 AI Sales
+  Platform, 10.5 Automation OS, 11 Agency SaaS) is built and verified on staging.
+
+**Still pending, unrelated to feature completeness:** pushing `release/9.x-integration` to GitHub
+(credential issue, flagged earlier) and applying this final consolidation's migrations to
+production (the earlier 9-phase batch is already live; this last batch — sequences-safety,
+prompt-to-flow, provisioning, summary/billing — is staged and tested but not yet deployed).
+
+### Graph API v26 migration — Phase 3 engineering complete (2026-09-22, final)
+Closes the one item previously held back. Built on real Meta changelog research
+(developers.facebook.com/docs/graph-api/changelog, v21.0-v26.0), not guesswork:
+
+- 67 of 69 call sites converted to per-group version resolution
+  (`fb_graph_group_version($group)` / `graph_url_group($group, $path)`), grouped as
+  reads, send, messenger_profile, oauth, insights, labels, page_admin. 2 sites were
+  confirmed-dead code (`me/broadcast_reach_estimations`) and removed instead.
+- **Every group still defaults to today's v20.0 behavior** — proven byte-identical
+  for all 66 real call sites by a regression test, not asserted. Nothing changes
+  until an owner explicitly sets a group's config key.
+- Corrected the original migration doc's assumption that the Custom Labels API was
+  dead (it isn't, per the current changelog) and found a real, separate, already-broken
+  issue (Meta's Feb 2026 deprecation of several message tags/RCN) — documented, not
+  silently fixed, since it's a business-logic problem outside this migration's scope.
+- New admin-only diagnostic tool (`/graph_diagnostics`): compares two safe read-only
+  calls on the legacy vs. candidate version for one real connected page, so the owner
+  can verify compatibility against real Meta traffic before flipping each group -
+  proven in tests to make zero network calls on its own (Reflection + fake transport).
+- `oauth` is deliberately last in the rollout order (breaking it breaks login).
+  `messaging_feature_review` has no config key at all — confirmed live, not dead,
+  hard-pinned until someone re-verifies it.
+
+**Final regression after this merge, fresh DB (50 migrations, 0 errors, 189 tables):**
+unit suites 117+20+65+51+56+90+37+35+71+113+486 = 1,141 assertions;
+staging HTTP suites 19+16+12+44+96+39+47+23+14+33+26 = 369 assertions.
+**All 1,510 assertions passed, 0 failed.** Production `/health` stayed `ok` throughout.
+
+### Roadmap status — complete
+Every phase in the master brief's roadmap (§52-53) is now built and verified on
+`release/9.x-integration`, including Graph API v26 Phase 3's engineering work. The
+one remaining step for ANY of this work is deployment timing and, for the Graph
+migration specifically, the owner running the diagnostic tool against a real page
+before flipping each group's flag — an operational rollout action with real Meta
+traffic, not a development task.

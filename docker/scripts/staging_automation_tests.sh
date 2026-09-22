@@ -107,7 +107,7 @@ check "the event is unprocessed" "$(sql "SELECT COUNT(*) FROM events WHERE proce
 EV=$(sql "SELECT id FROM events ORDER BY id DESC LIMIT 1")
 
 echo "== feature flag (brief 50) =="
-FLAG_LINE=$(grep -n "automation_engine_enabled" "$ROOT/application/config/config.php" | head -1 | cut -d: -f1)
+FLAG_LINE=$(grep -Fn '$config['"'"'automation_engine_enabled'"'"'] = ' "$ROOT/application/config/config.php" | head -1 | cut -d: -f1)
 if [ -n "$FLAG_LINE" ]; then
   sed -i "${FLAG_LINE}s/TRUE/FALSE/" "$ROOT/application/config/config.php"
   out=$(cli automation_worker run 2>&1)

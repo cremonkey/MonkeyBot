@@ -28,6 +28,18 @@ class Agency extends Home
         $clients = $this->db->select('id, name, email, user_type, status, expired_date, package_id')
             ->from('users')->where('deleted', '0')->order_by('id', 'ASC')->get()->result_array();
 
+        $this->load->helper('agency_billing');
+        // brief §11: usage vs PACKAGE LIMITS. package.monthly_limit is the same JSON shape/semantics
+        // Home::_check_usage() and the admin package screens already use (module_id -> limit, 0/absent
+        // = unlimited) — read here, never re-defined. Module 340 "Bot - AI Reply" is the readiness
+        // metric shown (brief: "e.g. message count, AI calls"); it is a real modules.id from
+        // assets/backup_db/initial_db.sql, not an invented one.
+        $usage_module_id = 340;
+        $packages_by_id = $this->_packages_by_id();
+        $usage_module = $this->db->select('extra_text')->from('modules')->where('id', $usage_module_id)->get()->row_array();
+        $usage_is_monthly = !empty($usage_module) && agency_billing_is_module_monthly($usage_module['extra_text']);
+        $usage_by_user = $this->_module_usage_by_user($usage_module_id, $usage_is_monthly);
+
         // per-tenant aggregates, one grouped query each (no N+1)
         $agg = array(
             'fb_pages'  => $this->_count_by_user('facebook_rx_fb_page_info', array('deleted' => '0', 'bot_enabled' => '1')),
@@ -62,6 +74,19 @@ class Agency extends Home
             if ($g('missed') >= 10) $flags[] = array('warning', $g('missed') . ' unanswered questions');
             if ($g('errors_7') > 0) $flags[] = array('warning', $g('errors_7') . ' send errors (7d)');
             $inb = $g('msgs_in_7'); $bot = $g('msgs_bot_7');
+
+            // brief §11: package name + expiry readiness + usage vs monthly_limit.
+            $pkg = isset($packages_by_id[(int) $c['package_id']]) ? $packages_by_id[(int) $c['package_id']] : null;
+            $days_left = $c['user_type'] === 'Admin' ? null : agency_billing_days_until_expiry($c['expired_date'], $now);
+            $expiry = agency_billing_expiry_status($days_left);
+            $limits = $pkg ? agency_billing_decode_monthly_limit($pkg['monthly_limit']) : array();
+            $usage = agency_billing_usage_percent(
+                isset($limits[$usage_module_id]) ? $limits[$usage_module_id] : null,
+                isset($usage_by_user[$u]) ? $usage_by_user[$u] : 0
+            );
+            if ($expiry['flag'] === 'danger' && $c['user_type'] !== 'Admin') $flags[] = array('danger', $expiry['label']);
+            if (!$usage['unlimited'] && $usage['percent'] >= 90) $flags[] = array('warning', 'AI usage at ' . $usage['percent'] . '% of package limit');
+
             $rows[] = array(
                 'id' => $u, 'name' => $c['name'], 'email' => $c['email'], 'type' => $c['user_type'],
                 'channels' => array('fb' => $g('fb_pages'), 'ig' => $g('ig_pages'), 'wa' => $g('wa') + $g('wa_cloud'), 'tg' => $g('tg'), 'web' => $g('web')),
@@ -69,6 +94,9 @@ class Agency extends Home
                 'last_message' => $last, 'leads_30' => $g('leads_30'), 'won_30' => (float) ($won[$u] ?? 0),
                 'waiting' => $g('waiting'), 'missed' => $g('missed'), 'errors_7' => $g('errors_7'), 'guard_7' => $g('guard_7'),
                 'ai_cost_30' => round((float) ($ai_cost[$u] ?? 0), 2), 'flags' => $flags,
+                'package_name' => $pkg ? $pkg['package_name'] : '—',
+                'days_until_expiry' => $days_left, 'expiry' => $expiry,
+                'usage' => $usage,
             );
         }
         // attention first: most flags, then most inbound traffic
@@ -84,7 +112,15 @@ class Agency extends Home
             'missed' => array_sum(array_column($rows, 'missed')),
             'leads_30' => array_sum(array_column($rows, 'leads_30')),
             'ai_cost_30' => round(array_sum(array_column($rows, 'ai_cost_30')), 2),
+            'renewals_due_soon' => count(array_filter($rows, function ($r) { return $r['type'] !== 'Admin' && agency_billing_is_renewal_due_soon($r['days_until_expiry']); })),
         );
+        // For the "New client" modal (brief §31/§32 — provisioning, read-only queries here
+        // too: the write lives entirely in Agency_provision::provision_client()).
+        $data['packages'] = $this->db->select('id, package_name, validity')->from('package')
+            ->where('deleted', '0')->order_by('package_name', 'ASC')->get()->result_array();
+        $this->load->helper('industry_template');
+        $data['templates'] = industry_templates_all();
+
         $data['days'] = $days;
         $data['page_title'] = 'Agency Control Center';
         $data['body'] = 'admin/agency/index';
@@ -120,6 +156,31 @@ class Agency extends Home
         $out = array();
         foreach ($this->db->select("user_id, MAX($col) m")->from($table)->group_by('user_id')->get()->result_array() as $r)
             $out[(int) $r['user_id']] = $r['m'];
+        return $out;
+    }
+
+    /** @return array package_id => {package_name, monthly_limit (raw JSON string)} */
+    private function _packages_by_id()
+    {
+        $out = array();
+        foreach ($this->db->select('id, package_name, monthly_limit')->from('package')->get()->result_array() as $p)
+            $out[(int) $p['id']] = $p;
+        return $out;
+    }
+
+    /**
+     * usage_log summed per tenant for one module (brief §11 readiness). Mirrors
+     * Home::_check_usage()'s own two branches exactly: month-scoped (usage_month/usage_year =
+     * now) when the module is "monthly" (modules.extra_text non-empty), otherwise the
+     * cumulative total ever recorded. @return array user_id => usage_count
+     */
+    private function _module_usage_by_user($module_id, $is_monthly)
+    {
+        if (!$this->db->table_exists('usage_log')) return array();
+        $this->db->select('user_id, SUM(usage_count) c')->from('usage_log')->where('module_id', $module_id);
+        if ($is_monthly) $this->db->where('usage_month', (int) date('n'))->where('usage_year', (int) date('Y'));
+        $out = array();
+        foreach ($this->db->group_by('user_id')->get()->result_array() as $r) $out[(int) $r['user_id']] = (int) $r['c'];
         return $out;
     }
 

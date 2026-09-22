@@ -37,7 +37,7 @@ abstract class MetaMessagingAdapter extends AbstractChannelAdapter
         ));
         $res = $this->http->send(new HttpRequest(
             'POST',
-            graph_url('me/messages?access_token=', TRUE) . urlencode($token),
+            graph_url_group('send', 'me/messages?access_token=') . urlencode($token),
             array('Content-Type: application/json'),
             $payload,
             20,

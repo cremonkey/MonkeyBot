@@ -141,7 +141,7 @@ class Onboarding extends Home
                 $data['faq_rows'] = array_values($data['faq_rows']);
                 break;
             case 5:
-                $row = $this->db->from('pricing_config')->where('user_id', $this->uid)->get()->row_array();
+                $row = pricing_get_row($this->uid);   // the account-wide default list (per-page lists live on /pricing)
                 $saved = !empty($row['config_json']) ? json_decode($row['config_json'], true) : null;
                 $data['cfg'] = is_array($saved) ? $saved : ($tpl['pricing_config'] ?? null);
                 $data['cfg_saved'] = is_array($saved);

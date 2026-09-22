@@ -80,6 +80,18 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
             </select>
           </div></div>
 
+          <div class="card mb-2"><div class="card-header p-2 d-flex justify-content-between align-items-center">
+            <b><i class="fas fa-robot"></i> Summary</b>
+            <button class="btn btn-sm btn-outline-secondary" id="ib_summary_refresh" title="Regenerate"><i class="fas fa-sync-alt"></i></button>
+          </div>
+            <div id="ib_summary_body" class="card-body p-2">
+              <small class="text-muted">No summary yet.</small>
+            </div>
+            <div class="card-footer p-2">
+              <small class="text-muted"><i class="fas fa-exclamation-circle"></i> AI-generated — verify before acting on it.</small>
+            </div>
+          </div>
+
           <div class="card"><div class="card-header p-2"><b>Internal notes</b></div>
             <div id="ib_notes" class="card-body p-2" style="max-height:220px;overflow-y:auto"><small class="text-muted">No notes yet.</small></div>
           </div>
@@ -145,9 +157,28 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       $('#ib_assign').val(current.assigned_user_id || 0);
       $('#ib_composer, #ib_send').prop('disabled', false);
       $('#ib_deny').hide();
+      loadSummary(false);
       loadList(true); // refresh unread badges
     });
   }
+
+  function renderSummary(text, generatedAt) {
+    if (!text) { $('#ib_summary_body').html('<small class="text-muted">No summary yet.</small>'); return; }
+    $('#ib_summary_body').html('<div style="white-space:pre-wrap">' + esc(text) + '</div>' +
+      (generatedAt ? '<small class="text-muted d-block mt-1">Generated ' + esc(generatedAt) + '</small>' : ''));
+  }
+
+  function loadSummary(refresh) {
+    if (!current) return;
+    $('#ib_summary_body').html('<small class="text-muted"><i class="fas fa-spinner fa-spin"></i> ' + (refresh ? 'Regenerating…' : 'Loading…') + '</small>');
+    post('summarize', {conversation_id: current.id, refresh: refresh ? 1 : 0}, function (r) {
+      if (!current) return;
+      if (r.status === '1') renderSummary(r.summary, r.generated_at);
+      else $('#ib_summary_body').html('<small class="text-danger">' + esc(r.message || 'Could not generate a summary.') + '</small>');
+    });
+  }
+
+  $('#ib_summary_refresh').on('click', function () { loadSummary(true); });
 
   function renderMessages(messages, replace) {
     var html = messages.map(function (m) {

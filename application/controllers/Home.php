@@ -4628,7 +4628,7 @@ class Home extends CI_Controller
 
     public function send_reply_ez($access_token = '', $reply = '')
     {
-        $url = graph_url("me/messages?access_token=$access_token", TRUE);
+        $url = graph_url_group("send", "me/messages?access_token=$access_token");
         $ch = curl_init();
         $headers = array("Content-type: application/json");
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -4652,15 +4652,15 @@ class Home extends CI_Controller
     protected function subscriber_info($access_token = '', $sender_id = '', $social_media_type = "fb")
     {
         if ($social_media_type == 'fb')
-            $url = graph_url("$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,profile_pic,locale,timezone,gender", TRUE);
+            $url = graph_url_group("reads", "$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,profile_pic,locale,timezone,gender");
         else
-            $url = graph_url("$sender_id?access_token=$access_token&fields=id,name,profile_pic", TRUE);
+            $url = graph_url_group("reads", "$sender_id?access_token=$access_token&fields=id,name,profile_pic");
 
         $result = $this->subscriber_info_curl_call($url);
 
         if (isset($result['error']) && $result['error']['code'] == 10 && $result['error']['error_subcode'] == 2018336) {
             $result = array();
-            $url = graph_url("$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,locale,timezone,gender", TRUE);
+            $url = graph_url_group("reads", "$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,locale,timezone,gender");
             $result = $this->subscriber_info_curl_call($url);
             $result['profile_pic'] = "";
         }
@@ -4688,7 +4688,7 @@ class Home extends CI_Controller
 
     protected function send_reply($access_token = '', $reply = '')
     {
-        $url = graph_url("me/messages?access_token=$access_token", TRUE);
+        $url = graph_url_group("send", "me/messages?access_token=$access_token");
         $ch = curl_init();
         $headers = array("Content-type: application/json");
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -4715,7 +4715,7 @@ class Home extends CI_Controller
         $access_token = $_POST['access_token'];
         $reply = $_POST['reply'];
 
-        $url = graph_url("me/messages?access_token=$access_token", TRUE);
+        $url = graph_url_group("send", "me/messages?access_token=$access_token");
         $ch = curl_init();
         $headers = array("Content-type: application/json");
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -4910,7 +4910,7 @@ class Home extends CI_Controller
     public function sender_action($sender_id, $action_type, $post_access_token = '')
     {
 
-        $url = graph_url("me/messages?access_token={$post_access_token}", TRUE);
+        $url = graph_url_group("send", "me/messages?access_token={$post_access_token}");
 
         $post_data_array['recipient']['id'] = $sender_id;
         $post_data_array['sender_action'] = $action_type;
@@ -7283,9 +7283,10 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             if (isset($api_info[0]['ai_tools_enabled']) && $api_info[0]['ai_tools_enabled'] == '1') {
                 $system_prompt .= "\n8. The moment the customer shares a phone/WhatsApp number or email, call the save_lead_to_crm tool with their details, a short summary of their request, customer_profile (their buyer personality per the playbook, key needs, and any objection raised), and conversation_status (where the conversation actually got to: what you already quoted or offered, what they decided or objected to, and what is still open) so the sales rep can continue the conversation instead of restarting it; then confirm that the team will contact them soon."
                     . "\n9. When the customer asks about a product, its price, or availability, ALWAYS call the search_products tool FIRST. Product info returned by the tool counts as written context: quote it exactly. If the tool finds nothing, that does NOT mean the item is unavailable - the catalog may be incomplete - so never tell the customer it isn't available; name the thing they asked about, say the team will confirm its availability and price, and ask for their phone/WhatsApp.";
-                if ($this->db->table_exists('pricing_config') && !empty($this->basic->get_data('pricing_config', array('where' => array('user_id' => $user_id, 'status' => '1')), array('id'), '', 1))) {
-                    $system_prompt .= "\n10. NEVER do price arithmetic yourself. Call the calculate_price tool whenever the customer gives a COUNT you can price: a number of nights, OR a number of people/adults, OR a headcount for day-use. 'داي يوز لـ5 أفراد', 'اقامة ليلتين', '4 كبار وطفلين' all mean CALL THE TOOL now with what you have - do not ask more questions first if you already have a count, and never answer such a question with 'بيبدأ من' when the customer gave you a specific number. Quote the tool's total exactly. If it returns NO FINAL TOTAL, tell the customer the team will confirm and ask for their WhatsApp - do not invent a total.";
-                }
+                // Rule 10 follows THIS page's price list (its own, else the account default);
+                // a list without a product catalog yields the original rule text unchanged.
+                $this->load->helper('pricing');
+                $system_prompt .= pricing_prompt_rule(pricing_get_config($user_id, pricing_resolve_scope($user_id, $social_media, $page_id)));
             }
         }
 
@@ -7591,7 +7592,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                 $response['choices'][0]['text'] = media_unwrap_markdown_links($response['choices'][0]['text']);
                 $sent_urls = media_extract_urls($response['choices'][0]['text']);
                 if (!empty($sent_urls)) {
-                    $mcfg    = pricing_get_config($user_id);
+                    $mcfg    = pricing_get_config($user_id, pricing_resolve_scope($user_id, $social_media, $page_id));
                     $allowed = !empty($mcfg) ? media_all_urls($mcfg) : array();
                     // A URL the OWNER wrote (location pin, booking page, socials) is
                     // authoritative wherever it lives — profile, campaign or knowledge
