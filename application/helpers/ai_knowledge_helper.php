@@ -383,7 +383,12 @@ if (!function_exists('ai_openai_key')) {
             ->limit(1)
             ->get()
             ->row_array();
-        return isset($row['open_ai_secret_key']) ? trim((string) $row['open_ai_secret_key']) : '';
+        // Stored keys are encrypted at rest ('enc::...') once a strong encryption_key is set.
+        // Every direct OpenAI call (embeddings, chunking, price judge, Whisper, preview) must
+        // go through here so it gets the decrypted key, never the stored ciphertext.
+        if (!function_exists('secret_decrypt')) $ci->load->helper('secret');
+        $stored = isset($row['open_ai_secret_key']) ? (string) $row['open_ai_secret_key'] : '';
+        return trim((string) secret_decrypt($stored));
     }
 }
 

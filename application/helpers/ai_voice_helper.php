@@ -19,9 +19,9 @@ if (!function_exists('ai_transcribe_audio')) {
     {
         $ci = &get_instance();
         try {
-            $cfg = $ci->db->select('open_ai_secret_key')->from('open_ai_config')
-                ->where('user_id', (int) $user_id)->limit(1)->get()->row_array();
-            $api_key = isset($cfg['open_ai_secret_key']) ? trim((string) $cfg['open_ai_secret_key']) : '';
+            // decrypted through the single credential accessor (ai_knowledge_helper)
+            if (!function_exists('ai_openai_key')) $ci->load->helper('ai_knowledge');
+            $api_key = ai_openai_key((int) $user_id);
             if ($api_key === '' || $audio_url === '') return false;
 
             // download (max 20 MB)

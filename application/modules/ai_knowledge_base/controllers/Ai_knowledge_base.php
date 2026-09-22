@@ -355,8 +355,14 @@ class Ai_knowledge_base extends Home
         $id = (int) $this->input->post('id', true);
         // Never select `embedding`: it is a binary float32 BLOB, and json_encode()
         // returns false on non-UTF-8 bytes, which leaves the modal spinning.
-        $chunks = $this->basic->get_data('ai_knowledge_chunks', array('where' => array('source_id' => $id)), array('id', 'chunk_text', 'chunk_order'), '', 20, 0, 'chunk_order ASC');
+        // Ownership first: chunks carry no user_id, so the source row is the tenant check.
+        // Without it any KB user could read another tenant's chunks by guessing an id.
         $source = $this->basic->get_data('ai_knowledge_sources', array('where' => array('id' => $id, 'user_id' => $this->user_id)), array('source_name'), '', 1);
+        if (empty($source)) {
+            echo json_encode(array('status' => '0', 'message' => $this->lang->line('Source not found.')));
+            exit();
+        }
+        $chunks = $this->basic->get_data('ai_knowledge_chunks', array('where' => array('source_id' => $id)), array('id', 'chunk_text', 'chunk_order'), '', 20, 0, 'chunk_order ASC');
 
         echo json_encode(array(
             'status' => '1',
