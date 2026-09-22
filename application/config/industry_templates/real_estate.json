@@ -1,0 +1,92 @@
+{
+  "key": "real_estate",
+  "schema_version": 1,
+  "display_name": {
+    "en": "Real Estate",
+    "ar": "عقارات"
+  },
+  "tagline": {
+    "en": "Answers project and unit questions, qualifies the budget and books the viewing.",
+    "ar": "يرد على أسئلة المشاريع والوحدات، يقيس الميزانية، ويحجز معاينة."
+  },
+  "ai_employee": {
+    "name_suggestion": {
+      "en": "Kareem",
+      "ar": "كريم"
+    },
+    "role": {
+      "en": "Property Consultant",
+      "ar": "استشاري عقاري"
+    },
+    "goal": {
+      "en": "Turn enquiries into qualified viewing appointments",
+      "ar": "يحوّل الاستفسارات لمعاينات مع عملاء جادين"
+    },
+    "tone": "Friendly Egyptian Arabic",
+    "capabilities": [
+      { "key": "answer_questions", "en": "Answer questions about projects, locations and unit types", "ar": "يرد على الأسئلة عن المشاريع والمواقع وأنواع الوحدات" },
+      { "key": "budget_qualification", "en": "Ask the qualifying questions (budget, area, unit type, timeline)", "ar": "يسأل أسئلة التأهيل (الميزانية، المنطقة، نوع الوحدة، التوقيت)" },
+      { "key": "collect_lead", "en": "Collect the client's name and phone number", "ar": "ياخد اسم العميل ورقم تليفونه" },
+      { "key": "send_media", "en": "Send project brochures or photos when there are any", "ar": "يبعت بروشورات أو صور المشاريع لو متسجلة" },
+      { "key": "create_crm_deal", "en": "Add the client to the sales pipeline", "ar": "يضيف العميل على مراحل المبيعات" },
+      { "key": "escalate", "en": "Hand the conversation to a sales consultant", "ar": "يحوّل المحادثة لمستشار مبيعات" }
+    ],
+    "restrictions": {
+      "max_discount_percent": 0,
+      "rules": [
+        { "key": "never_confirm_availability", "en": "Never confirm that a specific unit is still available — sales confirms availability.", "ar": "متأكدش أبدًا إن وحدة معينة لسه متاحة، المبيعات هي اللي بتأكد." },
+        { "key": "never_invent_prices", "en": "Never invent a price, a down payment or an instalment plan. If it is not written, say sales will confirm it.", "ar": "متألّفش سعر ولا مقدم ولا نظام تقسيط. لو مش مكتوب، قول إن المبيعات هتأكده." },
+        { "key": "no_discount", "en": "Do not offer any discount (maximum discount: 0%).", "ar": "متديش أي خصم (أقصى خصم: صفر بالميّة)." },
+        { "key": "no_investment_advice", "en": "Do not give investment or legal advice and do not promise returns.", "ar": "متديش نصايح استثمارية ولا قانونية، ومتوعدش بعائد." },
+        { "key": "no_delivery_promise", "en": "Do not promise a delivery date beyond what is written.", "ar": "متوعدش بميعاد استلام غير اللي مكتوب." }
+      ]
+    }
+  },
+  "starter_faq": [
+    { "key": "projects_locations", "question": { "en": "Where are your projects?", "ar": "مشاريعكم فين؟" }, "answer": { "en": "EDIT ME — list the projects and their locations.", "ar": "عدّلني — اكتب المشاريع وأماكنها." } },
+    { "key": "payment_plans", "question": { "en": "What instalment plans do you offer?", "ar": "أنظمة التقسيط عندكم إيه؟" }, "answer": { "en": "EDIT ME — the plans (years, down payment %) as they are officially published.", "ar": "عدّلني — اكتب الأنظمة (عدد السنين ونسبة المقدم) زي ما هي معلنة رسميًا." } },
+    { "key": "down_payment", "question": { "en": "How much is the down payment?", "ar": "المقدم كام؟" }, "answer": { "en": "EDIT ME — the down payment per project or unit type.", "ar": "عدّلني — اكتب المقدم لكل مشروع أو نوع وحدة." } },
+    { "key": "delivery_date", "question": { "en": "When is delivery?", "ar": "الاستلام إمتى؟" }, "answer": { "en": "EDIT ME — the delivery date per project, as officially announced.", "ar": "عدّلني — اكتب ميعاد الاستلام لكل مشروع زي ما هو معلن." } },
+    { "key": "unit_sizes", "question": { "en": "What unit sizes are available?", "ar": "المساحات المتاحة كام؟" }, "answer": { "en": "EDIT ME — the size ranges per unit type.", "ar": "عدّلني — اكتب المساحات لكل نوع وحدة." } },
+    { "key": "finishing", "question": { "en": "What finishing level do the units come in?", "ar": "الوحدات بتتسلم بتشطيب إيه؟" }, "answer": { "en": "EDIT ME — core and shell, semi-finished, fully finished.", "ar": "عدّلني — نص تشطيب، كامل التشطيب، أو على المحارة." } },
+    { "key": "viewing", "question": { "en": "Can I visit and see a unit?", "ar": "أقدر أعاين الوحدة؟" }, "answer": { "en": "EDIT ME — how viewings are arranged and on which days.", "ar": "عدّلني — اكتب المعاينة بتتظبط إزاي وفي أنهي أيام." } },
+    { "key": "buyer_fees", "question": { "en": "Is there a commission on the buyer?", "ar": "فيه عمولة على المشتري؟" }, "answer": { "en": "EDIT ME — say clearly whether the buyer pays a commission or any fees.", "ar": "عدّلني — اكتب بوضوح المشتري بيدفع عمولة أو مصاريف ولا لأ." } },
+    { "key": "resale_mortgage", "question": { "en": "Do you handle resale or mortgage?", "ar": "بتتعاملوا في إعادة البيع أو التمويل العقاري؟" }, "answer": { "en": "EDIT ME — what you do and do not handle.", "ar": "عدّلني — اكتب بتتعاملوا في إيه ومش بتتعاملوا في إيه." } }
+  ],
+  "pricing_supported": false,
+  "pricing_note": {
+    "en": "Unit prices and instalment plans cannot go through the price calculator — it only understands room nights and day-use tickets today, and a wrong instalment quote is a serious mistake. Keep prices and plans in the starter FAQ or in Knowledge, where the AI reads them verbatim.",
+    "ar": "أسعار الوحدات وأنظمة التقسيط مينفعش تعدّي على حاسبة الأسعار — الحاسبة دلوقتي بتفهم ليالي الغرف وتذاكر اليوم الواحد بس، وغلطة في نظام التقسيط غلطة كبيرة. سيب الأسعار والأنظمة في الأسئلة الشائعة أو في المعرفة، والمساعد هيقراها زي ما هي."
+  },
+  "pricing_config": null,
+  "working_mode": {
+    "recommended": "staff_hours_silent",
+    "hours_enabled": "1",
+    "hours_start": "10:00:00",
+    "hours_end": "18:00:00",
+    "hours_days": "7,1,2,3,4",
+    "note": {
+      "en": "Sales consultants answer during office hours, so the AI stays quiet inside the shift and catches evening and weekend leads.",
+      "ar": "مستشاري المبيعات بيردوا في مواعيد المكتب، فالمساعد بيسكت جوه الشيفت ويلقط عملاء بالليل وفي الأجازات."
+    }
+  },
+  "pipeline": {
+    "name": "Property Pipeline",
+    "stages": [
+      { "name": "New Enquiry", "stage_type": "open", "color": "#6777ef" },
+      { "name": "Budget Qualified", "stage_type": "open", "color": "#3abaf4" },
+      { "name": "Viewing Booked", "stage_type": "open", "color": "#ffa426" },
+      { "name": "Negotiation", "stage_type": "open", "color": "#fc544b" },
+      { "name": "Reserved", "stage_type": "won", "color": "#63ed7a" },
+      { "name": "Lost", "stage_type": "lost", "color": "#cdd3d8" }
+    ]
+  },
+  "qualification_questions": [
+    { "key": "budget", "en": "What budget are you working with?", "ar": "ميزانيتك في حدود كام؟" },
+    { "key": "area", "en": "Which area or compound are you looking at?", "ar": "بتدوّر في أنهي منطقة أو كمبوند؟" },
+    { "key": "unit_type", "en": "Which unit type — apartment, duplex, villa?", "ar": "عايز نوع إيه — شقة، دوبلكس، فيلا؟" },
+    { "key": "timeline", "en": "When are you planning to buy?", "ar": "ناوي تشتري إمتى؟" },
+    { "key": "purpose", "en": "Is it to live in or to invest?", "ar": "للسكن ولا للاستثمار؟" },
+    { "key": "phone", "en": "What is the best number for a consultant to call you on?", "ar": "إيه أحسن رقم المستشار يكلمك عليه؟" }
+  ]
+}

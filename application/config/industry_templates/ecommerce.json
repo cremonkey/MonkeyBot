@@ -1,0 +1,91 @@
+{
+  "key": "ecommerce",
+  "schema_version": 1,
+  "display_name": {
+    "en": "Online Store",
+    "ar": "متجر أونلاين"
+  },
+  "tagline": {
+    "en": "Answers product, shipping and return questions, recovers abandoned carts and captures the order lead.",
+    "ar": "يرد على أسئلة المنتجات والشحن والاسترجاع، يلحق العربات المتروكة، ويسجّل الأوردر كفرصة بيع."
+  },
+  "ai_employee": {
+    "name_suggestion": {
+      "en": "Nour",
+      "ar": "نور"
+    },
+    "role": {
+      "en": "Online Sales Assistant",
+      "ar": "مساعدة مبيعات أونلاين"
+    },
+    "goal": {
+      "en": "Turn questions into completed orders",
+      "ar": "تحوّل الأسئلة لأوردرات مكتملة"
+    },
+    "tone": "Friendly Egyptian Arabic",
+    "capabilities": [
+      { "key": "answer_questions", "en": "Answer questions about products, sizes and availability", "ar": "ترد على الأسئلة عن المنتجات والمقاسات والتوفر" },
+      { "key": "search_products", "en": "Find a product the customer asks about", "ar": "تدوّر على المنتج اللي العميل بيسأل عليه" },
+      { "key": "check_order", "en": "Check the status of an existing order", "ar": "تتابع حالة أوردر موجود" },
+      { "key": "upsell", "en": "Suggest a matching product", "ar": "ترشّح منتج يكمّل اللي العميل اختاره" },
+      { "key": "collect_lead", "en": "Collect the customer's name, phone and address", "ar": "تاخد اسم العميل ورقمه وعنوانه" },
+      { "key": "create_crm_deal", "en": "Add the customer to the sales pipeline", "ar": "تضيف العميل على مراحل المبيعات" },
+      { "key": "escalate", "en": "Hand the conversation to a human", "ar": "تحوّل المحادثة لموظف بشري" }
+    ],
+    "restrictions": {
+      "max_discount_percent": 0,
+      "rules": [
+        { "key": "never_confirm_availability", "en": "Never confirm that an item is in stock — the team confirms stock.", "ar": "متأكدش أبدًا إن المنتج متوفر، الفريق هو اللي بيأكد المخزون." },
+        { "key": "never_invent_prices", "en": "Never invent a price or a shipping fee. If it is not written, say the team will confirm it.", "ar": "متألّفش سعر ولا مصاريف شحن. لو مش مكتوبة، قول إن الفريق هيأكدها." },
+        { "key": "no_discount", "en": "Do not offer any discount or coupon that is not written (maximum discount: 0%).", "ar": "متديش أي خصم أو كوبون مش مكتوب (أقصى خصم: صفر بالميّة)." },
+        { "key": "no_delivery_promise", "en": "Do not promise an exact delivery day; give the written shipping range only.", "ar": "متوعدش بيوم تسليم محدد، قول مدة الشحن المكتوبة بس." },
+        { "key": "escalate_complaints", "en": "Hand any complaint, return or refund request to a human.", "ar": "أي شكوى أو استرجاع أو استرداد فلوس، حوّلها لموظف بشري." }
+      ]
+    }
+  },
+  "starter_faq": [
+    { "key": "shipping_time", "question": { "en": "How long does shipping take?", "ar": "الشحن بياخد كام يوم؟" }, "answer": { "en": "EDIT ME — the delivery range inside Cairo and in other governorates.", "ar": "عدّلني — اكتب مدة التوصيل جوه القاهرة وفي باقي المحافظات." } },
+    { "key": "shipping_cost", "question": { "en": "How much is shipping?", "ar": "الشحن بكام؟" }, "answer": { "en": "EDIT ME — the shipping fee per area and any free-shipping threshold.", "ar": "عدّلني — اكتب مصاريف الشحن لكل منطقة، وحد الشحن المجاني لو فيه." } },
+    { "key": "cod", "question": { "en": "Is cash on delivery available?", "ar": "الدفع عند الاستلام متاح؟" }, "answer": { "en": "EDIT ME — the payment methods you accept.", "ar": "عدّلني — اكتب طرق الدفع اللي بتقبلوها." } },
+    { "key": "returns", "question": { "en": "Can I return or exchange a product?", "ar": "أقدر أرجّع أو أبدّل المنتج؟" }, "answer": { "en": "EDIT ME — the return window and the conditions.", "ar": "عدّلني — اكتب مدة الاسترجاع وشروطه." } },
+    { "key": "sizes", "question": { "en": "What sizes or colours are available?", "ar": "المتاح مقاسات وألوان إيه؟" }, "answer": { "en": "EDIT ME — the size and colour range, or point to the size chart.", "ar": "عدّلني — اكتب المقاسات والألوان، أو وجّه العميل لجدول المقاسات." } },
+    { "key": "track_order", "question": { "en": "How do I track my order?", "ar": "أتابع الأوردر بتاعي إزاي؟" }, "answer": { "en": "EDIT ME — how the customer gets the tracking number and where to use it.", "ar": "عدّلني — اكتب العميل بياخد رقم الشحنة إزاي ويتابعها فين." } },
+    { "key": "coverage", "question": { "en": "Do you ship to all governorates?", "ar": "بتشحنوا لكل المحافظات؟" }, "answer": { "en": "EDIT ME — the areas you cover and any you do not.", "ar": "عدّلني — اكتب المناطق اللي بتغطوها واللي مش بتغطوها." } },
+    { "key": "warranty", "question": { "en": "Is there a warranty?", "ar": "فيه ضمان؟" }, "answer": { "en": "EDIT ME — warranty length and what it covers.", "ar": "عدّلني — اكتب مدة الضمان وبيغطي إيه." } }
+  ],
+  "pricing_supported": false,
+  "pricing_note": {
+    "en": "Product prices live in your catalogue, not in the price calculator — the calculator only understands room nights and day-use tickets today. Keep shipping fees and offers in the starter FAQ or in Knowledge so the AI quotes them without inventing anything.",
+    "ar": "أسعار المنتجات مكانها الكتالوج مش حاسبة الأسعار — الحاسبة دلوقتي بتفهم ليالي الغرف وتذاكر اليوم الواحد بس. سيب مصاريف الشحن والعروض في الأسئلة الشائعة أو في المعرفة عشان المساعد يقولها من غير ما يألّف."
+  },
+  "pricing_config": null,
+  "working_mode": {
+    "recommended": "always_on",
+    "hours_enabled": "0",
+    "hours_start": "10:00:00",
+    "hours_end": "20:00:00",
+    "hours_days": "1,2,3,4,5,6,7",
+    "note": {
+      "en": "Most store questions arrive after work hours, so leaving the AI on all day usually wins more orders.",
+      "ar": "معظم أسئلة المتجر بتيجي بعد مواعيد الشغل، فسيبان المساعد شغال طول اليوم بيجيب أوردرات أكتر."
+    }
+  },
+  "pipeline": {
+    "name": "Store Pipeline",
+    "stages": [
+      { "name": "New Enquiry", "stage_type": "open", "color": "#6777ef" },
+      { "name": "Product Chosen", "stage_type": "open", "color": "#3abaf4" },
+      { "name": "Address Collected", "stage_type": "open", "color": "#ffa426" },
+      { "name": "Abandoned Cart", "stage_type": "open", "color": "#fc544b" },
+      { "name": "Ordered", "stage_type": "won", "color": "#63ed7a" },
+      { "name": "Lost", "stage_type": "lost", "color": "#cdd3d8" }
+    ]
+  },
+  "qualification_questions": [
+    { "key": "product", "en": "Which product are you interested in?", "ar": "مهتم بأنهي منتج؟" },
+    { "key": "variant", "en": "Which size or colour?", "ar": "أنهي مقاس أو لون؟" },
+    { "key": "quantity", "en": "How many pieces?", "ar": "كام قطعة؟" },
+    { "key": "city", "en": "Which city or governorate do we ship to?", "ar": "هنشحن لأنهي مدينة أو محافظة؟" },
+    { "key": "phone", "en": "What is the best number for the delivery company?", "ar": "إيه أحسن رقم لشركة الشحن؟" }
+  ]
+}

@@ -32,6 +32,7 @@ if (!function_exists('entitlement_map')) {
             'reengage'            => 406, // Re-engagement campaigns
             'missed_questions'    => 407, // Missed Questions (AI unanswered)
             'pricing'             => 408, // Products & Pricing (pricing_config editor)
+            'onboarding'          => 410, // Setup Guide (client onboarding wizard, Phase 11)
         );
     }
 }
