@@ -50,9 +50,11 @@ check "step 1 business type saved" "$(echo "$r" | jget status)" "'1'"
 check "step 1 wrote the tenant's state row" "$(sql "SELECT template_key FROM onboarding_state WHERE user_id=$UA")" "hotel"
 check "step 1 stored Arabic intact" "$(sql "SELECT JSON_VALUE(data_json,'\$.business_name') FROM onboarding_state WHERE user_id=$UA")" "قرية بيوت"
 
-check "step 2 lists both of tenant A's pages" "$(curl -s -b "$T/$A" "$B/onboarding/step/2" | grep -c 'class="ob-target"')" "2"
+S2=$(curl -s -b "$T/$A" "$B/onboarding/step/2")
+check "step 2 lists both of tenant A's pages" "$(echo "$S2" | grep -c -e 'Tenant A Page' -e 'Tenant A Other Business')" "2"
+check "every listed channel has a checkbox" "$(echo "$S2" | grep -c 'class="ob-target"')" "$(echo "$S2" | grep -c 'fa-cog')"
 check "step 2 pre-ticks nothing" "$(curl -s -b "$T/$A" "$B/onboarding/step/2" | grep 'class="ob-target"' | grep -c checked)" "0"
-check "step 2 offers a Manage link per page" "$(curl -s -b "$T/$A" "$B/onboarding/step/2" | grep -c 'fa-cog')" "2"
+check "step 2 offers a Manage link per channel" "$([ "$(echo "$S2" | grep -c 'fa-cog')" -ge 2 ] && echo yes)" "yes"
 check "step 2 does not list tenant B's page" "$(curl -s -b "$T/$A" "$B/onboarding/step/2" | grep -c 'Tenant B Page')" "0"
 check "step 3 is locked until pages are chosen" "$(curl -s -o /dev/null -w '%{redirect_url}' -b "$T/$A" "$B/onboarding/step/3" | grep -c 'onboarding/step/2')" "1"
 r=$(post $A save_agent --data-urlencode "csrf_token=$KA" --data-urlencode "agent_name=x")
