@@ -31,10 +31,12 @@ sql "DELETE FROM onboarding_state WHERE user_id IN ($UA,$UB);
      DELETE FROM facebook_rx_fb_page_info WHERE user_id IN ($UA,$UB);
      DELETE FROM webchat_settings WHERE user_id IN ($UA,$UB);
      INSERT INTO facebook_rx_fb_page_info (user_id,facebook_rx_fb_user_info_id,page_id,page_name)
-       VALUES ($UA,0,'900000000001','Tenant A Page'),($UB,0,'900000000002','Tenant B Page');
+       VALUES ($UA,0,'900000000001','Tenant A Page'),($UB,0,'900000000002','Tenant B Page'),
+              ($UA,0,'900000000003','Tenant A Other Business');
      UPDATE package SET module_ids='342,410' WHERE id=90;" >/dev/null
 
-PAGE_A=$(sql "SELECT id FROM facebook_rx_fb_page_info WHERE user_id=$UA")
+PAGE_A=$(sql "SELECT id FROM facebook_rx_fb_page_info WHERE user_id=$UA AND page_id='900000000001'")
+PAGE_A2=$(sql "SELECT id FROM facebook_rx_fb_page_info WHERE user_id=$UA AND page_id='900000000003'")
 PAGE_B=$(sql "SELECT id FROM facebook_rx_fb_page_info WHERE user_id=$UB")
 
 echo "== tenant A walks all 9 steps (hotel) =="
@@ -48,9 +50,23 @@ check "step 1 business type saved" "$(echo "$r" | jget status)" "'1'"
 check "step 1 wrote the tenant's state row" "$(sql "SELECT template_key FROM onboarding_state WHERE user_id=$UA")" "hotel"
 check "step 1 stored Arabic intact" "$(sql "SELECT JSON_VALUE(data_json,'\$.business_name') FROM onboarding_state WHERE user_id=$UA")" "قرية بيوت"
 
+S2=$(curl -s -b "$T/$A" "$B/onboarding/step/2")
+check "step 2 lists both of tenant A's pages" "$(echo "$S2" | grep -c -e 'Tenant A Page' -e 'Tenant A Other Business')" "2"
+check "every listed channel has a checkbox" "$(echo "$S2" | grep -c 'class="ob-target"')" "$(echo "$S2" | grep -c 'fa-cog')"
+check "step 2 pre-ticks nothing" "$(curl -s -b "$T/$A" "$B/onboarding/step/2" | grep 'class="ob-target"' | grep -c checked)" "0"
+check "step 2 offers a Manage link per channel" "$([ "$(echo "$S2" | grep -c 'fa-cog')" -ge 2 ] && echo yes)" "yes"
+check "step 2 does not list tenant B's page" "$(curl -s -b "$T/$A" "$B/onboarding/step/2" | grep -c 'Tenant B Page')" "0"
+check "step 3 is locked until pages are chosen" "$(curl -s -o /dev/null -w '%{redirect_url}' -b "$T/$A" "$B/onboarding/step/3" | grep -c 'onboarding/step/2')" "1"
+r=$(post $A save_agent --data-urlencode "csrf_token=$KA" --data-urlencode "agent_name=x")
+check "saving the agent before choosing pages is refused" "$(echo "$r" | jget status)" "'0'"
 r=$(post $A save_channels --data-urlencode "csrf_token=$KA")
-check "step 2 sees exactly tenant A's channel" "$(echo "$r" | jget connected)" "1"
-check "step 2 created no channel of its own" "$(sql "SELECT COUNT(*) FROM facebook_rx_fb_page_info WHERE user_id=$UA")" "1"
+check "step 2 refuses an empty choice" "$(echo "$r" | jget status)" "'0'"
+r=$(post $A save_channels --data-urlencode "csrf_token=$KA" --data-urlencode "targets[]=fb:$PAGE_B")
+check "step 2 refuses another tenant's page" "$(echo "$r" | jget status)" "'0'"
+r=$(post $A save_channels --data-urlencode "csrf_token=$KA" --data-urlencode "targets[]=fb:$PAGE_A" --data-urlencode "targets[]=fb:$PAGE_B")
+check "step 2 keeps only the tenant's own page from a mixed list" "$(echo "$r" | jget selected)" "1"
+check "step 2 stored exactly the chosen page" "$(sql "SELECT JSON_EXTRACT(data_json,'\$.targets') FROM onboarding_state WHERE user_id=$UA")" "[\"fb:$PAGE_A\"]"
+check "step 2 created no channel of its own" "$(sql "SELECT COUNT(*) FROM facebook_rx_fb_page_info WHERE user_id=$UA")" "2"
 
 r=$(post $A save_agent --data-urlencode "csrf_token=$KA" --data-urlencode "agent_name=منى" --data-urlencode "extra=إحنا مقفولين يوم التلات.")
 check "step 3 created the AI employee" "$(echo "$r" | jget status)" "'1'"
@@ -61,13 +77,21 @@ check "step 3 compiled the never-invent-prices rule" "$(sql "SELECT LOCATE('مت
 check "step 3 compiled the availability rule" "$(sql "SELECT LOCATE('متأكدش أبدًا إن الغرفة متاحة', sales_system_prompt)>0 FROM ai_agent_profiles WHERE user_id=$UA")" "1"
 check "step 3 carried the owner's own note" "$(sql "SELECT LOCATE('مقفولين يوم التلات', sales_system_prompt)>0 FROM ai_agent_profiles WHERE user_id=$UA")" "1"
 check "step 3 assigned the profile to the connected page" "$(sql "SELECT COUNT(*) FROM ai_agent_assignments WHERE user_id=$UA AND target_id='$PAGE_A'")" "1"
+check "step 3 left the other business's page alone" "$(sql "SELECT COUNT(*) FROM ai_agent_assignments WHERE user_id=$UA AND target_id='$PAGE_A2'")" "0"
 check "step 3 assigned nothing for tenant B" "$(sql "SELECT COUNT(*) FROM ai_agent_assignments WHERE user_id=$UB")" "0"
 
 r=$(post $A save_knowledge --data-urlencode "csrf_token=$KA")
 check "step 4 inserted the 8 hotel starter questions" "$(echo "$r" | jget inserted)" "8"
 check "step 4 rows are all keyed to the template" "$(sql "SELECT COUNT(*) FROM ai_faq WHERE user_id=$UA AND source_key LIKE 'tpl:hotel:%'")" "8"
+check "step 4 rows belong to the chosen page only" "$(sql "SELECT COUNT(*) FROM ai_faq WHERE user_id=$UA AND page_id='900000000001'")" "8"
+check "step 4 wrote nothing account-wide" "$(sql "SELECT COUNT(*) FROM ai_faq WHERE user_id=$UA AND (page_id IS NULL OR page_id='')")" "0"
+check "step 4 wrote nothing for the other business's page" "$(sql "SELECT COUNT(*) FROM ai_faq WHERE user_id=$UA AND page_id='900000000003'")" "0"
 check "step 4 answers are marked 'edit me'" "$(sql "SELECT COUNT(*) FROM ai_faq WHERE user_id=$UA AND answer LIKE '%عدّلني%'")" "8"
-check "step 4 stored the Arabic question intact" "$(sql "SELECT question FROM ai_faq WHERE user_id=$UA AND source_key='tpl:hotel:checkin_checkout'")" "مواعيد الدخول والخروج إيه؟"
+check "step 4 placeholders are switched off" "$(sql "SELECT COUNT(*) FROM ai_faq WHERE user_id=$UA AND status='1'")" "0"
+check "step 4 stored the Arabic question intact" "$(sql "SELECT question FROM ai_faq WHERE user_id=$UA AND source_key LIKE 'tpl:hotel:checkin_checkout@%'")" "مواعيد الدخول والخروج إيه؟"
+r=$(post $A save_knowledge --data-urlencode "csrf_token=$KA" --data-urlencode "faq[checkin_checkout]=الدخول ٣ العصر.")
+check "a typed answer goes live" "$(sql "SELECT status FROM ai_faq WHERE user_id=$UA AND source_key LIKE 'tpl:hotel:checkin_checkout@%'")" "1"
+check "only the typed answer is live" "$(sql "SELECT COUNT(*) FROM ai_faq WHERE user_id=$UA AND status='1'")" "1"
 
 r=$(post $A save_pricing --data-urlencode "csrf_token=$KA")
 check "step 5 saved the hotel price list" "$(echo "$r" | jget mode)" "'calculator'"
@@ -87,14 +111,15 @@ check "step 6 kept the CRM default stages too" "$(sql "SELECT COUNT(*) FROM crm_
 
 r=$(post $A save_hours --data-urlencode "csrf_token=$KA" -d mode=staff_hours_silent -d hours_start=10:30 -d hours_end=18:00 -d hours_days=1,2,3)
 check "step 7 applied to tenant A's channel" "$(echo "$r" | jget channels_updated)" "1"
-check "step 7 turned the staff window on" "$(sql "SELECT hours_enabled FROM facebook_rx_fb_page_info WHERE user_id=$UA")" "1"
-check "step 7 normalised the start time" "$(sql "SELECT hours_start FROM facebook_rx_fb_page_info WHERE user_id=$UA")" "10:30:00"
-check "step 7 normalised the end time" "$(sql "SELECT hours_end FROM facebook_rx_fb_page_info WHERE user_id=$UA")" "18:00:00"
-check "step 7 stored the days in the existing format" "$(sql "SELECT hours_days FROM facebook_rx_fb_page_info WHERE user_id=$UA")" "1,2,3"
+check "step 7 turned the staff window on" "$(sql "SELECT hours_enabled FROM facebook_rx_fb_page_info WHERE id=$PAGE_A")" "1"
+check "step 7 did NOT touch the other business's page" "$(sql "SELECT hours_enabled FROM facebook_rx_fb_page_info WHERE id=$PAGE_A2")" "0"
+check "step 7 normalised the start time" "$(sql "SELECT hours_start FROM facebook_rx_fb_page_info WHERE id=$PAGE_A")" "10:30:00"
+check "step 7 normalised the end time" "$(sql "SELECT hours_end FROM facebook_rx_fb_page_info WHERE id=$PAGE_A")" "18:00:00"
+check "step 7 stored the days in the existing format" "$(sql "SELECT hours_days FROM facebook_rx_fb_page_info WHERE id=$PAGE_A")" "1,2,3"
 check "step 7 did NOT touch tenant B's channel" "$(sql "SELECT hours_enabled FROM facebook_rx_fb_page_info WHERE user_id=$UB")" "0"
 r=$(post $A save_hours --data-urlencode "csrf_token=$KA" -d mode=staff_hours_silent -d hours_start=99:99 -d hours_end=18:00 -d hours_days=9)
-check "step 7 rejects an impossible time and falls back" "$(sql "SELECT hours_start FROM facebook_rx_fb_page_info WHERE user_id=$UA")" "09:00:00"
-check "step 7 rejects an impossible weekday and keeps the stored days" "$(sql "SELECT hours_days FROM facebook_rx_fb_page_info WHERE user_id=$UA")" "1,2,3"
+check "step 7 rejects an impossible time and falls back" "$(sql "SELECT hours_start FROM facebook_rx_fb_page_info WHERE id=$PAGE_A")" "09:00:00"
+check "step 7 rejects an impossible weekday and keeps the stored days" "$(sql "SELECT hours_days FROM facebook_rx_fb_page_info WHERE id=$PAGE_A")" "1,2,3"
 
 # step 8: no OpenAI key is configured on staging, and the wizard must say so, never invent a reply
 r=$(post $A test_reply --data-urlencode "csrf_token=$KA" --data-urlencode "message=السلام عليكم")
@@ -110,7 +135,7 @@ check "step 9 page renders the checklist" "$(curl -s -b "$T/$A" "$B/onboarding/s
 
 echo "== every step re-run: updates, never duplicates =="
 post $A save_business --data-urlencode "csrf_token=$KA" -d template_key=hotel --data-urlencode "business_name=قرية بيوت" >/dev/null
-post $A save_channels --data-urlencode "csrf_token=$KA" >/dev/null
+post $A save_channels --data-urlencode "csrf_token=$KA" --data-urlencode "targets[]=fb:$PAGE_A" >/dev/null
 post $A save_agent --data-urlencode "csrf_token=$KA" --data-urlencode "agent_name=منى" >/dev/null
 r=$(post $A save_knowledge --data-urlencode "csrf_token=$KA")
 post $A save_pricing --data-urlencode "csrf_token=$KA" >/dev/null
@@ -128,14 +153,14 @@ check "still exactly 11 stages" "$(sql "SELECT COUNT(*) FROM crm_stages WHERE pi
 check "going live twice keeps one state row" "$(sql "SELECT COUNT(*) FROM onboarding_state WHERE user_id=$UA")" "1"
 
 echo "== an owner's edits survive a re-run =="
-sql "UPDATE ai_faq SET answer='الدخول ٣ العصر والخروج ١١ الصبح.' WHERE user_id=$UA AND source_key='tpl:hotel:checkin_checkout';
+sql "UPDATE ai_faq SET answer='الدخول ٣ العصر والخروج ١١ الصبح.' WHERE user_id=$UA AND source_key LIKE 'tpl:hotel:checkin_checkout@%';
      INSERT INTO ai_faq (user_id,page_id,source_key,question,answer,status,created_at) VALUES ($UA,NULL,NULL,'بتقبلوا حيوانات أليفة؟','أيوه، بشرط.','1',NOW());" >/dev/null
 post $A save_knowledge --data-urlencode "csrf_token=$KA" >/dev/null
-check "a blank field does not wipe the owner's answer" "$(sql "SELECT answer FROM ai_faq WHERE user_id=$UA AND source_key='tpl:hotel:checkin_checkout'")" "الدخول ٣ العصر والخروج ١١ الصبح."
+check "a blank field does not wipe the owner's answer" "$(sql "SELECT answer FROM ai_faq WHERE user_id=$UA AND source_key LIKE 'tpl:hotel:checkin_checkout@%'")" "الدخول ٣ العصر والخروج ١١ الصبح."
 check "a hand-written FAQ is left alone" "$(sql "SELECT answer FROM ai_faq WHERE user_id=$UA AND source_key IS NULL")" "أيوه، بشرط."
 check "re-running deletes nothing" "$(sql "SELECT COUNT(*) FROM ai_faq WHERE user_id=$UA")" "9"
 r=$(post $A save_knowledge --data-urlencode "csrf_token=$KA" --data-urlencode "faq[checkin_checkout]=الدخول ٢ الضهر.")
-check "a typed answer does replace the stored one" "$(sql "SELECT answer FROM ai_faq WHERE user_id=$UA AND source_key='tpl:hotel:checkin_checkout'")" "الدخول ٢ الضهر."
+check "a typed answer does replace the stored one" "$(sql "SELECT answer FROM ai_faq WHERE user_id=$UA AND source_key LIKE 'tpl:hotel:checkin_checkout@%'")" "الدخول ٢ الضهر."
 sql "UPDATE crm_stages SET name='Deposit Paid' WHERE pipeline_id=$PIPE_A AND name='Booked'" >/dev/null
 post $A save_pipeline --data-urlencode "csrf_token=$KA" >/dev/null
 check "a renamed stage is not deleted, the template name is added beside it" "$(sql "SELECT COUNT(*) FROM crm_stages WHERE pipeline_id=$PIPE_A AND name IN ('Deposit Paid','Booked')")" "2"
@@ -151,6 +176,9 @@ check "tenant B cannot jump past step 1 without choosing" "$(curl -s -o /dev/nul
 r=$(post $Bt save_business --data-urlencode "csrf_token=$KB" -d template_key=clinic --data-urlencode "business_name=عيادة النور")
 check "tenant B picks its own vertical" "$(sql "SELECT template_key FROM onboarding_state WHERE user_id=$UB")" "clinic"
 check "tenant A's template is unchanged" "$(sql "SELECT template_key FROM onboarding_state WHERE user_id=$UA")" "hotel"
+r=$(post $Bt save_channels --data-urlencode "csrf_token=$KB" --data-urlencode "targets[]=fb:$PAGE_A")
+check "tenant B cannot choose tenant A's page" "$(echo "$r" | jget status)" "'0'"
+post $Bt save_channels --data-urlencode "csrf_token=$KB" --data-urlencode "targets[]=fb:$PAGE_B" >/dev/null
 post $Bt save_agent --data-urlencode "csrf_token=$KB" --data-urlencode "agent_name=سلمى" >/dev/null
 post $Bt save_knowledge --data-urlencode "csrf_token=$KB" >/dev/null
 check "tenant B's agent is its own row" "$(sql "SELECT COUNT(*) FROM ai_agent_profiles WHERE user_id=$UB")" "1"
@@ -172,7 +200,7 @@ check "tenant A's price list is untouched by tenant B" "$(sql "SELECT COUNT(*) F
 echo "== tenant B cannot read tenant A's onboarding state =="
 check "B's state row is its own" "$(sql "SELECT JSON_VALUE(data_json,'\$.business_name') FROM onboarding_state WHERE user_id=$UB")" "عيادة النور"
 check "B's step 3 does not show A's agent" "$(curl -s -b "$T/$Bt" "$B/onboarding/step/3" | grep -c 'مقفولين يوم التلات')" "0"
-check "B's step 9 checklist does not count A's channels" "$(curl -s -b "$T/$Bt" "$B/onboarding/step/9" | grep -c 'Tenant A Page')" "0"
+check "B's step 9 checklist does not name A's pages" "$(curl -s -b "$T/$Bt" "$B/onboarding/step/9" | grep -c 'Tenant A Page')" "0"
 check "B's step 4 does not show A's hotel questions" "$(curl -s -b "$T/$Bt" "$B/onboarding/step/4" | grep -c 'مواعيد الدخول والخروج')" "0"
 # a forged step number cannot reach another tenant's data either: the controller keys on session uid only
 check "step numbers are clamped, not trusted" "$(curl -s -o /dev/null -w '%{http_code}' -b "$T/$Bt" "$B/onboarding/step/99")" "200"

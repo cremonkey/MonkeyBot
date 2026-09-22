@@ -1,32 +1,54 @@
 <?php $this->load->view('admin/onboarding/_shell'); ?>
-<p class="text-muted">Connect the places your customers message you. Each one opens its own setup page — this guide only shows you what is connected.
-  <br><span dir="rtl">وصّل الأماكن اللي عملاؤك بيكلموك منها. كل واحدة ليها صفحة توصيل خاصة بيها، والدليل ده بيوريك المتوصّل إيه بس.</span></p>
+<?php
+  $manage = array('fb' => 'social_accounts', 'wa' => 'whatsapp_bot', 'openwa' => 'openwa_bot', 'tg' => 'telegram_bot', 'web' => 'webchat');
+  $biz = trim((string) ($state['data']['business_name'] ?? ''));
+?>
+<p class="text-muted">Tick only the pages and numbers that belong to <strong><?php echo $biz !== '' ? htmlspecialchars($biz) : 'this business'; ?></strong>.
+  The AI employee, answers and working hours you set in the next steps apply to the ticked ones only — nothing else on your account is touched.
+  <br><span dir="rtl">علّم على الصفحات والأرقام اللي تخص النشاط ده بس. الموظف والإجابات ومواعيد الشغل اللي هتظبطها في الخطوات الجاية هتتطبّق عليها هي بس، ومفيش أي حاجة تانية في حسابك هتتأثر.</span></p>
 
 <div class="row">
-  <div class="col-lg-7">
-    <div class="card"><div class="card-header"><h4>Connected now <small class="text-muted" dir="rtl">المتوصّل دلوقتي</small></h4></div>
+  <div class="col-lg-8">
+    <div class="card"><div class="card-header"><h4>Pages for this business <small class="text-muted" dir="rtl">صفحات النشاط ده</small></h4></div>
       <div class="card-body">
         <?php if (empty($channels)): ?>
-          <p class="text-muted mb-0">Nothing connected yet. Use the buttons on the right — you need at least one.
-            <br><span dir="rtl">لسه مفيش حاجة متوصّلة. استخدم الأزرار اللي على الجنب، محتاج واحدة على الأقل.</span></p>
+          <p class="text-muted mb-0">Nothing connected yet. Connect a page or number using the buttons on the right, then press Refresh.
+            <br><span dir="rtl">لسه مفيش حاجة متوصّلة. وصّل صفحة أو رقم من الأزرار اللي على الجنب وبعدين دوس تحديث.</span></p>
         <?php else: ?>
           <table class="table table-sm mb-0">
             <tbody>
-            <?php foreach ($channels as $c): ?>
+            <?php foreach ($channels as $k => $c):
+                $akey = ($c['kind'] === 'openwa' ? null : $c['channel'] . ':' . $c['target']);
+                $other = ($akey !== null && isset($assigned_to[$akey])) ? $assigned_to[$akey] : null; ?>
               <tr>
-                <td style="width:32px"><i class="<?php echo htmlspecialchars($c['icon']); ?>"></i></td>
-                <td><?php echo htmlspecialchars($c['label']); ?><br><small class="text-muted"><?php echo htmlspecialchars($c['note']); ?></small></td>
-                <td class="text-right"><span class="badge badge-success">Connected</span></td>
+                <td style="width:32px">
+                  <input type="checkbox" class="ob-target" id="t_<?php echo md5($k); ?>" value="<?php echo htmlspecialchars($k); ?>" <?php echo isset($selected[$k]) ? 'checked' : ''; ?>>
+                </td>
+                <td style="width:28px"><i class="<?php echo htmlspecialchars($c['icon']); ?>"></i></td>
+                <td>
+                  <label for="t_<?php echo md5($k); ?>" class="mb-0" style="cursor:pointer"><?php echo htmlspecialchars($c['label']); ?></label>
+                  <br><small class="text-muted"><?php echo htmlspecialchars($c['note']); ?></small>
+                  <?php if ($other !== null): ?>
+                    <br><small class="text-warning">Already answered by “<?php echo htmlspecialchars($other); ?>” — that stays as it is.
+                      <span dir="rtl">عليها موظف تاني بالفعل وهيفضل زي ما هو.</span></small>
+                  <?php endif; ?>
+                </td>
+                <td class="text-right" style="white-space:nowrap">
+                  <a href="<?php echo base_url($manage[$c['kind']] ?? 'social_accounts'); ?>" target="_blank" class="btn btn-sm btn-outline-secondary" title="Disconnect or change this channel on its own page">
+                    <i class="fas fa-cog"></i> Manage <span dir="rtl">إدارة</span></a>
+                </td>
               </tr>
             <?php endforeach; ?>
             </tbody>
           </table>
+          <small class="text-muted d-block mt-2">To disconnect a page or number, use <em>Manage</em> — it opens that channel's own settings.
+            <span dir="rtl">لو عايز تفصل صفحة أو رقم، دوس "إدارة" وهتفتحلك إعدادات القناة نفسها.</span></small>
         <?php endif; ?>
       </div>
     </div>
   </div>
-  <div class="col-lg-5">
-    <div class="card"><div class="card-header"><h4>Add a channel <small class="text-muted" dir="rtl">ضيف قناة</small></h4></div>
+  <div class="col-lg-4">
+    <div class="card"><div class="card-header"><h4>Connect another <small class="text-muted" dir="rtl">وصّل قناة جديدة</small></h4></div>
       <div class="card-body">
         <?php foreach ($connect_links as $l): ?>
           <a class="btn btn-outline-primary btn-block text-left mb-2" href="<?php echo base_url($l['url']); ?>" target="_blank">
@@ -40,11 +62,16 @@
   </div>
 </div>
 
-<button class="btn btn-outline-secondary" onclick="window.location.reload()"><i class="fas fa-sync"></i> Refresh status</button>
-<button class="btn btn-primary ob-save" id="ob_go">Continue</button>
+<button class="btn btn-outline-secondary" onclick="window.location.reload()"><i class="fas fa-sync"></i> Refresh</button>
+<button class="btn btn-primary ob-save" id="ob_go" disabled>Save and continue</button>
+<small class="text-muted ml-2" id="ob_go_hint">Tick at least one page for this business. <span dir="rtl">علّم على صفحة واحدة على الأقل.</span></small>
 <?php $this->load->view('admin/onboarding/_foot'); ?>
 <script>
 $(function () {
-  $('#ob_go').on('click', function () { OB.post('save_channels', {}, function () { OB.next(); }); });
+  function picked() { return $('.ob-target:checked').map(function () { return this.value; }).get(); }
+  function paint() { var n = picked().length; $('#ob_go').prop('disabled', n === 0); $('#ob_go_hint').toggle(n === 0); }
+  $('.ob-target').on('change', paint);
+  $('#ob_go').on('click', function () { OB.post('save_channels', {targets: picked()}, function () { OB.next(); }); });
+  paint();
 });
 </script>

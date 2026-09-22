@@ -40,9 +40,10 @@ $this->load->view('admin/onboarding/_shell');
 
   <p class="text-muted mt-3 mb-0"><small>
     <?php if ((int) $hours['rows'] === 0): ?>
-      No channel is connected yet, so this is only remembered as your choice. Connect a channel and come back to apply it.
+      None of the pages you picked for this business has working-hours settings (only Facebook pages and personal WhatsApp numbers do), so this is only remembered as your choice.
     <?php else: ?>
-      This applies to all <?php echo (int) $hours['rows']; ?> connected channel(s).
+      This applies only to the <?php echo (int) $hours['rows']; ?> page(s)/number(s) you picked for this business in step 2.
+      <span dir="rtl">ده هيتطبّق على الصفحات اللي اخترتها للنشاط ده بس.</span>
     <?php endif; ?>
   </small></p>
 </div></div>

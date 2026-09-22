@@ -66,7 +66,10 @@ $(function () {
       agent_name: $('#ob_name').val(), role: $('#ob_role').val(),
       goal: $('#ob_goal').val(), extra: $('#ob_extra').val()
     }, function (r) {
-      if (r.assigned > 0) { OB.msg('success', 'Saved. Your AI employee now answers on ' + r.assigned + ' channel(s).'); setTimeout(OB.next, 900); }
+      var kept = (r.kept_existing || []).length;
+      var m = r.assigned > 0 ? ('Saved. Your AI employee now answers on ' + r.assigned + ' of the pages you picked.') : 'Saved.';
+      if (kept) m += ' ' + kept + ' page(s) already had another AI employee and were left as they are: ' + r.kept_existing.join(', ') + '.';
+      if (r.assigned > 0 || kept) { OB.msg('success', m); setTimeout(OB.next, kept ? 2500 : 900); }
       else OB.next();
     });
   });
