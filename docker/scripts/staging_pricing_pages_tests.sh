@@ -23,6 +23,8 @@ tok(){ curl -s -b "$T/$1" "$B/pricing" | grep -o 'var TOKEN = "[^"]*"' | sed 's/
 post(){ j="$T/$1"; p="$2"; shift 2; curl -s -b "$j" -H 'X-Requested-With: XMLHttpRequest' -X POST "$B/$p" "$@"; }
 jget(){ php -r '$d=json_decode(stream_get_contents(STDIN),true); $p=explode(".",$argv[1]); foreach($p as $k){ if(!is_array($d)||!array_key_exists($k,$d)){echo "∅";exit;} $d=$d[$k]; } echo is_array($d)?json_encode($d,JSON_UNESCAPED_UNICODE):(is_bool($d)?var_export($d,true):$d);' "$1"; }
 b64(){ printf '%s' "$1" | base64 | tr -d '\n'; }
+# NB: never `echo "$json" | jget` — dash's echo turns the "\n" inside rule10 into a raw
+# newline and the JSON no longer parses. printf '%s' passes it through untouched.
 # probe <social> <page_id> [<tool> <args_json>]  (user 1 unless PROBE_UID is set)
 probe(){ if [ $# -ge 3 ]; then docker exec -u www-data "$APPC" php /var/www/html/docker/scripts/pricing_ai_probe.php "${PROBE_UID:-1}" "$1" "$2" "$3" "$(b64 "$4")";
          else docker exec -u www-data "$APPC" php /var/www/html/docker/scripts/pricing_ai_probe.php "${PROBE_UID:-1}" "$1" "$2"; fi; }
@@ -56,10 +58,10 @@ sql "ALTER TABLE pricing_config DROP INDEX IF EXISTS uq_user_scope, DROP COLUMN 
      ALTER TABLE pricing_config_history DROP COLUMN IF EXISTS channel_type, DROP COLUMN IF EXISTS target_id;
      DELETE FROM schema_migrations WHERE filename='2026-09-29-pricing-per-page.sql';" >/dev/null
 check "pre-migration shape restored (no scope column)" "$(sql "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='pricing_config' AND COLUMN_NAME='channel_type'")" "0"
-sql "INSERT INTO pricing_config (user_id,config_json,status,updated_at) VALUES ($UA,'$(echo "$BYOOT" | sed "s/'/''/g")','1',NOW())"
+sql "INSERT INTO pricing_config (user_id,config_json,status,updated_at) VALUES ($UA,'$(printf '%s' "$BYOOT" | sed "s/'/''/g")','1',NOW())"
 PRE_C=$(probe fb PGTEST_C333 calculate_price "$STAY4"); PRE_D=$(probe fb PGTEST_D444)
-check "pre-migration: the single list prices a stay (4 nights = offer 11,500)" "$(echo "$PRE_C" | jget price_facts.0 | grep -c '11,500')" "1"
-has "pre-migration: rule 10 is the original text" "$(echo "$PRE_D" | jget rule10)" "a number of nights, OR a number of people/adults, OR a headcount for day-use"
+check "pre-migration: the single list prices a stay (4 nights = offer 11,500)" "$(printf "%s" "$PRE_C" | jget price_facts.0 | grep -c '11,500')" "1"
+has "pre-migration: rule 10 is the original text" "$(printf "%s" "$PRE_D" | jget rule10)" "a number of nights, OR a number of people/adults, OR a headcount for day-use"
 m=$(docker exec -u www-data "$APPC" php /var/www/html/index.php cron_hub migrate)
 has "migration applies cleanly" "$m" "applied 2026-09-29-pricing-per-page.sql"
 check "existing row became the default list ('','')" "$(sql "SELECT CONCAT(channel_type,'|',target_id) FROM pricing_config WHERE user_id=$UA")" "|"
@@ -87,57 +89,57 @@ has "a page without its own list says it uses the default" "$H" "No own list —
 
 # ---------------------------------------------------------------- two pages, two catalogs
 r=$(post $A pricing/save --data-urlencode "csrf_token=$K" -d "scope=fb:$PA" --data-urlencode "config_json=$SALON" -d summary=salon)
-check "page A catalog saved" "$(echo "$r" | jget status)" "1"
+check "page A catalog saved" "$(printf "%s" "$r" | jget status)" "1"
 r=$(post $A pricing/save --data-urlencode "csrf_token=$K" -d "scope=fb:$PB" --data-urlencode "config_json=$SHOP" -d summary=shop)
-check "page B catalog saved" "$(echo "$r" | jget status)" "1"
+check "page B catalog saved" "$(printf "%s" "$r" | jget status)" "1"
 check "three lists now (default + A + B)" "$(sql "SELECT COUNT(*) FROM pricing_config WHERE user_id=$UA")" "3"
 check "history row for A records page A" "$(sql "SELECT CONCAT(channel_type,':',target_id) FROM pricing_config_history WHERE user_id=$UA AND summary='salon'")" "fb:$PA"
 pa=$(probe fb PGTEST_A111 calculate_price "$HAIR2")
-has "AI on page A: 2 haircuts = 300 جنيه (page A price)" "$(echo "$pa" | jget result)" "300 جنيه"
-has "page A figure is in ai_price_facts (price guard source)" "$(echo "$pa" | jget price_facts)" "300 جنيه"
+has "AI on page A: 2 haircuts = 300 جنيه (page A price)" "$(printf "%s" "$pa" | jget result)" "300 جنيه"
+has "page A figure is in ai_price_facts (price guard source)" "$(printf "%s" "$pa" | jget price_facts)" "300 جنيه"
 pb=$(probe fb PGTEST_B222 calculate_price "$HAIR2")
-has "AI on page B: same item = 600 EGP (page B price)" "$(echo "$pb" | jget result)" "600 EGP"
-hasnt "page B never gets page A's price" "$(echo "$pb" | jget result)" "300 جنيه"
+has "AI on page B: same item = 600 EGP (page B price)" "$(printf "%s" "$pb" | jget result)" "600 EGP"
+hasnt "page B never gets page A's price" "$(printf "%s" "$pb" | jget result)" "300 جنيه"
 pc=$(probe fb PGTEST_C333 calculate_price "$STAY4")
-has "page C (no own list) gets the default list: 11,500" "$(echo "$pc" | jget result)" "11,500"
+has "page C (no own list) gets the default list: 11,500" "$(printf "%s" "$pc" | jget result)" "11,500"
 pci=$(probe ig IGTEST_C calculate_price "$STAY4")
-has "Instagram of page C resolves to page C's scope (default here)" "$(echo "$pci" | jget result)" "11,500"
+has "Instagram of page C resolves to page C's scope (default here)" "$(printf "%s" "$pci" | jget result)" "11,500"
 check "page A tool offers only items" "$(probe fb PGTEST_A111 | jget tool_enum)" '["item"]'
 check "page C tool is the original stays/day-use one" "$(probe fb PGTEST_C333 | jget tool_enum)" '["accommodation","day_use"]'
 has "page A rule 10 talks about products" "$(probe fb PGTEST_A111 | jget rule10)" "product or service"
 amb=$(probe fb PGTEST_A111 calculate_price '{"type":"item","item":"كيراتين"}')
-has "ambiguous alias -> the AI asks which one" "$(echo "$amb" | jget result)" "Keratin Short / Keratin Long"
-check "ambiguous alias -> no price fact" "$(echo "$amb" | jget price_facts)" "[]"
+has "ambiguous alias -> the AI asks which one" "$(printf "%s" "$amb" | jget result)" "Keratin Short / Keratin Long"
+check "ambiguous alias -> no price fact" "$(printf "%s" "$amb" | jget price_facts)" "[]"
 has "price on request -> NO FINAL TOTAL" "$(probe fb PGTEST_A111 calculate_price '{"type":"item","item":"Bridal package"}' | jget result)" "NO FINAL TOTAL"
 r=$(post $A pricing/calc --data-urlencode "csrf_token=$K" --data-urlencode "config_json=$SALON" -d kind=item --data-urlencode "item=haircut" --data-urlencode "variant=أطفال" -d quantity=3)
-check "test calculator prices items (3 × 100 kids haircut)" "$(echo "$r" | jget result.total)" "300"
+check "test calculator prices items (3 × 100 kids haircut)" "$(printf "%s" "$r" | jget result.total)" "300"
 
 # ---------------------------------------------------------------- openwa #55 vs cloud #55
 r=$(post $A pricing/save --data-urlencode "csrf_token=$K" -d "scope=openwa:55" --data-urlencode "config_json=$OWA" -d summary=owa)
-check "openwa #55 list saved" "$(echo "$r" | jget status)" "1"
+check "openwa #55 list saved" "$(printf "%s" "$r" | jget status)" "1"
 r=$(post $A pricing/save --data-urlencode "csrf_token=$K" -d "scope=wa_cloud:55" --data-urlencode "config_json=$CLOUD" -d summary=cloud)
-check "wa_cloud #55 list saved (no unique collision)" "$(echo "$r" | jget status)" "1"
+check "wa_cloud #55 list saved (no unique collision)" "$(printf "%s" "$r" | jget status)" "1"
 has "Openwa_bot context (session id) -> 70" "$(probe wa owtest-sess calculate_price '{"type":"item","item":"Delivery box"}' | jget result)" "70 جنيه"
 has "Whatsapp_bot context (account id 55) -> 85" "$(probe wa 55 calculate_price '{"type":"item","item":"Delivery box"}' | jget result)" "85 جنيه"
 
 # ---------------------------------------------------------------- copy / remove / move
 r=$(post $A pricing/copy --data-urlencode "csrf_token=$K" -d "scope=fb:$PA" -d "to=fb:$PC")
-check "copy page A -> page C" "$(echo "$r" | jget status)" "1"
+check "copy page A -> page C" "$(printf "%s" "$r" | jget status)" "1"
 has "page C now prices from its copy (300)" "$(probe fb PGTEST_C333 calculate_price "$HAIR2" | jget result)" "300 جنيه"
 check "copy left page A intact" "$(sql "SELECT JSON_VALUE(config_json,'\$.catalog.items[0].price') FROM pricing_config WHERE user_id=$UA AND channel_type='fb' AND target_id='$PA'")" "150"
 r=$(post $A pricing/copy --data-urlencode "csrf_token=$K" -d "scope=fb:$PB" -d "to=fb:$PC")
-check "copy onto a page that has a list asks first" "$(echo "$r" | jget code)" "exists"
+check "copy onto a page that has a list asks first" "$(printf "%s" "$r" | jget code)" "exists"
 r=$(post $A pricing/remove --data-urlencode "csrf_token=$K" -d "scope=fb:$PC")
-check "remove page C's own list" "$(echo "$r" | jget status)" "1"
+check "remove page C's own list" "$(printf "%s" "$r" | jget status)" "1"
 has "page C back on the default list" "$(probe fb PGTEST_C333 calculate_price "$STAY4" | jget result)" "11,500"
 has "page D (no own list) uses the default before the move" "$(probe fb PGTEST_D444 calculate_price "$STAY4" | jget result)" "11,500"
 r=$(post $A pricing/move --data-urlencode "csrf_token=$K" -d "to=fb:$PC")
-check "move the default list to page C" "$(echo "$r" | jget status)" "1"
+check "move the default list to page C" "$(printf "%s" "$r" | jget status)" "1"
 check "no default list left" "$(sql "SELECT COUNT(*) FROM pricing_config WHERE user_id=$UA AND channel_type='' AND target_id=''")" "0"
 has "page C prices the Byoot stay from its own (moved) list" "$(probe fb PGTEST_C333 calculate_price "$STAY4" | jget result)" "11,500"
 d=$(probe fb PGTEST_D444 calculate_price "$STAY4")
-has "page D no longer quotes the Byoot prices" "$(echo "$d" | jget result)" "Pricing is not configured"
-check "page D gets no rule 10" "$(echo "$d" | jget rule10)" ""
+has "page D no longer quotes the Byoot prices" "$(printf "%s" "$d" | jget result)" "Pricing is not configured"
+check "page D gets no rule 10" "$(printf "%s" "$d" | jget rule10)" ""
 check "history names the moved-to page" "$(sql "SELECT COUNT(*) FROM pricing_config_history WHERE user_id=$UA AND channel_type='fb' AND target_id='$PC' AND summary LIKE 'Default list moved to Resort Page%'")" "1"
 H=$(curl -s -b "$T/$A" "$B/pricing")
 has "history shows which page a change was for" "$H" 'fa-map-pin"></i> Salon Page'
@@ -145,15 +147,15 @@ has "history shows which page a change was for" "$H" 'fa-map-pin"></i> Salon Pag
 # ---------------------------------------------------------------- IDOR + CSRF
 before=$(sql "SELECT COUNT(*) FROM pricing_config")
 r=$(post $A pricing/save --data-urlencode "csrf_token=$K" -d "scope=fb:$PX" --data-urlencode "config_json=$SHOP")
-check "save onto tenant B's page rejected" "$(echo "$r" | jget status)" "0"
+check "save onto tenant B's page rejected" "$(printf "%s" "$r" | jget status)" "0"
 r=$(post $A pricing/copy --data-urlencode "csrf_token=$K" -d "scope=fb:$PA" -d "to=fb:$PX")
-check "copy onto tenant B's page rejected" "$(echo "$r" | jget status)" "0"
+check "copy onto tenant B's page rejected" "$(printf "%s" "$r" | jget status)" "0"
 r=$(post $A pricing/move --data-urlencode "csrf_token=$K" -d "to=openwa:56")
-check "move onto tenant B's number rejected" "$(echo "$r" | jget status)" "0"
+check "move onto tenant B's number rejected" "$(printf "%s" "$r" | jget status)" "0"
 r=$(post $A pricing/toggle --data-urlencode "csrf_token=$K" -d "scope=fb:$PX" -d active=0)
-check "toggle on tenant B's page rejected" "$(echo "$r" | jget status)" "0"
+check "toggle on tenant B's page rejected" "$(printf "%s" "$r" | jget status)" "0"
 r=$(post $A pricing/save --data-urlencode "csrf_token=$K" -d "scope=evil:1" --data-urlencode "config_json=$SHOP")
-check "unknown channel scope rejected (not silently the default)" "$(echo "$r" | jget status)" "0"
+check "unknown channel scope rejected (not silently the default)" "$(printf "%s" "$r" | jget status)" "0"
 check "no row was written by any rejected call" "$(sql "SELECT COUNT(*) FROM pricing_config")" "$before"
 has "GET with a foreign page shows a warning, not that page" "$(curl -s -b "$T/$A" "$B/pricing?scope=fb:$PX")" "not connected to your account"
 r=$(post $A pricing/save --data-urlencode "csrf_token=bogus" -d "scope=fb:$PA" --data-urlencode "config_json=$SHOP")

@@ -1,8 +1,9 @@
 <?php
 /**
  * CLI probe for per-page price lists — TEST STACKS ONLY (never production).
- * Boots the real CodeIgniter app (through `cron_hub migrate`, a no-op once migrations are
- * applied) and then calls the REAL reply-path code for one conversation context:
+ * Boots the real CodeIgniter app through `cron_hub kb_probe 0 0` (read-only; returns at
+ * once for user 0 — deliberately NOT `migrate`, so the probe can measure a pre-migration
+ * schema) and then calls the REAL reply-path code for one conversation context:
  *   pricing_resolve_scope -> pricing_get_config -> rule 10 text, the calculate_price
  *   tool definition, and Ai_tools::execute(), plus what landed in ai_price_facts (the
  *   price guard's authoritative source).
@@ -16,8 +17,8 @@ $probe = array_slice($argv, 1);
 if (count($probe) < 3) { fwrite(STDERR, "usage: pricing_ai_probe.php <user_id> <social> <page_id> [<tool> <args_b64>]\n"); exit(2); }
 
 $root = dirname(__DIR__, 2);
-$_SERVER['argv'] = array('index.php', 'cron_hub', 'migrate');
-$_SERVER['argc'] = 3;
+$_SERVER['argv'] = array('index.php', 'cron_hub', 'kb_probe', '0', '0');
+$_SERVER['argc'] = 5;
 ob_start();
 require $root . '/index.php';
 ob_end_clean();
