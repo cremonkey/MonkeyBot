@@ -639,3 +639,14 @@ schema (36 migrations, 0 errors, 172 tables, 0 column/index/default differences)
 literal credentials; repo reads them from env — repo version is the intended one) differ.
 No non-secret configuration is missing from git. The volume also holds 6 `*.bak*` copies
 (not served; nginx denies `/application`).
+
+### Owner decisions (2026-09-22, end of day)
+- **Entitlements: ENFORCED.** Owner chose "all features for all current packages": modules 400–407
+  added to Trial and Monthly, sidebar items gated (`2026-09-22c-menu-module-access.sql`), config
+  `entitlement_enforce_custom_modules = TRUE` in the live volume. Admin never blocked. Verified on
+  staging; production `/health` ok after the switch.
+- **Push: deferred by owner.** The remote token in `.git/config` is expired and no MonkeyBot
+  credential exists on the server. Protection until then: verified `git bundle --all` in
+  `/root/backups/monkeybot-git-*.bundle` (restore: `git clone <bundle>`).
+- **Webhook signatures: stay in `log`** until the rollout criteria in
+  `docs/security/webhook-signatures.md` are met on live traffic (time-gated; low volume).
