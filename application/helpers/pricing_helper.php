@@ -205,3 +205,103 @@ if (!function_exists('pricing_calc_accommodation')) {
             'currency' => isset($cfg['currency']) ? $cfg['currency'] : 'جنيه');
     }
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Products & Pricing admin (Phase 10 / brief 21): validation + audited save.
+ * The editor sends the WHOLE config object back, so keys this validator does not
+ * know (media, room aliases, future fields) are preserved untouched.
+ * ---------------------------------------------------------------------------
+ */
+if (!function_exists('pricing_validate_config')) {
+    /** @return string[] human-readable errors; empty = valid */
+    function pricing_validate_config($cfg)
+    {
+        $e = array();
+        if (!is_array($cfg)) return array('Config must be a JSON object.');
+        $isInt = function ($v) { return is_int($v) || (is_string($v) && ctype_digit($v)) || (is_float($v) && floor($v) == $v); };
+        $num = function ($v) { return is_numeric($v) && (float) $v >= 0; };
+
+        if (isset($cfg['accommodation'])) {
+            $rooms = $cfg['accommodation']['rooms'] ?? array();
+            if (!is_array($rooms)) $e[] = 'accommodation.rooms must be a list.';
+            else {
+                $seen = array();
+                foreach (array_values($rooms) as $i => $r) {
+                    $label = 'Room #' . ($i + 1);
+                    $name = trim((string) ($r['name'] ?? ''));
+                    if ($name === '') { $e[] = "$label: name is required."; continue; }
+                    $label = "Room \"$name\"";
+                    $k = mb_strtolower($name);
+                    if (isset($seen[$k])) $e[] = "$label: duplicate room name.";
+                    $seen[$k] = true;
+                    if (!$isInt($r['capacity'] ?? null) || (int) $r['capacity'] < 1) $e[] = "$label: capacity must be a whole number ≥ 1.";
+                    if (!$num($r['nightly'] ?? null) || (float) $r['nightly'] <= 0) $e[] = "$label: nightly price must be > 0.";
+                    if (isset($r['offers'])) {
+                        if (!is_array($r['offers'])) $e[] = "$label: offers must be an object {nights: total}.";
+                        else foreach ($r['offers'] as $nights => $total) {
+                            if (!$isInt($nights) || (int) $nights < 2) $e[] = "$label: offer nights \"$nights\" must be a whole number ≥ 2.";
+                            if (!$num($total) || (float) $total <= 0) $e[] = "$label: offer total for $nights nights must be > 0.";
+                            elseif ($num($r['nightly'] ?? null) && (float) $total > (float) $r['nightly'] * (int) $nights)
+                                $e[] = "$label: the $nights-night offer ($total) costs more than $nights × nightly — check it.";
+                        }
+                    }
+                }
+            }
+        }
+        if (isset($cfg['day_use'])) {
+            $pk = $cfg['day_use']['packages'] ?? array();
+            if (!is_array($pk)) $e[] = 'day_use.packages must be a list.';
+            else foreach (array_values($pk) as $i => $p) {
+                $name = trim((string) ($p['name'] ?? ''));
+                if ($name === '') $e[] = 'Day-use package #' . ($i + 1) . ': name is required.';
+                if (!$num($p['per_person'] ?? null) || (float) $p['per_person'] <= 0) $e[] = "Day-use package \"$name\": price per person must be > 0.";
+            }
+            if (!empty($cfg['day_use']['nth_free'])) {
+                $nf = $cfg['day_use']['nth_free'];
+                $every = (int) ($nf['every'] ?? 0); $pay = (int) ($nf['pay'] ?? 0);
+                if ($every < 2 || $pay < 1 || $pay >= $every) $e[] = 'Group offer: "every" must be ≥ 2 and "pay" between 1 and every−1 (e.g. every 5, pay 4).';
+            }
+        }
+        if (isset($cfg['children'])) {
+            $c = $cfg['children'];
+            foreach (array('free_max_age', 'free_cap', 'half_min_age', 'half_max_age', 'full_min_age') as $f) {
+                if (isset($c[$f]) && (!$isInt($c[$f]) || (int) $c[$f] < 0)) $e[] = "Children: $f must be a whole number ≥ 0.";
+            }
+            if (isset($c['free_max_age'], $c['half_min_age']) && (int) $c['half_min_age'] <= (int) $c['free_max_age'])
+                $e[] = 'Children: the half-price band must start after the free age.';
+            if (isset($c['half_max_age'], $c['full_min_age']) && (int) $c['full_min_age'] <= (int) $c['half_max_age'])
+                $e[] = 'Children: full price must start after the half-price band.';
+        }
+        if (!isset($cfg['accommodation']) && !isset($cfg['day_use'])) $e[] = 'Add at least rooms or day-use packages.';
+        return $e;
+    }
+}
+
+if (!function_exists('pricing_save_config')) {
+    /**
+     * Validate and save; writes an audit row with before/after. Returns [ok, errors[]].
+     */
+    function pricing_save_config($user_id, $cfg, $changed_by, $summary = '')
+    {
+        $errors = pricing_validate_config($cfg);
+        if (!empty($errors)) return array(false, $errors);
+        $ci = &get_instance();
+        $json = json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        $row = $ci->db->from('pricing_config')->where('user_id', (int) $user_id)->get()->row_array();
+        $before = $row['config_json'] ?? null;
+        if ($before !== null && json_decode($before, true) == $cfg) return array(true, array()); // no change
+        $ci->db->trans_start();
+        if ($row) $ci->db->where('id', $row['id'])->update('pricing_config', array('config_json' => $json, 'status' => '1', 'updated_at' => date('Y-m-d H:i:s')));
+        else $ci->db->insert('pricing_config', array('user_id' => (int) $user_id, 'config_json' => $json, 'status' => '1', 'updated_at' => date('Y-m-d H:i:s')));
+        if ($ci->db->table_exists('pricing_config_history')) {
+            $ci->db->insert('pricing_config_history', array(
+                'user_id' => (int) $user_id, 'changed_by' => (int) $changed_by,
+                'before_json' => $before, 'after_json' => $json,
+                'summary' => mb_substr((string) $summary, 0, 255), 'created_at' => date('Y-m-d H:i:s'),
+            ));
+        }
+        $ci->db->trans_complete();
+        return $ci->db->trans_status() ? array(true, array()) : array(false, array('Database error while saving.'));
+    }
+}

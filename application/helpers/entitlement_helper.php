@@ -31,6 +31,7 @@ if (!function_exists('entitlement_map')) {
             'analytics_hub'       => 405, // Analytics Hub
             'reengage'            => 406, // Re-engagement campaigns
             'missed_questions'    => 407, // Missed Questions (AI unanswered)
+            'pricing'             => 408, // Products & Pricing (pricing_config editor)
         );
     }
 }
