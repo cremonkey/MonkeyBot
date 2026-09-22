@@ -99,6 +99,7 @@
   var RULE_ID = <?php echo $rule ? (int) $rule['id'] : 0; ?>;
   var OPS = <?php echo json_encode($operators, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP); ?>;
   var ACTION_LABELS = <?php echo json_encode($actions, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP); ?>;
+  var SEQUENCES = <?php echo json_encode($sequences, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP); ?>;
   var conditions = <?php echo $rule ? ($rule['conditions_json'] ?: '[]') : '[]'; ?>;
   var actions = <?php echo $rule ? ($rule['actions_json'] ?: '[]') : '[]'; ?>;
   if (!Array.isArray(conditions)) conditions = [];
@@ -174,6 +175,17 @@
       case 'send_message': f = area('text', 'Message to the customer', 'Thanks {{full_name}}! Someone from our team will call you shortly.'); break;
       case 'call_webhook': f = txt('url', 'Web address (must start with https://)', 'https://example.com/hook'); break;
       case 'write_google_sheet': f = txt('note', 'Note to write in the row', 'from automation'); break;
+      case 'create_task':
+        f = txt('subject', 'Task title', 'Call {{full_name}} back') + txt('due_in_minutes', 'Due in (minutes from now)', '60', 'number') + area('description', 'Notes for your team', '');
+        break;
+      case 'start_sequence':
+        var seqOpts = '<option value="">Choose a sequence&hellip;</option>' + SEQUENCES.map(function (s) {
+          return '<option value="' + s.id + '"' + (String(a.sequence_id) === String(s.id) ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+        }).join('');
+        f = '<div class="form-group col-md-8 mb-2"><label class="small mb-1">Which sequence</label>' +
+          '<select class="form-control form-control-sm a_sequence_id">' + seqOpts + '</select>' +
+          (SEQUENCES.length ? '' : '<small class="text-muted d-block">You have no sequences yet — create one under Sequences first.</small>') + '</div>';
+        break;
     }
     return f;
   }
