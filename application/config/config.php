@@ -402,3 +402,14 @@ $config['fb_graph_version_legacy'] = 'v20.0';
 | Turned on 2026-09-22 after modules 400-407 were granted to every existing package.
 */
 $config['entitlement_enforce_custom_modules'] = TRUE;
+
+/*
+| Prompt-to-Flow (brief §24) — TEST-ONLY escape hatch, never set in production.
+| When truthy (a fixture name string), Flow_prompt::generate() loads
+| application/helpers/flow_prompt_test_fixture_helper.php and calls the real AI provider
+| through a fake ai_caller instead, so docker/scripts/staging_prompt_to_flow_tests.sh can
+| exercise the real HTTP endpoint end-to-end without a real AI provider API key. Always
+| FALSE here; the staging test script flips it with sed, the same way
+| docker/scripts/staging_sequences_tests.sh flips automation_engine_enabled.
+*/
+$config['prompt_to_flow_test_fixture'] = FALSE;
