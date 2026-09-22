@@ -1,0 +1,9 @@
+/var/log/monkeybot-cron.log {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+    copytruncate
+    su root syslog
+}

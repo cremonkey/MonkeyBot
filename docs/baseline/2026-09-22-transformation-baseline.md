@@ -610,3 +610,32 @@ S-02/S-12 cron gates · S-04 key decryption · S-05 KB IDOR · S-06 Meta signatu
 internal HMAC (accept valid, reject forged, in enforce) · S-07 entitlements (member denied,
 admin allowed) · F-01 health/failed-tick recording · S-03 file exposure.
 Production still runs every gate in **log** mode by design.
+
+### Correction and schema reconciliation (later on 2026-09-22)
+**F-07 downgraded to INFO — not an incident.** The owner confirmed only one page
+(the electric-motors supply company) is currently active and it receives few messages, so
+2 Meta deliveries in 96 h is expected volume. Meta app `Monkeybot` subscriptions are healthy.
+Consequence for webhook-signature enforcement: at this volume the "≥200 events" criterion in
+`docs/security/webhook-signatures.md` will take long; the 7-day window + zero `invalid`
++ all event types seen `valid` is the practical bar.
+
+**Production migrations applied (Verified).** Backups before each step:
+`/root/backups/monkeybot-premigrate-20260922-155357/`, `/root/backups/monkeybot-premigrate2-20260922-*`.
+- recorded the hand-applied `2026-08-05-openwa-channel.sql`
+- applied `2026-07-04-baseline-untracked-tables.sql` (18 untracked tables + KB tables; renamed from
+  the 2026-09-22 name so it runs before the SPEC migrations on fresh installs; record renamed on prod)
+- applied `2026-09-22-custom-module-entitlements.sql` (modules 400–407; ids confirmed free)
+- applied `2026-09-22-staff-working-hours.sql` (no-op on prod)
+- applied `2026-09-22b-schema-drift-reconcile.sql` (KB `page_id` + index, price-guard verdict enum,
+  hours columns as TIME/varchar(32) — identical to prod, no data change)
+- `spec20` and `deflection-alert` made idempotent (`ADD COLUMN IF NOT EXISTS`); already recorded
+  on prod, so they do not re-run there.
+`/health` stayed `ok` throughout.
+
+**G-07 closed:** a fresh install from `initial_db.sql` + migrations now equals the production
+schema (36 migrations, 0 errors, 172 tables, 0 column/index/default differences).
+
+**Config volume vs git:** only `database.php` (credentials) and `tiktok.php` (live file holds
+literal credentials; repo reads them from env — repo version is the intended one) differ.
+No non-secret configuration is missing from git. The volume also holds 6 `*.bak*` copies
+(not served; nginx denies `/application`).

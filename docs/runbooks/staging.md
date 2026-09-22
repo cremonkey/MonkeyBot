@@ -18,8 +18,9 @@ docker compose -p monkeybot-staging -f docker-compose.staging.yml up -d
 docker exec -i monkeybot-staging-db-1 sh -c 'mariadb -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < assets/backup_db/initial_db.sql
 docker exec -u www-data monkeybot-staging-app-1 php /var/www/html/index.php cron_hub migrate
 ```
-Knowledge-base tables are still created only by the add-on's `activate()`; create them from
-`modules/ai_knowledge_base/controllers/Ai_knowledge_base.php` until a migration exists.
+A fresh build now reproduces the production schema exactly: 36 migrations, 0 errors, 172
+tables, 0 column/index differences (diffed 2026-09-22 against the production structure loaded
+into a scratch `prod_schema` DB — structure only, never data).
 
 ## Seed for the Phase 0 suite
 Admin (id 1), members 11 and 12 on a package containing only module 342, KB source 501 owned by

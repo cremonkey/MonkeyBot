@@ -10,5 +10,5 @@
 -- Vector is packed float32 little-endian (pack('g*', ...)), 1536 dims = 6144 bytes.
 
 ALTER TABLE `ai_knowledge_chunks`
-    ADD COLUMN `embedding` BLOB NULL DEFAULT NULL AFTER `chunk_text`,
-    ADD COLUMN `embedding_model` VARCHAR(64) NULL DEFAULT NULL AFTER `embedding`;
+    ADD COLUMN IF NOT EXISTS `embedding` BLOB NULL DEFAULT NULL AFTER `chunk_text`,
+    ADD COLUMN IF NOT EXISTS `embedding_model` VARCHAR(64) NULL DEFAULT NULL AFTER `embedding`;

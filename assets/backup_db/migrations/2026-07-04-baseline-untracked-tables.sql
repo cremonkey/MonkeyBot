@@ -1,9 +1,42 @@
+-- Runs FIRST (dated before the SPEC migrations, which ALTER some of these tables).
 -- Tables that exist on production but were never created by any migration (created by hand,
 -- lazily by add-on activate() methods, or by runtime code). Found by building staging from
 -- initial_db.sql + migrations on 2026-09-22 and diffing against the production schema.
 -- Structure only (no data), taken from the 2026-09-22 production dump. IF NOT EXISTS makes it
 -- a no-op on production.
 DO 0;
+
+-- AI Knowledge Base (was only created by the add-on activate(); spec20 alters it)
+CREATE TABLE IF NOT EXISTS `ai_knowledge_sources` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL,
+  `page_id` int(11) DEFAULT NULL COMMENT 'Optional: scope source to a specific page',
+  `source_type` enum('pdf','url','md','text') NOT NULL DEFAULT 'url',
+  `source_name` varchar(255) NOT NULL,
+  `source_url` text DEFAULT NULL,
+  `file_path` varchar(255) DEFAULT NULL,
+  `status` enum('active','inactive') NOT NULL DEFAULT 'active',
+  `total_chunks` int(11) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `user_id_status` (`user_id`,`status`),
+  KEY `source_type` (`source_type`),
+  KEY `page_id_status` (`page_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_knowledge_chunks` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `source_id` int(11) NOT NULL,
+  `chunk_text` longtext NOT NULL,
+  `embedding` blob DEFAULT NULL,
+  `embedding_model` varchar(64) DEFAULT NULL,
+  `chunk_order` int(11) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `source_id_order` (`source_id`,`chunk_order`),
+  FULLTEXT KEY `chunk_text_fulltext` (`chunk_text`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `ai_coupon_reminders` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
