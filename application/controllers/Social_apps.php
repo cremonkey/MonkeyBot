@@ -147,7 +147,7 @@ class Social_apps extends Home
         }
         else
         {
-            $url="https://graph.facebook.com/debug_token?input_token={$input_token}&access_token={$input_token}";
+            $url=graph_url("debug_token?input_token={$input_token}&access_token={$input_token}", TRUE);
             $result= $this->fb_rx_login->run_curl_for_fb($url);
             $result = json_decode($result,true);
              

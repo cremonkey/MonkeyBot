@@ -85,7 +85,7 @@ class Fb_rx_login
 				$this->fb = new Facebook\Facebook([
 					'app_id' => $this->app_id, 
 					'app_secret' => $this->app_secret,
-					'default_graph_version' => 'v18.0',
+					'default_graph_version' => fb_graph_version('legacy'),
 					'fileUpload'	=>TRUE
 					]);
 			}
@@ -127,7 +127,7 @@ class Fb_rx_login
 			$this->fb = new Facebook\Facebook([
 				'app_id' => $this->app_id, 
 				'app_secret' => $this->app_secret,
-				'default_graph_version' => 'v18.0',
+				'default_graph_version' => fb_graph_version('legacy'),
 				'fileUpload'	=>TRUE
 				]);
 		}
@@ -224,7 +224,7 @@ class Fb_rx_login
 		$access_token=$this->user_access_token;
 		$client_id=$this->app_id;
 		$result=array();
-		$url="https://graph.facebook.com/v18.0/oauth/access_token_info?client_id={$client_id}&access_token={$access_token}";
+		$url=graph_url("oauth/access_token_info?client_id={$client_id}&access_token={$access_token}", TRUE);
 
 		$headers = array("Content-type: application/json");
 
@@ -252,7 +252,7 @@ class Fb_rx_login
 
 		$client_id=$this->app_id;
 		$result=array();
-		$url="https://graph.facebook.com/v18.0/oauth/access_token_info?client_id={$client_id}&access_token={$access_token}";
+		$url=graph_url("oauth/access_token_info?client_id={$client_id}&access_token={$access_token}", TRUE);
 
 		$headers = array("Content-type: application/json");
 
@@ -284,7 +284,7 @@ class Fb_rx_login
 		$app_secret=$this->app_secret;
 		$short_token=$short_lived_user_token;
 
-		$url="https://graph.facebook.com/v18.0/oauth/access_token?grant_type=fb_exchange_token&client_id={$app_id}&client_secret={$app_secret}&fb_exchange_token={$short_token}";
+		$url=graph_url("oauth/access_token?grant_type=fb_exchange_token&client_id={$app_id}&client_secret={$app_secret}&fb_exchange_token={$short_token}", TRUE);
 
 		$headers = array("Content-type: application/json");
 
@@ -418,14 +418,14 @@ class Fb_rx_login
 
 	public function send_user_roll_access($app_id,$user_id, $user_access_token)
 	{
-		$url="https://graph.facebook.com/{$app_id}/roles?user={$user_id}&role=testers&access_token={$user_access_token}&method=post";
+		$url=graph_url("{$app_id}/roles?user={$user_id}&role=testers&access_token={$user_access_token}&method=post", TRUE);
 		$resuls = $this->run_curl_for_fb($url);
 		return json_decode($resuls,TRUE);
 	}
 
 	public function block_person_from_commenting($page_id,$commenter_id,$page_access_token)
 	{
-		$url="https://graph.facebook.com/v18.0/{$page_id}/blocked?access_token={$page_access_token}";
+		$url=graph_url("{$page_id}/blocked?access_token={$page_access_token}", TRUE);
 		$post_data = [];
 		$post_data['user'] = $commenter_id;
 		$post_data = json_encode($post_data);
@@ -481,14 +481,14 @@ class Fb_rx_login
 
 	public function get_videolist_from_fb_page($page_id,$access_token)
 	{
-		$url = "https://graph.facebook.com/$page_id/videos?access_token=$access_token&fields=is_crossposting_eligible,description,created_time,permalink_url,picture";
+		$url = graph_url("$page_id/videos?access_token=$access_token&fields=is_crossposting_eligible,description,created_time,permalink_url,picture", TRUE);
 		$video_list = $this->run_curl_for_fb($url);
 		return json_decode($video_list,TRUE);
 	}
 
 	public function get_crosspost_whitelisted_pages($page_id,$access_token)
 	{
-		$url = "https://graph.facebook.com/$page_id/crosspost_whitelisted_pages?access_token=$access_token&limit=200";
+		$url = graph_url("$page_id/crosspost_whitelisted_pages?access_token=$access_token&limit=200", TRUE);
 		$whitelisted_pages = $this->run_curl_for_fb($url);
 		return json_decode($whitelisted_pages,TRUE);
 	}
@@ -794,14 +794,14 @@ class Fb_rx_login
 
 	public function delete_comment($comment_id,$post_access_token){
 
-		$url="https://graph.facebook.com/v4.0/{$comment_id}?method=delete&access_token={$post_access_token}";
+		$url=graph_url("{$comment_id}?method=delete&access_token={$post_access_token}", TRUE);
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 	}
 
 
 	public function hide_comment($comment_id,$post_access_token){
-		$url="https://graph.facebook.com/v4.0/{$comment_id}?method=post&access_token={$post_access_token}&is_hidden=true";
+		$url=graph_url("{$comment_id}?method=post&access_token={$post_access_token}&is_hidden=true", TRUE);
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 	}
@@ -821,11 +821,11 @@ class Fb_rx_login
 			$real_limit=$scan_limit-$how_many_page;
 		}
 
-		//	$url = "https://graph.facebook.com/{$page_id}/conversations?access_token={$post_access_token}&limit=200&fields=participants,message_count,unread_count,senders,is_subscribed,snippet,id";	
+		//	$url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&limit=200&fields=participants,message_count,unread_count,senders,is_subscribed,snippet,id", TRUE);	
 
 		if($platform=='ig')
-		$url = "https://graph.facebook.com/{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,id,updated_time&platform=instagram";	
-		else $url = "https://graph.facebook.com/{$page_id}/conversations?access_token={$post_access_token}&folder={$folder}&limit=500&fields=participants,message_count,unread_count,is_subscribed,snippet,id,updated_time,link";	
+		$url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,id,updated_time&platform=instagram", TRUE);	
+		else $url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&folder={$folder}&limit=500&fields=participants,message_count,unread_count,is_subscribed,snippet,id,updated_time,link", TRUE);	
 
 		do
 		{
@@ -886,15 +886,15 @@ class Fb_rx_login
 			$real_limit=$scan_limit-$how_many_page;
 		}
 
-		//	$url = "https://graph.facebook.com/{$page_id}/conversations?access_token={$post_access_token}&limit=200&fields=participants,message_count,unread_count,senders,is_subscribed,snippet,id";	
+		//	$url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&limit=200&fields=participants,message_count,unread_count,senders,is_subscribed,snippet,id", TRUE);	
 
 		if($url=='')
 		{
 
 			if($platform=='ig')
-			$url = "https://graph.facebook.com/{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,id,updated_time&platform=instagram";	
+			$url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,id,updated_time&platform=instagram", TRUE);	
 
-			$url = "https://graph.facebook.com/{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,message_count,unread_count,is_subscribed,snippet,id,updated_time,link";	
+			$url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,message_count,unread_count,is_subscribed,snippet,id,updated_time,link", TRUE);	
 		}
 
 		do
@@ -940,14 +940,14 @@ class Fb_rx_login
 	
 	
 	public function get_messages_from_thread($thread_id,$post_access_token){
-		$url= "https://graph.facebook.com/{$thread_id}/messages?access_token={$post_access_token}&fields=id,message,created_time,from&limit=200";
+		$url= graph_url("{$thread_id}/messages?access_token={$post_access_token}&fields=id,message,created_time,from&limit=200", TRUE);
 		$results = $this->run_curl_for_fb($url);
 		$results=json_decode($results,true);
 		return $results;
 	}
 
 	public function get_messages_from_thread_instagram($thread_id,$post_access_token){
-		$url= "https://graph.facebook.com/{$thread_id}/messages?access_token={$post_access_token}&fields=id,message,created_time,from,to,is_unsupported,attachments,story&limit=200";
+		$url= graph_url("{$thread_id}/messages?access_token={$post_access_token}&fields=id,message,created_time,from,to,is_unsupported,attachments,story&limit=200", TRUE);
 		$results = $this->run_curl_for_fb($url);
 		$results=json_decode($results,true);
 		return $results;
@@ -1001,7 +1001,7 @@ class Fb_rx_login
 
 	public function get_post_info_by_id($post_id,$page_access_token)
 	{
-	 	$url="https://graph.facebook.com/?ids={$post_id}&access_token={$page_access_token}&fields=id,message,permalink_url,picture,created_time";
+	 	$url=graph_url("?ids={$post_id}&access_token={$page_access_token}&fields=id,message,permalink_url,picture,created_time", TRUE);
 	   	$results= $this->run_curl_for_fb($url);
 	   	$results= json_decode($results,TRUE);
 	   	return $results;
@@ -1030,7 +1030,7 @@ class Fb_rx_login
 	 */
 	public function send_private_reply($message,$comment_id,$post_access_token)
 	{
-		$url = "https://graph.facebook.com/v4.0/me/messages?access_token={$post_access_token}";
+		$url = graph_url("me/messages?access_token={$post_access_token}", TRUE);
 		$payload = json_encode(array(
 			"recipient" => array("comment_id" => (string) $comment_id),
 			"message"   => array("text" => $message),
@@ -1111,7 +1111,7 @@ class Fb_rx_login
 
 	public function post_insight($post_id,$post_access_token)
 	{	
-	  //	echo	$url="https://graph.facebook.com/v2.6/{$post_id}/insights?access_token={$post_access_token}"; 
+	  //	echo	$url=graph_url("{$post_id}/insights?access_token={$post_access_token}", TRUE); 
 	  // $response= $this->facebook_api_call($url);
 	  
 		 $request = $this->fb->get("/{$post_id}/insights",$post_access_token,"","v2.6");
@@ -1125,7 +1125,7 @@ class Fb_rx_login
 
 	public function debug_access_token($input_token){
 
-		$url="https://graph.facebook.com/debug_token?input_token={$input_token}&access_token={$this->user_access_token}";
+		$url=graph_url("debug_token?input_token={$input_token}&access_token={$this->user_access_token}", TRUE);
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 
@@ -1394,7 +1394,7 @@ class Fb_rx_login
 
 	public function app_info_graber($app_id='',$app_secret='')
 	{
-		$url = "https://graph.facebook.com/".$app_id."?access_token=".$app_id."|".$app_secret."&fields=name,link,id,category,photo_url";
+		$url = graph_url($app_id, TRUE)."?access_token=".$app_id."|".$app_secret."&fields=name,link,id,category,photo_url";
 		$headers = array("Content-type: application/json");
 		$ch = curl_init();
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
@@ -1467,9 +1467,9 @@ class Fb_rx_login
 		if($media_type=="") $media_type="fb";
 
 		if($media_type=="fb")
-			$url = "https://graph.facebook.com/v4.0/me/messenger_profile?access_token={$post_access_token}";
+			$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
 		else
-			$url = "https://graph.facebook.com/v4.0/me/messenger_profile?access_token={$post_access_token}&platform=instagram";
+			$url = graph_url("me/messenger_profile?access_token={$post_access_token}&platform=instagram", TRUE);
 		
 		$get_started_data='{"fields":["persistent_menu"]}';
 	
@@ -1496,7 +1496,7 @@ class Fb_rx_login
 	/* Delete get Started Button */
 	public function delete_get_started_button($post_access_token='')
 	{
-		$url = "https://graph.facebook.com/v4.0/me/messenger_profile?access_token={$post_access_token}";
+		$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
 		$get_started_data='{"fields":["get_started"]}';
 	
 		$ch = curl_init();
@@ -1535,7 +1535,7 @@ class Fb_rx_login
 	public function add_get_started_button($post_access_token='')
 	{
 	
-		$url = "https://graph.facebook.com/v4.0/me/messenger_profile?access_token={$post_access_token}";
+		$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
 		$get_started_data='{"get_started":{"payload":"GET_STARTED_PAYLOAD"}}';
 	
 		$ch = curl_init();
@@ -1573,7 +1573,7 @@ class Fb_rx_login
 	{
 		if($welcome_message=='') return false;
 	
-		$url = "https://graph.facebook.com/v4.0/me/messenger_profile?access_token={$post_access_token}";
+		$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
 		$get_started_data=array
 		(
 			'greeting'=>array(0=>array("locale"=>"default","text"=>$welcome_message))
@@ -1615,7 +1615,7 @@ class Fb_rx_login
 
 	public function unset_welcome_message($post_access_token='')
 	{
-		$url = "https://graph.facebook.com/v4.0/me/messenger_profile?access_token={$post_access_token}";
+		$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
 		$get_started_data='{"fields":["greeting"]}';
 	
 		$ch = curl_init();
@@ -1656,9 +1656,9 @@ class Fb_rx_login
 		if($media_type=="") $media_type="fb";
 
 		if($media_type=="fb")
-			$url = "https://graph.facebook.com/v4.0/me/messenger_profile?access_token={$post_access_token}";
+			$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
 		else
-			$url = "https://graph.facebook.com/v4.0/me/messenger_profile?access_token={$post_access_token}&platform=instagram";
+			$url = graph_url("me/messenger_profile?access_token={$post_access_token}&platform=instagram", TRUE);
 
 		$get_started_data=$menu_content_json;
 	
@@ -1686,7 +1686,7 @@ class Fb_rx_login
 
 	function get_page_review_status($post_access_token='')
 	{
-		$url="https://graph.facebook.com/v4.0/me/messaging_feature_review?access_token={$post_access_token}";
+		$url=graph_url("me/messaging_feature_review?access_token={$post_access_token}", TRUE);
 		$headers = array("Content-type: application/json");
 		$ch = curl_init();
 		curl_setopt($ch, CURLOPT_URL, $url);
@@ -1708,7 +1708,7 @@ class Fb_rx_login
 	//https://developers.facebook.com/docs/messenger-platform/send-messages/broadcast-messages/estimate-reach/
 	function start_reach_estimation($post_access_token='')
 	{
-		$url="https://graph.facebook.com/v4.0/me/broadcast_reach_estimations?access_token={$post_access_token}&method=post";
+		$url=graph_url("me/broadcast_reach_estimations?access_token={$post_access_token}&method=post", TRUE);
 		$ch = curl_init();
 		$headers = array("Content-type: application/json");
 
@@ -1733,7 +1733,7 @@ class Fb_rx_login
 
 	function reach_estimation_count($reach_estimation_id='',$post_access_token='')
 	{
-		$url="https://graph.facebook.com/v4.0/{$reach_estimation_id}?access_token={$post_access_token}";
+		$url=graph_url("{$reach_estimation_id}?access_token={$post_access_token}", TRUE);
 		$ch = curl_init();
 		$headers = array("Content-type: application/json");
 
@@ -1756,7 +1756,7 @@ class Fb_rx_login
 	/*** Subscription based message sent  https://developers.facebook.com/docs/messenger-platform/send-messages/message-tags ***/
 	function send_non_promotional_message_subscription($message='[]',$post_access_token='')
 	{
-		$url = "https://graph.facebook.com/v4.0/me/messages?access_token={$post_access_token}";
+		$url = graph_url("me/messages?access_token={$post_access_token}", TRUE);
 
 		$ch = curl_init();
 		$headers = array("Content-type: application/json");
@@ -1814,7 +1814,7 @@ class Fb_rx_login
 		}
 
 		// Fetch all current whitelisted domains 
-		$url = "https://graph.facebook.com/v8.0/me/messenger_profile?fields=whitelisted_domains&access_token={$access_token}";
+		$url = graph_url("me/messenger_profile?fields=whitelisted_domains&access_token={$access_token}", TRUE);
 		$ch = curl_init();
 	 	$headers = array("Content-type: application/json");
 	 	curl_setopt($ch, CURLOPT_URL, $url);
@@ -1835,7 +1835,7 @@ class Fb_rx_login
  		$current_whitelisted_domains= isset($result['data'][0]['whitelisted_domains']) ? $result['data'][0]['whitelisted_domains'] : array();
  		$current_whitelisted_domains[]=$domain;
 
- 		$url = "https://graph.facebook.com/v8.0/me/messenger_profile?access_token={$access_token}";
+ 		$url = graph_url("me/messenger_profile?access_token={$access_token}", TRUE);
  		$whitelisted_domains_data['whitelisted_domains']= $current_whitelisted_domains;
  		$whitelisted_domains_data=json_encode($whitelisted_domains_data);
 
@@ -1869,7 +1869,7 @@ class Fb_rx_login
 	// page_messages_reported_conversations_by_report_type_unique and page_messages_active_threads_unique metrics have been depreciated
 	function get_analytics_data($access_token="",$from_date="",$to_date='')
 	{
-		$url = "https://graph.facebook.com/v4.0/me/insights/?metric=page_messages_total_messaging_connections,page_messages_new_conversations_unique,page_messages_blocked_conversations_unique,page_messages_reported_conversations_unique&access_token={$access_token}&since={$from_date}&until={$to_date}";
+		$url = graph_url("me/insights/?metric=page_messages_total_messaging_connections,page_messages_new_conversations_unique,page_messages_blocked_conversations_unique,page_messages_reported_conversations_unique&access_token={$access_token}&since={$from_date}&until={$to_date}", TRUE);
     	$ch = curl_init();
     	$headers = array("Content-type: application/json");
     	curl_setopt($ch, CURLOPT_URL, $url);
@@ -1889,40 +1889,40 @@ class Fb_rx_login
 	
 	function create_label($page_access_token="",$label="") //{"id": 1712444532121303}
 	{
-		$url="https://graph.facebook.com/v4.0/me/custom_labels?access_token={$page_access_token}";
+		$url=graph_url("me/custom_labels?access_token={$page_access_token}", TRUE);
 		$json=json_encode(array("page_label_name"=>$label));
 		return $this->call_api_post($json,$url);
 	}
 
 	function assign_label($page_access_token='',$psid='',$label_id='') //{"success": true}
 	{
-		$url="https://graph.facebook.com/v4.0/{$label_id}/label?access_token={$page_access_token}";
+		$url=graph_url("{$label_id}/label?access_token={$page_access_token}", TRUE);
 		$json=json_encode(array("user"=>$psid));
 		return $this->call_api_post($json,$url);
 	}
 
 	function deassign_label($page_access_token='',$psid='',$label_id='')//{"success": true}
 	{
-		$url="https://graph.facebook.com/v4.0/{$label_id}/label?access_token={$page_access_token}";
+		$url=graph_url("{$label_id}/label?access_token={$page_access_token}", TRUE);
 		$json=json_encode(array("user"=>$psid));
 		return $this->call_api_post($json,$url,true);
 	}
 
 	function delete_label($page_access_token='',$label_id='')//{"success": true}
 	{
-		$url="https://graph.facebook.com/v4.0/{$label_id}?access_token={$page_access_token}";
+		$url=graph_url("{$label_id}?access_token={$page_access_token}", TRUE);
 		return $this->call_api_post('',$url,true);
 	}
 
 	function retrieve_label($page_access_token='')
 	{
-		$url="https://graph.facebook.com/v4.0/me/custom_labels?fields=page_label_name&access_token={$page_access_token}&limit=200";
+		$url=graph_url("me/custom_labels?fields=page_label_name&access_token={$page_access_token}&limit=200", TRUE);
 		return $this->call_api_post('',$url,false);
 	}
 
 	function retrieve_level_of_psid($psid,$page_access_token){
 
-		$url="https://graph.facebook.com/v4.0/{$psid}/custom_labels?fields=page_label_name&access_token=$page_access_token&limit=200";
+		$url=graph_url("{$psid}/custom_labels?fields=page_label_name&access_token=$page_access_token&limit=200", TRUE);
 		return $this->call_api_post('',$url,false);
 
 	}
@@ -1985,7 +1985,7 @@ class Fb_rx_login
 	function fb_like_comment_share($url,$access_token)
 	{
 		
-		$url="https://graph.facebook.com/v4.0/?id={$url}&fields=engagement,og_object&access_token={$access_token}";
+		$url=graph_url("?id={$url}&fields=engagement,og_object&access_token={$access_token}", TRUE);
 		$response1=$this->run_curl_for_fb($url);
 		$response = json_decode($response1,true);
 		if(isset($response['error']['message'])){
@@ -2035,7 +2035,7 @@ class Fb_rx_login
 		$keyword=urlencode($keyword);
 		$center=$latitude.",".$longitude;	
 	
-		$url="https://graph.facebook.com/v4.0/search?q={$keyword}&type=place&access_token={$access_token}&fields=id,name,overall_star_rating,website,about,category_list,checkins,cover,description,engagement,hours,is_always_open,is_permanently_closed,payment_options,price_range,rating_count,restaurant_services,is_verified,location,link,phone&center={$center}&distance={$distance}&limit={$search_limit}";
+		$url=graph_url("search?q={$keyword}&type=place&access_token={$access_token}&fields=id,name,overall_star_rating,website,about,category_list,checkins,cover,description,engagement,hours,is_always_open,is_permanently_closed,payment_options,price_range,rating_count,restaurant_services,is_verified,location,link,phone&center={$center}&distance={$distance}&limit={$search_limit}", TRUE);
 		 $results=$this->facebook_api_call($url);
 		
 		 if(isset($results['error']['message']))
@@ -2113,13 +2113,13 @@ class Fb_rx_login
 	{
 		
 		if($social_media_type=='ig'){
-			$url = "https://graph.facebook.com/v5.0/me/messenger_profile?platform=instagram&access_token={$post_access_token}";
+			$url = graph_url("me/messenger_profile?platform=instagram&access_token={$post_access_token}", TRUE);
 			$icebreakers_content_array=json_decode($icebreakers_content_json,true);
 			$icebreakers_content_array['platform']="instagram";
 			$icebreakers_content_json=json_encode($icebreakers_content_array);
 		}
 		else
-			$url = "https://graph.facebook.com/v5.0/me/messenger_profile?access_token={$post_access_token}";
+			$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
 
 
 		$ice_breakers_data=$icebreakers_content_json;
@@ -2157,9 +2157,9 @@ class Fb_rx_login
 	public function delete_ice_breakers($post_access_token='',$social_media_type='fb')
 	{	
 		if($social_media_type=='fb')
-			$url = "https://graph.facebook.com/v5.0/me/messenger_profile?access_token={$post_access_token}";
+			$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
 		else
-			$url = "https://graph.facebook.com/v5.0/me/messenger_profile?platform=instagram&access_token={$post_access_token}";
+			$url = graph_url("me/messenger_profile?platform=instagram&access_token={$post_access_token}", TRUE);
 
 		$get_started_data='{"fields":["ice_breakers"]}';
 	
@@ -2313,14 +2313,14 @@ class Fb_rx_login
 
 	public function instagram_get_hashtag_id($user_id,$tag,$user_access_token)
 	{
-		$url = "https://graph.facebook.com/ig_hashtag_search?user_id={$user_id}&access_token={$user_access_token}&q={$tag}";
+		$url = graph_url("ig_hashtag_search?user_id={$user_id}&access_token={$user_access_token}&q={$tag}", TRUE);
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 	}
 
 	public function instagram_get_hashtag_result($user_id,$hashtag_id,$result_type,$user_access_token)
 	{
-		$url = "https://graph.facebook.com/{$hashtag_id}/{$result_type}?user_id={$user_id}&access_token={$user_access_token}&fields=id,media_url,like_count,comments_count,permalink,caption,media_type&limit=50";
+		$url = graph_url("{$hashtag_id}/{$result_type}?user_id={$user_id}&access_token={$user_access_token}&fields=id,media_url,like_count,comments_count,permalink,caption,media_type&limit=50", TRUE);
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 	}
@@ -2329,14 +2329,14 @@ class Fb_rx_login
 
 	public function instagram_hide_comment($comment_id,$post_access_token)
 	{
-		$url="https://graph.facebook.com/v2.11/{$comment_id}?method=post&access_token={$post_access_token}&hide=true";
+		$url=graph_url("{$comment_id}?method=post&access_token={$post_access_token}&hide=true", TRUE);
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 	}
 
 	public function instagram_delete_comment($comment_id,$post_access_token)
 	{
-		$url="https://graph.facebook.com/{$comment_id}?access_token={$post_access_token}&method=delete";
+		$url=graph_url("{$comment_id}?access_token={$post_access_token}&method=delete", TRUE);
 		$resuls = $this->run_curl_for_fb($url);
 		return json_decode($resuls,TRUE);
 	}
@@ -2365,7 +2365,7 @@ class Fb_rx_login
 	public function instagram_auto_mention_comment($auto_reply_comment_message, $media_id, $user_access_token, $user_id, $comment_id)
 	{
 		$auto_reply_comment_message=urlencode($auto_reply_comment_message);
-		$url="https://graph.facebook.com/{$user_id}/mentions?comment_id={$comment_id}&media_id={$media_id}&message={$auto_reply_comment_message}&access_token={$user_access_token}&method=post";
+		$url=graph_url("{$user_id}/mentions?comment_id={$comment_id}&media_id={$media_id}&message={$auto_reply_comment_message}&access_token={$user_access_token}&method=post", TRUE);
 		$resuls = $this->run_curl_for_fb($url);
 		return json_decode($resuls,TRUE);
 	}
@@ -2373,7 +2373,7 @@ class Fb_rx_login
 	public function instagram_auto_mention_caption_comment($auto_reply_comment_message, $media_id, $user_access_token, $user_id)
 	{
 		$auto_reply_comment_message=urlencode($auto_reply_comment_message);
-		$url="https://graph.facebook.com/{$user_id}/mentions?&media_id={$media_id}&message={$auto_reply_comment_message}&access_token={$user_access_token}&method=post";
+		$url=graph_url("{$user_id}/mentions?&media_id={$media_id}&message={$auto_reply_comment_message}&access_token={$user_access_token}&method=post", TRUE);
 		$resuls = $this->run_curl_for_fb($url);
 		return json_decode($resuls,TRUE);
 	}

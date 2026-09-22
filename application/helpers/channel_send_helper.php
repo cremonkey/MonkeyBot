@@ -69,7 +69,7 @@ if (!function_exists('channel_send_fb_ig')) {
         // v2.6 endpoint = byte-for-byte the same path Home::send_reply uses for
         // all webhook bot replies (fb + ig DMs), so follow-ups inherit exactly
         // the access level that is proven to work on this app
-        $ch = curl_init('https://graph.facebook.com/v2.6/me/messages?access_token=' . urlencode($page[0]['page_access_token']));
+        $ch = curl_init(graph_url('me/messages?access_token=', TRUE) . urlencode($page[0]['page_access_token']));
         curl_setopt_array($ch, array(
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST           => true,

@@ -37,7 +37,7 @@ class Facebook_page_insight{
 		$this->fb = new Facebook\Facebook([
 		  'app_id' => $this->app_id, // Replace {app-id} with your app id
 		  'app_secret' => $this->app_secret,
-		  'default_graph_version' => 'v2.2',
+		  'default_graph_version' => fb_graph_version('legacy'),
 		]);
 		
 	}

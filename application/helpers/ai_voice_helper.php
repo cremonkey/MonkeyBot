@@ -87,7 +87,7 @@ if (!function_exists('wa_media_url')) {
      */
     function wa_media_url($media_id, $token)
     {
-        $ch = curl_init('https://graph.facebook.com/v17.0/' . rawurlencode($media_id));
+        $ch = curl_init(graph_url('', TRUE) . rawurlencode($media_id));
         curl_setopt_array($ch, array(
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 20,

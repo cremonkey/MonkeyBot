@@ -4619,7 +4619,7 @@ class Home extends CI_Controller
 
     public function send_reply_ez($access_token = '', $reply = '')
     {
-        $url = "https://graph.facebook.com/v2.6/me/messages?access_token=$access_token";
+        $url = graph_url("me/messages?access_token=$access_token", TRUE);
         $ch = curl_init();
         $headers = array("Content-type: application/json");
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -4643,15 +4643,15 @@ class Home extends CI_Controller
     protected function subscriber_info($access_token = '', $sender_id = '', $social_media_type = "fb")
     {
         if ($social_media_type == 'fb')
-            $url = "https://graph.facebook.com/v2.6/$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,profile_pic,locale,timezone,gender";
+            $url = graph_url("$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,profile_pic,locale,timezone,gender", TRUE);
         else
-            $url = "https://graph.facebook.com/v2.6/$sender_id?access_token=$access_token&fields=id,name,profile_pic";
+            $url = graph_url("$sender_id?access_token=$access_token&fields=id,name,profile_pic", TRUE);
 
         $result = $this->subscriber_info_curl_call($url);
 
         if (isset($result['error']) && $result['error']['code'] == 10 && $result['error']['error_subcode'] == 2018336) {
             $result = array();
-            $url = "https://graph.facebook.com/v2.6/$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,locale,timezone,gender";
+            $url = graph_url("$sender_id?access_token=$access_token&fields=id,first_name,last_name,name,locale,timezone,gender", TRUE);
             $result = $this->subscriber_info_curl_call($url);
             $result['profile_pic'] = "";
         }
@@ -4679,7 +4679,7 @@ class Home extends CI_Controller
 
     protected function send_reply($access_token = '', $reply = '')
     {
-        $url = "https://graph.facebook.com/v2.6/me/messages?access_token=$access_token";
+        $url = graph_url("me/messages?access_token=$access_token", TRUE);
         $ch = curl_init();
         $headers = array("Content-type: application/json");
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -4706,7 +4706,7 @@ class Home extends CI_Controller
         $access_token = $_POST['access_token'];
         $reply = $_POST['reply'];
 
-        $url = "https://graph.facebook.com/v2.6/me/messages?access_token=$access_token";
+        $url = graph_url("me/messages?access_token=$access_token", TRUE);
         $ch = curl_init();
         $headers = array("Content-type: application/json");
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -4901,7 +4901,7 @@ class Home extends CI_Controller
     public function sender_action($sender_id, $action_type, $post_access_token = '')
     {
 
-        $url = "https://graph.facebook.com/v2.6/me/messages?access_token={$post_access_token}";
+        $url = graph_url("me/messages?access_token={$post_access_token}", TRUE);
 
         $post_data_array['recipient']['id'] = $sender_id;
         $post_data_array['sender_action'] = $action_type;

@@ -372,6 +372,26 @@ $config['rewrite_short_tags'] = FALSE;
 $config['proxy_ips'] = '';
 
 
+
+/*
+|--------------------------------------------------------------------------
+| Facebook Graph API version
+|--------------------------------------------------------------------------
+|
+| Single source of truth, consumed through graph_url() in
+| application/helpers/fb_graph_helper.php.
+|
+| 'fb_graph_version'        the version everything is being migrated to.
+| 'fb_graph_version_legacy' v20.0 - the version Meta ACTUALLY serves today for every
+|                           stale or unversioned call (verified via the facebook-api-version
+|                           response header). Pinning here freezes today's behaviour.
+|
+| Rolling a bad Graph upgrade back is a one-line change here.
+|
+*/
+$config['fb_graph_version']        = 'v26.0';
+$config['fb_graph_version_legacy'] = 'v20.0';
+
 /* End of file config.php */
 /* Location: ./application/config/config.php */
 

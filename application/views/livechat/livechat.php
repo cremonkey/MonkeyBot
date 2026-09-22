@@ -32,7 +32,7 @@
                               $current_account = isset($fb_rx_account_switching_info[$this->session->userdata("facebook_rx_fb_user_info")]['name']) ? $fb_rx_account_switching_info[$this->session->userdata("facebook_rx_fb_user_info")]['name'] : $this->lang->line("No Account");
                               $fb_img = base_url('assets/img/avatar/avatar-1.png');
                               if(isset($fb_rx_account_switching_info[$this->session->userdata("facebook_rx_fb_user_info")]['access_token']))
-                              $fb_img = 'https://graph.facebook.com/me/picture?access_token='.$fb_rx_account_switching_info[$this->session->userdata("facebook_rx_fb_user_info")]['access_token'].'&width=18&height=18';
+                              $fb_img = graph_url('me/picture?access_token=', TRUE).$fb_rx_account_switching_info[$this->session->userdata("facebook_rx_fb_user_info")]['access_token'].'&width=18&height=18';
                           ?>
                           <ul class="navbar-nav navbar-right d-block ml-2 mr-1 facebook">
                               <li class="dropdown"><a href="#" data-toggle="dropdown" class="nav-link dropdown-toggle nav-link-lg nav-link-user d-inline-block pb-0 ml-0 pt-0 text-truncate" style="max-width: 150px;">

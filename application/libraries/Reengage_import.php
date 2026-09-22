@@ -151,7 +151,7 @@ class Reengage_import
 
         $fields = 'participants,updated_time,id,messages.limit(' . self::MESSAGE_LOOKBACK . '){from,created_time}';
 
-        $url = 'https://graph.facebook.com/v19.0/' . $fb_page_id . '/conversations'
+        $url = graph_url('', TRUE) . $fb_page_id . '/conversations'
              . '?access_token=' . urlencode($token)
              . '&limit=100'
              . '&fields=' . $fields;

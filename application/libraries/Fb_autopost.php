@@ -38,7 +38,7 @@ class Fb_autopost{
 				$this->fb = new Facebook\Facebook([
 				  'app_id' => $this->app_id, // Replace {app-id} with your app id
 				  'app_secret' => $this->app_secret,
-				  'default_graph_version' => 'v2.2',
+				  'default_graph_version' => fb_graph_version('legacy'),
 				]);
 			}
 			
@@ -97,7 +97,7 @@ class Fb_autopost{
 		$app_secret=$this->app_secret;
 		$short_token=$short_lived_user_token;
 		
-		$url="https://graph.facebook.com/v2.6/oauth/access_token?grant_type=fb_exchange_token&client_id={$app_id}&client_secret={$app_secret}&fb_exchange_token={$short_token}";
+		$url=graph_url("oauth/access_token?grant_type=fb_exchange_token&client_id={$app_id}&client_secret={$app_secret}&fb_exchange_token={$short_token}", TRUE);
 		
 		$headers = array("Content-type: application/json");
 		 	 
@@ -138,7 +138,7 @@ class Fb_autopost{
 		$fb = new Facebook\Facebook([
 		  'app_id' => $app_id, // Replace {app-id} with your app id
 		  'app_secret' => $app_secret,
-		  'default_graph_version' => 'v2.2',
+		  'default_graph_version' => fb_graph_version('legacy'),
 		]);
 		$params = array("message" => $message,"link"=>$link);
 		$response = $fb->post("{$id}/feed",$params,$access_token);

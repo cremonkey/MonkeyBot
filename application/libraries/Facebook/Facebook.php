@@ -58,7 +58,9 @@ class Facebook
     /**
      * @const string Default Graph API version for requests.
      */
-    const DEFAULT_GRAPH_VERSION = 'v2.6';
+    // Fallback only: every caller in this app passes 'default_graph_version' explicitly
+    // from fb_graph_version(). Kept at the version Meta actually serves for stale calls.
+    const DEFAULT_GRAPH_VERSION = 'v20.0';
 
     /**
      * @const string The name of the environment variable that contains the app ID.
