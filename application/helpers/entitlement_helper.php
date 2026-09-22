@@ -9,9 +9,10 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * team role's module_access keys (is_manager == 1). The custom controllers below only checked
  * logged_in; this helper gives them the same package gate from ONE central map.
  *
- * Module id block 400-407 is reserved for these features (stock/add-on ids in use top out at
+ * Module id block 400-409 is reserved for these features (stock/add-on ids in use top out at
  * 353). The matching `modules` rows are created by
- * assets/backup_db/migrations/2026-09-22-custom-module-entitlements.sql.
+ * assets/backup_db/migrations/2026-09-22-custom-module-entitlements.sql (400-407),
+ * 2026-09-23-pricing-admin.sql (408) and 2026-09-24-event-automation.sql (409).
  *
  * SAFETY SWITCH: enforcement only happens when config item
  * 'entitlement_enforce_custom_modules' is TRUE. Unset/FALSE = log a would-deny and allow.
@@ -32,6 +33,7 @@ if (!function_exists('entitlement_map')) {
             'reengage'            => 406, // Re-engagement campaigns
             'missed_questions'    => 407, // Missed Questions (AI unanswered)
             'pricing'             => 408, // Products & Pricing (pricing_config editor)
+            'automations'         => 409, // Automations (event-triggered rules)
         );
     }
 }

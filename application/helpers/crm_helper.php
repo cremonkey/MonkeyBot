@@ -77,6 +77,23 @@ if (!function_exists('crm_auto_deal')) {
             ));
             $did = $CI->db->insert_id();
             $CI->db->insert('crm_deal_timeline', array('deal_id'=>$did,'user_id'=>$user_id,'action'=>'created ('.$trigger.')','created_at'=>$now));
+
+            // Event Engine (brief 22): a new deal IS the "lead.created" fact. Emitted only on
+            // a real insert, so the idempotent early-returns above never produce a duplicate
+            // event. Wrapped separately: a failure here must not roll back the deal.
+            try {
+                $CI->load->helper('event');
+                event_emit($user_id, 'lead.created', 'deal', $did, array(
+                    'deal_id'       => $did,
+                    'subscriber_id' => $subscriber_row_id ? (int) $subscriber_row_id : null,
+                    'stage'         => $stage_name,
+                    'trigger'       => $trigger,
+                    'value'         => $data['value'] ?? 0,
+                    'currency'      => $data['currency'] ?? 'USD',
+                    'source'        => $data['source'] ?? 'manual',
+                    'title'         => $data['title'] ?? ($stage_name.' deal'),
+                ));
+            } catch (Throwable $et) { log_message('error','crm_auto_deal event_emit: '.$et->getMessage()); }
         } catch (Exception $e) { log_message('error','crm_auto_deal: '.$e->getMessage()); }
     }
 }

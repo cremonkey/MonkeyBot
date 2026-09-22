@@ -1,0 +1,302 @@
+<?php
+/**
+ * Automation Engine unit tests. No CodeIgniter, no database, no network.
+ *
+ *   php tests/automation/run.php
+ *   docker exec -u www-data <app> php /var/www/html/tests/automation/run.php
+ *
+ * The engine takes its side effects through a gateway object, so everything below runs
+ * against FakeGateway: condition matrix, action dispatch, the channel-policy denial path,
+ * idempotency per (rule, event), tenant isolation and the retry/backoff loop.
+ */
+if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
+
+define('BASEPATH', 1);
+define('APPPATH', dirname(__DIR__) . '/../application/');
+date_default_timezone_set('UTC');
+error_reporting(E_ALL);
+set_error_handler(function ($no, $str, $file, $line) { throw new ErrorException($str, 0, $no, $file, $line); });
+
+require __DIR__ . '/../../application/libraries/Automation_engine.php';
+
+// ---------------------------------------------------------------- tiny harness
+
+$PASS = 0; $FAIL = 0;
+function ok($name) { global $PASS; $PASS++; echo "PASS  $name\n"; }
+function bad($name, $why) { global $FAIL; $FAIL++; echo "FAIL  $name  -> $why\n"; }
+function is_same($name, $expected, $actual) {
+    if ($expected === $actual) ok($name);
+    else bad($name, 'expected ' . var_export($expected, true) . ', got ' . var_export($actual, true));
+}
+function is_true($name, $v) { is_same($name, true, $v); }
+function is_false($name, $v) { is_same($name, false, $v); }
+
+// ---------------------------------------------------------------- fake gateway
+
+class FakeGateway
+{
+    public $calls = array();            // every side effect, in order
+    public $rules = array();            // returned by active_rules()
+    public $context = array();          // returned by context()
+    public $claimed = array();          // rule_id:event_id => run_id, mimics the UNIQUE index
+    public $runs = array();             // run_id => array(status, detail)
+    public $actions = array();          // action log rows
+    public $policy = array('allowed' => true, 'reason' => 'in_24h_window', 'window' => '24h', 'messaging_type' => 'RESPONSE', 'tag' => null);
+    public $fail_queue = array();       // action type => list of array(ok, err, retryable) to return in order
+    public $slept = array();
+    public $logs = array();
+    private $next_run = 100;
+
+    public function active_rules($user_id, $event_type)
+    {
+        $out = array();
+        foreach ($this->rules as $r) {
+            if ((int) $r['user_id'] === (int) $user_id && $r['trigger_event'] === $event_type && $r['status'] === 'active') $out[] = $r;
+        }
+        return $out;
+    }
+    public function context($user_id, array $event) { return $this->context; }
+
+    public function run_claim($rule_id, $event_id)
+    {
+        $k = $rule_id . ':' . $event_id;
+        if (isset($this->claimed[$k])) return 0;            // INSERT IGNORE found a duplicate
+        $id = $this->next_run++;
+        $this->claimed[$k] = $id;
+        $this->runs[$id] = array('status' => 'skipped', 'detail' => 'running');
+        return $id;
+    }
+    public function run_finish($run_id, $status, $detail) { $this->runs[$run_id] = array('status' => $status, 'detail' => $detail); }
+    public function action_log($run_id, $i, $type, $status, $error, $retry) {
+        $this->actions[] = array('run_id' => $run_id, 'index' => $i, 'type' => $type, 'status' => $status, 'error' => $error, 'retry_count' => $retry);
+    }
+
+    /** Returns the queued result for this action type, or success. */
+    private function result($type, $args)
+    {
+        $this->calls[] = array($type, $args);
+        if (!empty($this->fail_queue[$type])) return array_shift($this->fail_queue[$type]);
+        return array(true, null, false);
+    }
+    public function add_label($u, $s, $l) { return $this->result('add_label', func_get_args()); }
+    public function update_lead_score($u, $s, $d) { return $this->result('update_lead_score', func_get_args()); }
+    public function create_crm_deal($u, $s, array $d) { return $this->result('create_crm_deal', func_get_args()); }
+    public function move_crm_stage($u, $d, $s, $st) { return $this->result('move_crm_stage', func_get_args()); }
+    public function notify_team($u, array $p) { return $this->result('notify_team', func_get_args()); }
+    public function send_text($u, $p, $to, $t, $pid = '') { return $this->result('send_text', func_get_args()); }
+    public function call_webhook($url, array $p) { return $this->result('call_webhook', func_get_args()); }
+    public function write_google_sheet($u, array $r) { return $this->result('write_google_sheet', func_get_args()); }
+
+    public function policy_decide($platform, array $ctx) { $this->calls[] = array('policy_decide', array($platform, $ctx)); return $this->policy; }
+    public function sleep_backoff($s) { $this->slept[] = $s; }
+    public function log($level, $msg) { $this->logs[] = array($level, $msg); }
+
+    public function sent() { $n = 0; foreach ($this->calls as $c) if ($c[0] === 'send_text') $n++; return $n; }
+    public function types() { $t = array(); foreach ($this->calls as $c) $t[] = $c[0]; return $t; }
+}
+
+function mk_engine(FakeGateway $gw) { return new Automation_engine(array('gateway' => $gw)); }
+function mk_event($overrides = array())
+{
+    return array_merge(array(
+        'id' => 7, 'user_id' => 11, 'event_type' => 'lead.created', 'subject_type' => 'deal',
+        'subject_id' => '55', 'payload' => json_encode(array('lead_score' => 75, 'platform' => 'fb', 'subscriber_id' => 21, 'subscribe_id' => 'PSID9', 'full_name' => 'Nada', 'text' => 'I want the Double Garden room')),
+        'correlation_id' => null, 'created_at' => '2026-09-24 10:00:00',
+    ), $overrides);
+}
+function mk_rule($conditions, $actions, $overrides = array())
+{
+    return array_merge(array(
+        'id' => 3, 'user_id' => 11, 'name' => 'test rule', 'trigger_event' => 'lead.created',
+        'conditions_json' => json_encode($conditions), 'actions_json' => json_encode($actions), 'status' => 'active',
+    ), $overrides);
+}
+
+echo "-- conditions ------------------------------------------------------\n";
+
+// operator matrix: [op, left, right, expected]
+$matrix = array(
+    array('eq', 70, 70, true), array('eq', '70', 70, true), array('eq', 'Hot', 'hot', true),
+    array('eq', 'hot', 'cold', false), array('eq', null, 'x', false), array('eq', '', '', false),
+    array('neq', 'hot', 'cold', true), array('neq', 70, 70, false), array('neq', null, 'x', false),
+    array('gt', 71, 70, true), array('gt', 70, 70, false), array('gt', 'abc', 70, false), array('gt', null, 70, false),
+    array('gte', 70, 70, true), array('gte', 69, 70, false),
+    array('lt', 69, 70, true), array('lt', 70, 70, false),
+    array('lte', 70, 70, true), array('lte', 71, 70, false),
+    array('contains', 'Double Garden room', 'garden', true), array('contains', 'suite', 'garden', false),
+    array('contains', array('a', 'B'), 'b', true), array('contains', 'anything', '', false), array('contains', null, 'x', false),
+    array('in', 'fb', 'fb,ig,wa', true), array('in', 'tg', 'fb,ig,wa', false),
+    array('in', 'IG', array('fb', 'ig'), true), array('in', null, 'fb', false),
+    array('exists', 'x', true, true), array('exists', null, true, false), array('exists', '', true, false),
+    array('exists', null, false, true), array('exists', 'x', false, false),
+    array('nonsense_op', 'x', 'x', false),
+);
+$mfail = 0;
+foreach ($matrix as $m) {
+    $got = Automation_engine::compare($m[0], $m[1], $m[2]);
+    if ($got !== $m[3]) { $mfail++; bad('operator ' . $m[0] . ' ' . json_encode($m[1]) . ' / ' . json_encode($m[2]), 'got ' . var_export($got, true)); }
+}
+if ($mfail === 0) ok('operator matrix: ' . count($matrix) . ' cases');
+
+is_same('dotted field resolves', 'Nada', Automation_engine::resolve_field(array('subscriber' => array('full_name' => 'Nada')), 'subscriber.full_name'));
+is_same('missing field is null', null, Automation_engine::resolve_field(array('a' => 1), 'a.b.c'));
+is_same('empty path is null', null, Automation_engine::resolve_field(array('a' => 1), ''));
+
+$gw = new FakeGateway();
+$e = mk_engine($gw);
+$data = array('lead_score' => 75, 'platform' => 'fb');
+is_true('AND: all conditions true', $e->conditions_match(array(array('field' => 'lead_score', 'op' => 'gte', 'value' => 70), array('field' => 'platform', 'op' => 'eq', 'value' => 'fb')), $data)['matched']);
+is_false('AND: one false fails the rule', $e->conditions_match(array(array('field' => 'lead_score', 'op' => 'gte', 'value' => 70), array('field' => 'platform', 'op' => 'eq', 'value' => 'wa')), $data)['matched']);
+is_true('no conditions means always', $e->conditions_match(array(), $data)['matched']);
+is_true('conditions accept a JSON string', $e->conditions_match('[{"field":"lead_score","op":"gte","value":70}]', $data)['matched']);
+is_true('conditions accept {match, conditions}', $e->conditions_match(array('match' => 'all', 'conditions' => array(array('field' => 'lead_score', 'op' => 'gte', 'value' => 70))), $data)['matched']);
+is_false('unknown field cannot match', $e->conditions_match(array(array('field' => 'no_such_field', 'op' => 'eq', 'value' => 'x')), $data)['matched']);
+is_same('failed condition is reported', 'platform', $e->conditions_match(array(array('field' => 'platform', 'op' => 'eq', 'value' => 'wa')), $data)['failed'][0]['field']);
+
+echo "-- evaluation data -------------------------------------------------\n";
+$gw = new FakeGateway();
+$gw->context = array('subscriber' => array('id' => 21, 'full_name' => 'Nada', 'lead_score' => 9), 'promote' => array('lead_score' => 9, 'platform' => 'wa'));
+$d = mk_engine($gw)->evaluation_data(mk_event());
+is_same('payload wins over promoted context', 75, $d['lead_score']);
+is_same('context fills what the payload omits', 21, $d['subscriber']['id']);
+is_same('event_type is available as a field', 'lead.created', $d['event_type']);
+
+echo "-- action dispatch -------------------------------------------------\n";
+$gw = new FakeGateway();
+$e = mk_engine($gw);
+$rule = mk_rule(array(), array(
+    array('type' => 'add_label', 'label' => 'Hot lead'),
+    array('type' => 'update_lead_score', 'delta' => 10),
+    array('type' => 'create_crm_deal', 'title' => 'Deal for {{full_name}}'),
+    array('type' => 'notify_team', 'channel' => 'whatsapp', 'to' => '201000000000', 'text' => 'New lead {{full_name}}'),
+    array('type' => 'call_webhook', 'url' => 'https://example.test/hook'),
+));
+$r = $e->run_rule($rule, mk_event());
+is_same('all five actions ran', 'success', $r['status']);
+is_same('gateway saw each action once', array('add_label', 'update_lead_score', 'create_crm_deal', 'notify_team', 'call_webhook'), $gw->types());
+is_same('label text passed through', 'Hot lead', $gw->calls[0][1][2]);
+is_same('{{field}} is filled from the event', 'Deal for Nada', $gw->calls[2][1][2]['title']);
+is_same('every action is logged', 5, count($gw->actions));
+is_same('run detail counts the work', 'success', $gw->runs[$r['run_id']]['status']);
+
+$gw = new FakeGateway();
+$r = mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'teleport_customer'))), mk_event());
+is_same('unknown action fails the action', 'failed', $gw->actions[0]['status']);
+is_same('unknown action is named in the error', 'unknown action type: teleport_customer', $gw->actions[0]['error']);
+is_same('unknown action does not abort the run', 'failed', $r['status']);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'call_webhook', 'url' => 'http://insecure.test/hook'))), mk_event());
+is_same('plain http webhook is refused', 'webhook URL must start with https://', $gw->actions[0]['error']);
+is_same('refused webhook was never called', 0, count($gw->calls));
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x'))), mk_event(array('payload' => '{}', 'subject_type' => 'deal')));
+is_same('action without a customer is skipped, not failed', 'skipped', $gw->actions[0]['status']);
+
+echo "-- channel policy --------------------------------------------------\n";
+$gw = new FakeGateway();
+$gw->policy = array('allowed' => false, 'reason' => 'automation_outside_24h_window', 'window' => '24h+', 'messaging_type' => null, 'tag' => null);
+$r = mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'send_message', 'text' => 'hi'))), mk_event());
+is_same('denied send is logged as skipped_policy', 'skipped_policy', $gw->actions[0]['status']);
+is_same('the policy reason is recorded', 'automation_outside_24h_window', $gw->actions[0]['error']);
+is_same('NOTHING was sent', 0, $gw->sent());
+is_same('denial is not retried', 0, $gw->actions[0]['retry_count']);
+is_same('a run with only a denied send is not a success', 'skipped', $r['status']);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'send_message', 'text' => 'hi'))), mk_event());
+is_same('allowed send reaches the channel', 1, $gw->sent());
+$policy_ctx = null;
+foreach ($gw->calls as $c) if ($c[0] === 'policy_decide') $policy_ctx = $c[1][1];
+is_same('policy is always asked as automation', 'automation', $policy_ctx['sender']);
+is_same('policy is asked for the right channel', 'fb', $gw->calls[0][1][0]);
+
+$gw = new FakeGateway();
+$gw->context = array('promote' => array('opted_out' => true, 'last_inbound_at' => '2026-09-24 09:00:00'));
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'send_message', 'text' => 'hi'))), mk_event());
+$ctx2 = null;
+foreach ($gw->calls as $c) if ($c[0] === 'policy_decide') $ctx2 = $c[1][1];
+is_true('opted_out is passed to the policy layer', $ctx2['opted_out']);
+
+echo "-- idempotency -----------------------------------------------------\n";
+$gw = new FakeGateway();
+$e = mk_engine($gw);
+$rule = mk_rule(array(), array(array('type' => 'add_label', 'label' => 'Hot lead')));
+$first = $e->run_rule($rule, mk_event());
+$second = $e->run_rule($rule, mk_event());
+is_same('first run succeeds', 'success', $first['status']);
+is_same('replay of the same event is a duplicate', 'duplicate', $second['status']);
+is_same('the action ran exactly once', 1, count($gw->calls));
+$third = $e->run_rule($rule, mk_event(array('id' => 8)));
+is_same('a different event does run again', 'success', $third['status']);
+is_same('now the action has run twice', 2, count($gw->calls));
+
+echo "-- tenant isolation ------------------------------------------------\n";
+$gw = new FakeGateway();
+$r = mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x')), array('user_id' => 12)), mk_event());
+is_same('a rule refuses another tenant event', 'tenant_mismatch', $r['detail']);
+is_same('nothing was done for the wrong tenant', 0, count($gw->calls));
+is_same('no run row was claimed', 0, count($gw->runs));
+is_true('the refusal is logged', count($gw->logs) > 0);
+
+$gw = new FakeGateway();
+$gw->rules = array(
+    mk_rule(array(), array(array('type' => 'add_label', 'label' => 'A')), array('id' => 1, 'user_id' => 11)),
+    mk_rule(array(), array(array('type' => 'add_label', 'label' => 'B')), array('id' => 2, 'user_id' => 12)),
+    mk_rule(array(), array(array('type' => 'add_label', 'label' => 'C')), array('id' => 3, 'user_id' => 11, 'trigger_event' => 'order.created')),
+    mk_rule(array(), array(array('type' => 'add_label', 'label' => 'D')), array('id' => 4, 'user_id' => 11, 'status' => 'paused')),
+);
+$sum = mk_engine($gw)->process_event(mk_event());
+is_same('only this tenant + this trigger + active rules run', 1, $sum['rules']);
+is_same('and it was the right one', 'A', $gw->calls[0][1][2]);
+
+$gw = new FakeGateway();
+$r = mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x')), array('status' => 'paused')), mk_event());
+is_same('a paused rule never runs', 'rule_not_active', $r['detail']);
+
+echo "-- retry and backoff -----------------------------------------------\n";
+$gw = new FakeGateway();
+$gw->fail_queue['call_webhook'] = array(array(false, 'timeout', true), array(false, 'timeout', true), array(true, null, false));
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'call_webhook', 'url' => 'https://example.test/h'))), mk_event());
+is_same('retryable failure is retried until it works', 'success', $gw->actions[0]['status']);
+is_same('retry count is recorded', 2, $gw->actions[0]['retry_count']);
+is_same('backoff grew between attempts', array(1, 3), $gw->slept);
+
+$gw = new FakeGateway();
+$gw->fail_queue['call_webhook'] = array(array(false, 'timeout', true), array(false, 'timeout', true), array(false, 'timeout', true), array(true, null, false));
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'call_webhook', 'url' => 'https://example.test/h'))), mk_event());
+is_same('retries stop at MAX_ATTEMPTS', 'failed', $gw->actions[0]['status']);
+is_same('exactly 3 attempts were made', 3, count(array_filter($gw->calls, function ($c) { return $c[0] === 'call_webhook'; })));
+is_same('the last error is kept', 'timeout', $gw->actions[0]['error']);
+
+$gw = new FakeGateway();
+$gw->fail_queue['call_webhook'] = array(array(false, 'HTTP 400 bad payload', false), array(true, null, false));
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'call_webhook', 'url' => 'https://example.test/h'))), mk_event());
+is_same('a non-retryable failure is not retried', 0, $gw->actions[0]['retry_count']);
+is_same('and it stays failed', 'failed', $gw->actions[0]['status']);
+is_same('no backoff was waited', array(), $gw->slept);
+
+echo "-- conditions gate the actions -------------------------------------\n";
+$gw = new FakeGateway();
+$r = mk_engine($gw)->run_rule(mk_rule(array(array('field' => 'lead_score', 'op' => 'gte', 'value' => 90)), array(array('type' => 'add_label', 'label' => 'x'))), mk_event());
+is_same('rule whose conditions fail is skipped', 'skipped', $r['status']);
+is_same('and no action ran', 0, count($gw->calls));
+is_true('the reason names the field', strpos($r['detail'], 'lead_score') !== false);
+is_same('the skip is still recorded as a run', 'skipped', $gw->runs[$r['run_id']]['status']);
+
+echo "-- dry run ---------------------------------------------------------\n";
+$gw = new FakeGateway();
+$gw->policy = array('allowed' => false, 'reason' => 'opted_out', 'window' => 'n/a', 'messaging_type' => null, 'tag' => null);
+$dry = mk_engine($gw)->dry_run(mk_rule(
+    array(array('field' => 'lead_score', 'op' => 'gte', 'value' => 70)),
+    array(array('type' => 'add_label', 'label' => 'Hot'), array('type' => 'send_message', 'text' => 'hello'), array('type' => 'nope'))
+), mk_event());
+is_true('dry run reports the match', $dry['matched']);
+is_same('dry run describes the first action', 'Tag as "Hot"', $dry['actions'][0]['summary']);
+is_same('dry run shows a policy denial', 'not send (opted_out)', $dry['actions'][1]['would']);
+is_same('dry run flags an unknown action', 'fail (unknown action)', $dry['actions'][2]['would']);
+is_same('dry run changed nothing', 0, count($gw->actions) + count($gw->runs) + $gw->sent());
+
+echo "\n== $PASS passed, $FAIL failed ==\n";
+exit($FAIL === 0 && $PASS > 0 ? 0 : 1);

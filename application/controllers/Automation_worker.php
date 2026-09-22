@@ -1,0 +1,124 @@
+<?php
+defined('BASEPATH') OR exit('No direct script access allowed');
+
+require_once("Home.php");
+
+/**
+ * Automation worker (Phase 10.5, brief 23 + 50 + 51). CLI ONLY.
+ *
+ *   php index.php automation_worker run [limit]
+ *
+ * Drains `events` in id order: for each unprocessed event it runs every active rule of that
+ * event's tenant whose trigger matches, then stamps processed_at. Over HTTP every method
+ * 404s — there is no secret to leak and no reason for the web to reach it.
+ *
+ * Separate from Cron_hub on purpose: this loop calls out to Meta/WhatsApp/webhooks and can
+ * be slow, and it must be able to run every minute without waiting behind the 5-minute
+ * sales-automation tick. It holds its OWN MariaDB advisory lock so two ticks never overlap.
+ *
+ * FEATURE FLAG (brief 50): processing only happens when config item
+ * 'automation_engine_enabled' is TRUE. Unset/FALSE = the worker logs one line and exits
+ * without touching an event. Emitting events is NOT flagged, so when the owner switches the
+ * engine on the history is already there. Note that events emitted while the flag was off
+ * are still unprocessed and WILL be picked up on the first enabled run — see
+ * docs/automations/engine.md ("Turning it on") for the catch-up procedure.
+ *
+ * Scheduled by docker/cron/monkeybot (every minute, flock + docker exec, same pattern as
+ * cron_hub). That cron file is NOT installed on the host by this branch.
+ */
+class Automation_worker extends Home
+{
+    const LOCK = 'monkeybot_automation_worker';
+
+    public function __construct()
+    {
+        parent::__construct();
+        set_time_limit(0);
+        $this->load->helper(array('event', 'ops_health'));
+    }
+
+    /** No web surface at all. */
+    public function index()
+    {
+        show_404();
+    }
+
+    /**
+     * @param int $limit max events per tick. 200 at one event per few hundred ms keeps a
+     *                   tick comfortably inside the one-minute schedule.
+     */
+    public function run($limit = 200)
+    {
+        if (!is_cli()) { show_404(); return; }
+
+        if ($this->config->item('automation_engine_enabled') !== true) {
+            // Deliberately visible (log_threshold on live is 1): "why did nothing happen?"
+            // must have an answer in the log, not silence.
+            log_message('error', 'automation_worker: skipped, automation_engine_enabled is not TRUE');
+            echo "automation engine disabled (config automation_engine_enabled)\n";
+            return;
+        }
+
+        if (!$this->db->table_exists('events') || !$this->db->table_exists('automation_rules')) {
+            log_message('error', 'automation_worker: event/automation tables missing — run cron_hub migrate');
+            echo "automation tables missing\n";
+            return;
+        }
+
+        $got = $this->db->query("SELECT GET_LOCK('" . self::LOCK . "', 0) AS l")->row();
+        if (empty($got) || (int) $got->l !== 1) {
+            echo "another automation worker tick is running\n";
+            return;
+        }
+
+        $started = microtime(true);
+        $limit = max(1, min(2000, (int) $limit));
+        $seen = 0; $totals = array('rules' => 0, 'success' => 0, 'failed' => 0, 'skipped' => 0, 'duplicate' => 0);
+        $error = null;
+
+        try {
+            $this->load->library('automation_engine');
+
+            $events = $this->db->from('events')->where('processed_at IS NULL', null, false)
+                ->order_by('id', 'ASC')->limit($limit)->get()->result_array();
+
+            foreach ($events as $event) {
+                $seen++;
+                try {
+                    $r = $this->automation_engine->process_event($event);
+                    foreach ($r as $k => $v) $totals[$k] = (isset($totals[$k]) ? $totals[$k] : 0) + $v;
+                } catch (Throwable $e) {
+                    // one poisoned event must not stall the queue behind it
+                    log_message('error', 'automation_worker event ' . $event['id'] . ': ' . $e->getMessage());
+                    $error = 'event ' . $event['id'] . ': ' . $e->getMessage();
+                }
+                // stamped even when the rules failed: the run/action log holds the failure,
+                // and re-running the event would re-deliver the actions that did succeed.
+                $this->db->where('id', (int) $event['id'])->update('events', array('processed_at' => date('Y-m-d H:i:s')));
+            }
+        } catch (Throwable $e) {
+            $error = $e->getMessage();
+            log_message('error', 'automation_worker: ' . $e->getMessage());
+        }
+
+        $this->db->query("SELECT RELEASE_LOCK('" . self::LOCK . "')");
+
+        $detail = "events {$seen}, rules matched {$totals['rules']}, ok {$totals['success']}, "
+                . "failed {$totals['failed']}, skipped {$totals['skipped']}, duplicate {$totals['duplicate']}";
+        ops_health_record('automation_worker', $error === null, microtime(true) - $started, $error === null ? $detail : $error);
+        echo $detail . "\n";
+    }
+
+    /**
+     * Diagnostics: what is waiting, oldest first.
+     *   php index.php automation_worker pending [limit]
+     */
+    public function pending($limit = 20)
+    {
+        if (!is_cli()) { show_404(); return; }
+        $rows = $this->db->select('id, user_id, event_type, created_at')->from('events')
+            ->where('processed_at IS NULL', null, false)->order_by('id', 'ASC')->limit(max(1, (int) $limit))->get()->result_array();
+        echo count($rows) . " pending event(s) shown\n";
+        foreach ($rows as $r) echo "  #{$r['id']} user {$r['user_id']} {$r['event_type']} {$r['created_at']}\n";
+    }
+}

@@ -106,6 +106,20 @@ class Crm extends Home
         else { $upd['status']='open'; }
         $this->db->where('id',$id)->update('crm_deals',$upd);
         $this->db->insert('crm_deal_timeline', array('deal_id'=>$id,'user_id'=>$this->uid,'action'=>'moved to '.$st['name'],'created_at'=>date('Y-m-d H:i:s')));
+
+        // Event Engine (brief 22). Wrapped: the move is already committed and must stand.
+        try {
+            $this->load->helper('event');
+            event_emit($this->uid, 'lead.stage_changed', 'deal', $id, array(
+                'deal_id'       => $id,
+                'subscriber_id' => $deal['subscriber_id'] ? (int) $deal['subscriber_id'] : null,
+                'from_stage_id' => (int) $deal['stage_id'], 'to_stage_id' => $stage_id,
+                'to_stage'      => $st['name'], 'stage_type' => $st['stage_type'],
+                'value'         => $deal['value'], 'currency' => $deal['currency'],
+                'moved_by'      => (int) $this->session->userdata('user_id'),
+            ));
+        } catch (Throwable $e) { log_message('error', 'crm deal_move event_emit: ' . $e->getMessage()); }
+
         echo json_encode(['status'=>'1']);
     }
 

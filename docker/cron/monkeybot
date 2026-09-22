@@ -16,5 +16,11 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # TikTok bot: poll comments for active campaigns
 */5 * * * * root flock -n /run/monkeybot-tiktok.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 280 php /var/www/html/index.php tiktok_bot/tiktok_cron poll_comments >> /var/log/monkeybot-cron.log 2>&1
 
+# Automation engine (Phase 10.5): drain unprocessed `events` and run matching rules.
+# Every minute so an automation feels immediate. Exits in milliseconds when config
+# 'automation_engine_enabled' is not TRUE, so installing this line is safe before switch-on.
+# NOT installed on the host by the 10.5 branch — see docs/automations/engine.md.
+* * * * * root flock -n /run/monkeybot-automation.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 55 php /var/www/html/index.php automation_worker run >> /var/log/monkeybot-cron.log 2>&1
+
 # Lead scoring (SPEC-07): -1 point per day for subscribers idle 7+ days. Daily, 03:15 server time.
 15 3 * * * root flock -n /run/monkeybot-lead-decay.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 280 php /var/www/html/index.php cron_job lead_score_decay >> /var/log/monkeybot-cron.log 2>&1
