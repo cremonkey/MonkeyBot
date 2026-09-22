@@ -650,3 +650,21 @@ No non-secret configuration is missing from git. The volume also holds 6 `*.bak*
   `/root/backups/monkeybot-git-*.bundle` (restore: `git clone <bundle>`).
 - **Webhook signatures: stay in `log`** until the rollout criteria in
   `docs/security/webhook-signatures.md` are met on live traffic (time-gated; low volume).
+
+### New finding, unrelated to Phase 9/10/11 work (2026-09-22, later)
+**S-14 — DB connection charset is utf8 (3-byte) while every table is utf8mb4 — CONFIRMED live, NOT fixed on production.**
+- Evidence: `docker exec monkeybot-app-ojzrhf-app-1 grep char_set .../database.php` → `'utf8'` /
+  `dbcollat` → `'utf8_general_ci'`. `docker/php/entrypoint.sh` generated it that way on first boot.
+  `assets/backup_db/initial_db.sql` and every migration create tables as `utf8mb4`.
+- Impact: a mysqli connection's charset caps what can be transmitted regardless of the column's
+  charset. Any 4-byte UTF-8 character sent from PHP — emoji, some Arabic presentation forms —
+  is silently replaced (typically with `?`) on INSERT. This has likely been happening since
+  install, in `livechat_messages`, `ai_conversation_history`, subscriber names, and anywhere else
+  user text is stored. No error is raised (S-51 "no silent failure" applies).
+- Fix (code): `docker/php/entrypoint.sh` now writes `utf8mb4` / `utf8mb4_unicode_ci` — done, only
+  affects fresh installs.
+- Fix (production, not applied): edit `char_set`/`dbcollat` in the live `application/config/database.php`
+  (Docker volume) and restart `monkeybot-app-ojzrhf-app-1` (new mysqli connections only pick up the
+  change on reconnect — a restart is the reliable way). Already-corrupted characters cannot be
+  recovered by this fix; only new writes are protected.
+- Owner decision needed: when to apply the production fix (brief restart required).
