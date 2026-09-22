@@ -668,3 +668,34 @@ No non-secret configuration is missing from git. The volume also holds 6 `*.bak*
   change on reconnect — a restart is the reliable way). Already-corrupted characters cannot be
   recovered by this fix; only new writes are protected.
 - Owner decision needed: when to apply the production fix (brief restart required).
+
+### Phase 9-11 foundations merged into release/9.x-integration (2026-09-22, later)
+All built on isolated worktrees/stacks, never touching production, then merged with one real
+conflict (entitlement_helper.php: both branches added a distinct module id — kept both).
+
+| Phase | Feature | Status |
+|---|---|---|
+| 9.0 | Channel adapter layer + normalized message model | Verified — 117/0/11 |
+| 9.5 | Unified conversation core (BEFORE INSERT trigger link, customer identity, handoff state machine) | Verified — 486/0, scale-tested at ~48k messages / 3k concurrent inserts |
+| 10 | AI cost accounting (every call, editable price table) | Verified — exact totals |
+| 10 | Products & Pricing admin page | Verified — 16/0 |
+| 10 | AI Improvement Center (Arabic-aware gap grouping) | Verified — 12/0 |
+| 10.5 | Channel Policy Engine | Verified — 20/0 |
+| 10.5 | Event Engine + Automation Engine (Trigger/Conditions/Actions) | Verified — 65+44/0 |
+| 11 | Agency Control Center | Verified manually |
+| 11 | Onboarding wizard + 4 industry templates | Verified — 51+96/0 |
+
+**Full regression after every merge, fresh DB (45 migrations, 0 errors, 184 tables):**
+staging_phase0 19/0, staging_pricing 16/0, staging_ai_improvement 12/0, staging_automation 44/0,
+staging_onboarding 96/0. Production `/health` stayed `ok` throughout (no prod changes made).
+
+**S-14 (utf8mb4 connection charset) fixed in code** for fresh installs
+(`docker/php/entrypoint.sh`, `application/config/database.php` seed); **production's live
+connection is still `utf8`** — needs the config volume edited + an app restart, timing is an
+owner decision.
+
+**automation_engine_enabled** defaults FALSE/unset everywhere, including production once this
+branch ships — the worker will not run until explicitly enabled (brief §50 feature flags).
+
+**Not yet done:** none of this is pushed or deployed. The Unified Inbox (brief §13) is the next
+piece that depends on both 9.0 and 9.5, now both merged and available to build on.
