@@ -119,6 +119,14 @@ foreach ($by_user as $user_id => $rows) {
     $stmt->close();
 
     $api_key = isset($key_row['open_ai_secret_key']) ? trim($key_row['open_ai_secret_key']) : '';
+    if (strpos($api_key, 'enc::') === 0) {
+        // Stored encrypted (baseline S-04). Decrypting needs CodeIgniter's Encryption library and
+        // the live encryption_key, which this bootstrap-free script does not load; sending the
+        // ciphertext to OpenAI would only fail. Skip loudly instead.
+        echo "  user {$user_id}: OpenAI key is stored encrypted (enc::) - this script cannot decrypt it, skipping " . count($rows) . " chunks\n";
+        $failed += count($rows);
+        continue;
+    }
     if ($api_key === '') {
         echo "  user {$user_id}: no OpenAI key, skipping " . count($rows) . " chunks\n";
         $failed += count($rows);

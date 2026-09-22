@@ -49,8 +49,12 @@ class Missed_questions extends Home
         $this->csrf_token_check();
         header('Content-Type: application/json');
         $id = (int) $this->input->post('id', true);
-        $this->db->where('id', $id)->where('user_id', $this->uid)
-            ->update('ai_unanswered_questions', array('status' => 'resolved'));
+        // Tenant-scoped existence check first: a foreign or unknown id gets an honest answer.
+        if ($this->db->from('ai_unanswered_questions')->where('id', $id)->where('user_id', $this->uid)->count_all_results() === 0) {
+            echo json_encode(['status' => '0', 'message' => 'Question not found.']);
+            return;
+        }
+        $this->db->where('id', $id)->where('user_id', $this->uid)->update('ai_unanswered_questions', array('status' => 'resolved'));
         echo json_encode(['status' => '1']);
     }
 
@@ -101,6 +105,11 @@ class Missed_questions extends Home
         $this->csrf_token_check();
         header('Content-Type: application/json');
         $id = (int) $this->input->post('id', true);
+        // Tenant-scoped existence check first: a foreign or unknown id gets an honest answer.
+        if ($this->db->from('ai_unanswered_questions')->where('id', $id)->where('user_id', $this->uid)->count_all_results() === 0) {
+            echo json_encode(['status' => '0', 'message' => 'Question not found.']);
+            return;
+        }
         $this->db->where('id', $id)->where('user_id', $this->uid)->delete('ai_unanswered_questions');
         echo json_encode(['status' => '1']);
     }
