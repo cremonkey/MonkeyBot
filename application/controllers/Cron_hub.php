@@ -48,7 +48,7 @@ class Cron_hub extends Home
         $applied = array();
         foreach ($this->db->from('schema_migrations')->get()->result_array() as $r) $applied[$r['filename']] = true;
 
-        $done = 0;
+        $done = 0; $failed = 0;
         foreach ($files as $path) {
             $name = basename($path);
             if (isset($applied[$name])) continue;
@@ -62,8 +62,11 @@ class Cron_hub extends Home
                 // statement) that opens with a comment block used to lose its first statement.
                 $stmt = trim(preg_replace('/^\s*--.*$/m', '', $stmt));
                 if ($stmt === '') continue;
-                try { $this->db->query($stmt); } catch (Exception $e) { echo "  ! {$name}: " . $e->getMessage() . "\n"; }
+                try { $this->db->query($stmt); } catch (Throwable $e) { $failed++; echo "  ! {$name}: " . $e->getMessage() . "\n"; }
             }
+            // Record only a clean run. A partly failed migration stays pending so the next
+            // `migrate` retries it (statements must therefore be idempotent: IF [NOT] EXISTS).
+            if ($failed > 0) { echo "NOT recorded {$name}: {$failed} statement(s) failed\n"; $failed = 0; continue; }
             $this->db->insert('schema_migrations', array('filename' => $name, 'applied_at' => date('Y-m-d H:i:s')));
             echo "applied {$name}\n"; $done++;
         }
