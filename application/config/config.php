@@ -395,3 +395,10 @@ $config['fb_graph_version_legacy'] = 'v20.0';
 /* End of file config.php */
 /* Location: ./application/config/config.php */
 
+
+/*
+| Package entitlements for Creative Monkey custom modules (application/helpers/entitlement_helper.php).
+| TRUE = members without the module in their package are denied. Admin is never blocked.
+| Turned on 2026-09-22 after modules 400-407 were granted to every existing package.
+*/
+$config['entitlement_enforce_custom_modules'] = TRUE;
