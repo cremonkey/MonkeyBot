@@ -1,0 +1,64 @@
+{
+  "object": "page",
+  "entry": [
+    {
+      "id": "104857600000001",
+      "time": 1758542402123,
+      "messaging": [
+        {
+          "sender": {
+            "id": "7101234567890123"
+          },
+          "recipient": {
+            "id": "104857600000001"
+          },
+          "timestamp": 1758542402000,
+          "message": {
+            "mid": "m_batch-1",
+            "text": "first"
+          }
+        },
+        {
+          "sender": {
+            "id": "104857600000001"
+          },
+          "recipient": {
+            "id": "7101234567890123"
+          },
+          "timestamp": 1758542402100,
+          "message": {
+            "mid": "m_echo-1",
+            "is_echo": true,
+            "app_id": 123,
+            "text": "bot reply"
+          }
+        },
+        {
+          "sender": {
+            "id": "7101234567890123"
+          },
+          "recipient": {
+            "id": "104857600000001"
+          },
+          "timestamp": 1758542402200,
+          "read": {
+            "watermark": 1758542402000
+          }
+        },
+        {
+          "sender": {
+            "id": "7101234567890999"
+          },
+          "recipient": {
+            "id": "104857600000001"
+          },
+          "timestamp": 1758542402300,
+          "message": {
+            "mid": "m_batch-2",
+            "text": "second"
+          }
+        }
+      ]
+    }
+  ]
+}

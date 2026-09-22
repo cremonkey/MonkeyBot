@@ -1,0 +1,18 @@
+{
+  "update_id": 912345680,
+  "edited_message": {
+    "message_id": 4211,
+    "from": {
+      "id": 55501234,
+      "is_bot": false,
+      "first_name": "Omar"
+    },
+    "chat": {
+      "id": 55501234,
+      "type": "private"
+    },
+    "date": 1758542400,
+    "edit_date": 1758542500,
+    "text": "edited text"
+  }
+}

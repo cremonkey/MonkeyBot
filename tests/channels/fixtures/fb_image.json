@@ -1,0 +1,31 @@
+{
+  "object": "page",
+  "entry": [
+    {
+      "id": "104857600000001",
+      "time": 1758542401123,
+      "messaging": [
+        {
+          "sender": {
+            "id": "7101234567890123"
+          },
+          "recipient": {
+            "id": "104857600000001"
+          },
+          "timestamp": 1758542401000,
+          "message": {
+            "mid": "m_AbCdEf456-fb-image",
+            "attachments": [
+              {
+                "type": "image",
+                "payload": {
+                  "url": "https://scontent.xx.fbcdn.net/v/t1.15752-9/photo.jpg?_nc_cat=1"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

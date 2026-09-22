@@ -1,15 +1,24 @@
 <?php
 defined('BASEPATH') or exit('No direct script access allowed');
 
+require_once APPPATH . 'helpers/channel_adapter_helper.php';
+
 /**
  * Channel-agnostic outbound text messages, used by the follow-up engine,
  * coupon reminders and the daily digest. Mirrors how each channel's webhook
  * already replies:
  *   fb / ig : Graph me/messages with the page access token
- *   wa      : WhatsApp Cloud API via Whatsapp_api (account row = page_id)
- *   tg      : Telegram Bot API via Telegram_api (account row = page_id)
+ *   wa      : OpenWA gateway when the tenant has an active openwa_accounts row,
+ *             otherwise WhatsApp Cloud API (account row = page_id)
+ *   tg      : Telegram Bot API (account row = page_id)
  *   web     : row in livechat_messages; the widget's poller displays it
  * TikTok has no outbound DM API (partner-only), so 'tiktok' is unsupported.
+ *
+ * Phase 9.0 (ADR-002): this file is now a facade. Account lookup, secret
+ * decryption and livechat logging stay here; the HTTP request for each channel
+ * is made by its adapter in application/libraries/Channels (see
+ * docs/channels/adapters.md). Signatures, return values and error strings are
+ * unchanged.
  *
  * $page_id carries whatever ai_conversation_history.page_id holds for that
  * channel: the FB page id for fb/ig, the account row id for wa/tg, and
@@ -61,29 +70,10 @@ if (!function_exists('channel_send_fb_ig')) {
         $page = $ci->db->limit(1)->get()->result_array();
         if (empty($page) || empty($page[0]['page_access_token'])) return array(false, 'page token not found');
 
-        $payload = json_encode(array(
-            'recipient'      => array('id' => $subscribe_id),
-            'messaging_type' => 'RESPONSE',
-            'message'        => array('text' => $text),
+        $result = channel_adapter($social_media)->sendText(\MonkeyBot\Channels\OutboundMessage::text(
+            $subscribe_id, $text, array('page_access_token' => $page[0]['page_access_token']), $user_id
         ));
-        // v2.6 endpoint = byte-for-byte the same path Home::send_reply uses for
-        // all webhook bot replies (fb + ig DMs), so follow-ups inherit exactly
-        // the access level that is proven to work on this app
-        $ch = curl_init(graph_url('me/messages?access_token=', TRUE) . urlencode($page[0]['page_access_token']));
-        curl_setopt_array($ch, array(
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $payload,
-            CURLOPT_HTTPHEADER     => array('Content-Type: application/json'),
-            CURLOPT_TIMEOUT        => 20,
-            CURLOPT_SSL_VERIFYPEER => true,
-        ));
-        $raw = curl_exec($ch);
-        curl_close($ch);
-        $res = json_decode((string) $raw, true);
-        if (!empty($res['error'])) {
-            return array(false, 'graph: ' . ($res['error']['message'] ?? 'unknown') . ' (code ' . ($res['error']['code'] ?? '?') . ')');
-        }
+        if (!channel_send_meta_legacy_ok($result)) return array(false, $result->error);
         channel_log_message($ci, $user_id, $subscribe_id, $social_media, $text, $page[0]['page_id']);
         return array(true, '');
     }
@@ -104,12 +94,15 @@ if (!function_exists('channel_send_wa')) {
             $oacc = $ci->basic->get_data('openwa_accounts', array('where' => $owhere), '', '', 1);
             if (!empty($oacc)) {
                 $ci->load->library('Openwa_api');
-                $key = secret_decrypt($oacc[0]['api_key']);
-                $res = $ci->openwa_api->send_text($oacc[0]['base_url'], $key, $oacc[0]['session_id'], $subscribe_id, $text);
-                $http = (int)($res['_http'] ?? 0);
-                if ($http < 200 || $http >= 300) {
-                    return array(false, 'openwa: ' . json_encode(isset($res['error']) ? $res['error'] : $res));
-                }
+                $result = channel_adapter('wa_openwa')->sendText(\MonkeyBot\Channels\OutboundMessage::text(
+                    $subscribe_id, $text, array(
+                        'base_url'   => $oacc[0]['base_url'],
+                        'api_key'    => secret_decrypt($oacc[0]['api_key']),
+                        'session_id' => $oacc[0]['session_id'],
+                    ), $user_id
+                ));
+                // OpenWA account found: its result is final, a failure does NOT fall through to Cloud (as before)
+                if (!$result->ok) return array(false, $result->error);
                 channel_log_message($ci, $user_id, $subscribe_id, 'wa', $text, '', (int) $oacc[0]['id']);
                 return array(true, '');
             }
@@ -121,11 +114,13 @@ if (!function_exists('channel_send_wa')) {
         $acc = $ci->basic->get_data('whatsapp_accounts', array('where' => $where), '', '', 1);
         if (empty($acc)) return array(false, 'no active whatsapp/OpenWA account');
         $ci->load->library('Whatsapp_api');
-        $token = secret_decrypt($acc[0]['access_token']);
-        $res = $ci->whatsapp_api->send_text($token, $acc[0]['phone_number_id'], $subscribe_id, $text);
-        if (empty($res['messages'])) {
-            return array(false, 'wa: ' . json_encode(isset($res['error']) ? $res['error'] : $res));
-        }
+        $result = channel_adapter('wa_cloud')->sendText(\MonkeyBot\Channels\OutboundMessage::text(
+            $subscribe_id, $text, array(
+                'access_token'    => secret_decrypt($acc[0]['access_token']),
+                'phone_number_id' => $acc[0]['phone_number_id'],
+            ), $user_id
+        ));
+        if (!$result->ok) return array(false, $result->error);
         channel_log_message($ci, $user_id, $subscribe_id, 'wa', $text, '', (int) $acc[0]['id']);
         return array(true, '');
     }
@@ -140,11 +135,10 @@ if (!function_exists('channel_send_tg')) {
         if (empty($acc)) return array(false, 'no active telegram account');
         $ci->load->helper('secret');
         $ci->load->library('Telegram_api');
-        $token = secret_decrypt($acc[0]['bot_token']);
-        $res = $ci->telegram_api->send_message($token, $subscribe_id, $text);
-        if (empty($res['ok'])) {
-            return array(false, 'tg: ' . json_encode($res));
-        }
+        $result = channel_adapter('tg')->sendText(\MonkeyBot\Channels\OutboundMessage::text(
+            $subscribe_id, $text, array('bot_token' => secret_decrypt($acc[0]['bot_token'])), $user_id
+        ));
+        if (!$result->ok) return array(false, $result->error);
         channel_log_message($ci, $user_id, $subscribe_id, 'tg', $text, '', (int) $acc[0]['id']);
         return array(true, '');
     }
@@ -154,9 +148,38 @@ if (!function_exists('channel_send_web')) {
     function channel_send_web($ci, $user_id, $subscribe_id, $text)
     {
         // webchat is pull-based: the widget polls livechat_messages, so a bot
-        // row is delivered when the visitor still has (or reopens) the page
-        channel_log_message($ci, $user_id, $subscribe_id, 'web', $text);
+        // row is delivered when the visitor still has (or reopens) the page.
+        // The adapter's outbox IS that row, so there is no second log call.
+        $result = channel_adapter('web')
+            ->withOutbox(function ($m) use ($ci, $user_id, $subscribe_id, $text) {
+                channel_log_message($ci, $user_id, $subscribe_id, 'web', $text);
+            })
+            ->sendText(\MonkeyBot\Channels\OutboundMessage::text($subscribe_id, $text, array(), $user_id));
+        if (!$result->ok) {
+            log_message('error', 'channel_send_text web: ' . $result->error);
+            return array(false, $result->error);
+        }
         return array(true, '');
+    }
+}
+
+if (!function_exists('channel_send_meta_legacy_ok')) {
+    /**
+     * fb/ig success rule, kept exactly as it was: a send counts as delivered
+     * unless Graph answered with an `error` object. That means a transport
+     * failure or a non-JSON reply is still reported (and logged) as sent. The
+     * adapter itself reports those as ok=false/retryable; flipping this facade
+     * to trust $result->ok is a deliberate behaviour change left for its own
+     * commit (see docs/channels/adapters.md, "Known legacy quirks").
+     */
+    function channel_send_meta_legacy_ok(\MonkeyBot\Channels\SendResult $result)
+    {
+        // Phase 9.0 decision (brief 51, no silent failure): trust the adapter. The
+        // pre-9.0 rule counted a dead network, timeout or HTML 5xx as "sent" and wrote
+        // it to the chat log, so the message vanished without anyone knowing. Now such
+        // a send fails (retryable) and is not logged as delivered; callers already
+        // treat $ok=false as a failed attempt. Name kept for call-site compatibility.
+        return (bool) $result->ok;
     }
 }
 

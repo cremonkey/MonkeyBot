@@ -1,0 +1,30 @@
+{
+  "update_id": 912345678,
+  "message": {
+    "message_id": 4211,
+    "from": {
+      "id": 55501234,
+      "is_bot": false,
+      "first_name": "Omar",
+      "last_name": "Ali",
+      "username": "omar_a",
+      "language_code": "ar"
+    },
+    "chat": {
+      "id": 55501234,
+      "first_name": "Omar",
+      "type": "private"
+    },
+    "date": 1758542400,
+    "text": "مرحبا، عايز أعرف سعر الغرفة 🙏",
+    "reply_to_message": {
+      "message_id": 4209,
+      "chat": {
+        "id": 55501234,
+        "type": "private"
+      },
+      "date": 1758542300,
+      "text": "prev"
+    }
+  }
+}

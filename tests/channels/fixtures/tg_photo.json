@@ -1,0 +1,33 @@
+{
+  "update_id": 912345679,
+  "message": {
+    "message_id": 4212,
+    "from": {
+      "id": 55501234,
+      "is_bot": false,
+      "first_name": "Omar"
+    },
+    "chat": {
+      "id": 55501234,
+      "type": "private"
+    },
+    "date": 1758542401,
+    "photo": [
+      {
+        "file_id": "AgAC-small",
+        "file_unique_id": "AQAD1",
+        "file_size": 1200,
+        "width": 90,
+        "height": 67
+      },
+      {
+        "file_id": "AgAC-large",
+        "file_unique_id": "AQAD2",
+        "file_size": 80000,
+        "width": 1280,
+        "height": 960
+      }
+    ],
+    "caption": "صورة الإيصال"
+  }
+}

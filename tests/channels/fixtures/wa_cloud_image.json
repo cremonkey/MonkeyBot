@@ -1,0 +1,42 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "102290129340398",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550783881",
+              "phone_number_id": "106540352242922"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Mona"
+                },
+                "wa_id": "201001234567"
+              }
+            ],
+            "messages": [
+              {
+                "from": "201001234567",
+                "id": "wamid.HBgMMjAxMDAxMjM0NTY3FQIAEhggImage",
+                "timestamp": "1758542401",
+                "type": "image",
+                "image": {
+                  "caption": "الفاتورة",
+                  "mime_type": "image/jpeg",
+                  "sha256": "abc=",
+                  "id": "1003383421387256"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

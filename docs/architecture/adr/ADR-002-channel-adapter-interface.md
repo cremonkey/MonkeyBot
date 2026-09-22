@@ -1,8 +1,9 @@
 # ADR-002: Channel Adapter Interface
 
-- **Status:** Proposed
+- **Status:** Accepted (outbound step built in Phase 9.0; inbound wiring pending)
 - **Date:** 2026-09-22
-- **References:** brief §10, §11, §26, §44 and §47; `docs/channels/capability-matrix.md`; ADR-000; ADR-001
+- **Accepted:** 2026-09-22, Phase 9.0
+- **References:** brief §10, §11, §26, §44 and §47; `docs/channels/capability-matrix.md`; `docs/channels/adapters.md`; ADR-000; ADR-001
 
 ## Context
 
@@ -93,3 +94,50 @@ interface ChannelAdapter {
 
 - Webhook signature enforcement, so adapters inherit a verified ingress.
 - ADR-001 for persistence.
+
+## Implementation (Phase 9.0)
+
+Full detail is in `docs/channels/adapters.md`.
+
+### What was built
+
+- **Code location.** Everything is in `application/libraries/Channels/`, namespace `MonkeyBot\Channels`, loaded through `Channels/bootstrap.php`. The helper `channel_adapter($key)` returns an adapter.
+- **Adapters and keys:**
+
+  | Key | Adapter |
+  |---|---|
+  | `fb` | `FacebookMessengerAdapter` |
+  | `ig` | `InstagramAdapter` |
+  | `wa_openwa` | `OpenWaAdapter` |
+  | `wa_cloud` | `WhatsAppCloudAdapter` |
+  | `tg` | `TelegramAdapter` |
+  | `web` | `WebChatAdapter` |
+  | `tiktok` | `TikTokAdapter` (no capabilities) |
+
+- **Value objects:** `InboundMessage` (brief §11), `OutboundMessage` and `SendResult` (`ok`, `external_message_id`, `error`, `retryable`, `unsupported`).
+- **HTTP seam.** All HTTP goes through an injectable `HttpTransport`. `CurlTransport` sets exactly the curl options the legacy clients set, and a test compares the two option sets.
+- **Outbound first (decision 1) is done.** `channel_send_text()` is now a facade over the adapters. Its signature, return shape, error strings, account lookup, OpenWA-then-Cloud order and `livechat_messages` logging are unchanged.
+- **Contract tests (decision 4) are done** for every adapter, in `tests/channels/`, using the dependency-free runner `tests/run.php`. They cover:
+  - the exact request shape;
+  - unsupported means unsupported;
+  - transport, 5xx, rejection and rate-limit outcomes, with the retryable flag;
+  - inbound parsing of text, image, duplicate and malformed payloads;
+  - Arabic round-trips;
+  - the facade's legacy behaviour.
+
+### How it differs from the sketch above
+
+| Sketch | Built | Why |
+|---|---|---|
+| `channel()` | `key()` | Same meaning. |
+| `send()` | `sendText()` and `sendMedia()` | Rich messages (buttons, carousels) and graceful degradation are not built yet. They will be added as their own capabilities. |
+| `parseInbound(string $rawBody)` | `normalizeInbound(array $decoded, array $context): ?InboundMessage`, plus `normalizeInboundBatch()` | Controllers already decode the body. Tenant and account come from the caller's context, never from the payload. |
+
+`verifyInbound()` and `policy()` are **not built**. Signature checks stay in the controllers until the inbound pipeline exists. The channel policy engine (brief §26) is a later phase.
+
+### Still open
+
+- **Normalisers are not wired.** No webhook controller calls the normalisers yet. This is intentional: they will be wired through the unified inbound pipeline (decision 2) together with idempotency and ADR-001 persistence.
+- **Legacy engines still send directly.** `Messenger_bot`, `Openwa_bot`, `Whatsapp_bot` and `Telegram_bot` still send through their own code paths.
+- **fb/ig success rule.** The legacy rule for fb/ig (a transport failure counts as "sent") is preserved in the facade on purpose. Changing it is a separate, reviewed behaviour change.
+
