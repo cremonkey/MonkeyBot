@@ -63,8 +63,10 @@ Then `pricing_get_config($user_id, $scope)` returns:
 3. `null`: no pricing on this page. Rule 10 is not added and the tool tells the model to hand prices to the team.
 
 If the owner switches off a page's own list, that page falls back to the default list.
-`pricing_get_config($user_id)` (one argument) still returns the default list. Onboarding keeps
-writing the default list.
+`pricing_get_config($user_id)` (one argument) still returns the default list. The Setup Guide
+(step 5) writes one page-scoped list per page chosen for the business, never over an existing
+list, and writes the default list only on an account with no lists at all when the owner ticks
+*Use this list for all my pages* (see `docs/product/onboarding-and-templates.md`).
 
 ## Catalog schema (any business)
 

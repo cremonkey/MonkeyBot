@@ -1,34 +1,96 @@
 <?php $this->load->view('admin/onboarding/_shell'); ?>
+<?php
+/* Step 5 acts only on the pages chosen in step 2. A page that already has its own price list
+ * keeps it: it is listed here with a link to edit it on Products & Pricing, never overwritten. */
+$to_write = 0;
+foreach ($pages as $p) if (empty($p['has_own'])) $to_write++;
+$can_default = (int) $lists_total === 0 && !empty($pages);
+$h = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); };
+?>
+
+<div class="card" id="pr_pages"><div class="card-body">
+  <p class="mb-2"><strong>Pages of this business</strong> <small class="text-muted" dir="rtl">صفحات النشاط ده</small></p>
+  <table class="table table-sm mb-2">
+    <tbody>
+    <?php foreach ($pages as $p): ?>
+      <tr class="pr-page" data-key="<?php echo $h($p['key']); ?>">
+        <td><?php echo $h($p['label']); ?><?php if ($p['note'] !== ''): ?> <small class="text-muted"><?php echo $h($p['note']); ?></small><?php endif; ?></td>
+        <td>
+          <?php if (!empty($p['has_own'])): ?>
+            <span class="badge badge-success pr-has-list">Already has a price list</span>
+            <?php if (empty($p['own_active'])): ?><span class="badge badge-warning">switched off</span><?php endif; ?>
+            <small class="text-muted d-block" dir="rtl">عنده قايمة أسعار — هنسيبها زي ما هي</small>
+          <?php elseif (!empty($p['resolves'])): ?>
+            <span class="badge badge-info">Uses the list for all pages</span>
+            <small class="text-muted d-block">Will get its own list from this step.</small>
+          <?php else: ?>
+            <span class="badge badge-light">No price list yet</span>
+            <small class="text-muted d-block">Will get the list from this step.</small>
+          <?php endif; ?>
+        </td>
+        <td class="text-right">
+          <?php if (!empty($can_pricing)): ?>
+          <a class="btn btn-sm btn-outline-secondary pr-open" target="_blank"
+             href="<?php echo base_url('pricing?scope=' . rawurlencode($p['scope_key'])); ?>">Open in Products &amp; Pricing</a>
+          <?php endif; ?>
+        </td>
+      </tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table>
+  <?php if ($to_write === 0 && !empty($pages)): ?>
+    <p class="mb-0 text-muted">Every page here already has its own price list, so this step changes nothing.
+      <?php if (!empty($can_pricing)): ?>Edit them on <a href="<?php echo base_url('pricing'); ?>" target="_blank">Products &amp; Pricing</a>.<?php endif; ?></p>
+  <?php endif; ?>
+  <?php if ($can_default): ?>
+    <div class="custom-control custom-checkbox mt-2">
+      <input type="checkbox" class="custom-control-input" id="pr_all">
+      <label class="custom-control-label" for="pr_all">Use this list for all my pages
+        <small class="text-muted d-block">Saves it as the account-wide list that every page without its own list uses — including pages you add later.
+          <span dir="rtl">استخدم القايمة دي لكل صفحاتي</span></small></label>
+    </div>
+  <?php endif; ?>
+</div></div>
+
 <?php if (empty($tpl['pricing_supported'])): ?>
 
-  <div class="alert alert-info">
-    <h5 class="mb-2">Your prices stay as answers, not as a calculator</h5>
-    <p class="mb-2"><?php echo htmlspecialchars($tpl['pricing_note']['en']); ?></p>
-    <p class="mb-0" dir="rtl"><?php echo htmlspecialchars($tpl['pricing_note']['ar']); ?></p>
-  </div>
+  <p class="text-muted">Add a few of your products or services with their price. Your AI employee quotes these exactly — it never invents a price.
+    <br><span dir="rtl">ضيف شوية من منتجاتك أو خدماتك بسعرها. المساعد بيقول الأسعار دي بالظبط وعمره ما بيألّف سعر.</span></p>
+
   <div class="card"><div class="card-body">
-    <p class="mb-2"><strong>What to do instead</strong> <small class="text-muted" dir="rtl">اعمل إيه بدالها</small></p>
-    <ol class="mb-0">
-      <li>Write your fees into the answers on the previous step — <a href="<?php echo base_url('onboarding/step/4'); ?>">Knowledge</a>.</li>
-      <li>Upload a full price list as a document on the <a href="<?php echo base_url('ai_knowledge_base'); ?>" target="_blank">Knowledge</a> page.</li>
-      <li>Your AI employee quotes only what is written there, and says the team will confirm anything that is not.</li>
-    </ol>
+    <div class="form-group col-md-4 px-0">
+      <label>Currency word <small class="text-muted" dir="rtl">كلمة العملة</small></label>
+      <input id="pr_currency" class="form-control" value="جنيه">
+    </div>
+    <h6>Products &amp; services <small class="text-muted" dir="rtl">المنتجات والخدمات</small></h6>
+    <table class="table table-sm">
+      <thead><tr><th>Name</th><th style="width:140px">Price</th><th style="width:150px">Per <small class="text-muted">(optional)</small></th></tr></thead>
+      <tbody id="pr_items"></tbody>
+    </table>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_item"><i class="fas fa-plus"></i> Add item</button>
+    <p class="text-muted mt-3 mb-0"><small>Options, sizes, other names and "price on request" are set on the Products &amp; Pricing page.</small></p>
   </div></div>
-  <button class="btn btn-primary ob-save" id="ob_go">Understood, continue</button>
+
+  <div class="alert alert-light">
+    <strong>Rather not list prices?</strong> Skip — your prices stay as answers, not as a calculator.
+    <?php echo $h($tpl['pricing_note']['en']); ?>
+    <span class="d-block" dir="rtl"><?php echo $h($tpl['pricing_note']['ar']); ?></span>
+    Write your fees into the answers on <a href="<?php echo base_url('onboarding/step/4'); ?>">Knowledge</a>, or upload a price list on the
+    <a href="<?php echo base_url('ai_knowledge_base'); ?>" target="_blank">Knowledge</a> page.
+  </div>
+
+  <button class="btn btn-primary ob-save" id="ob_go"><?php echo $to_write > 0 ? 'Save products and continue' : 'Continue'; ?></button>
+  <button class="btn btn-link ob-save" id="ob_skip">Skip — keep prices as answers</button>
 
 <?php else: ?>
 
   <p class="text-muted">A starter price list is ready below. Replace the example names and numbers with yours. Your AI employee quotes these exactly — it never invents a price.
     <br><span dir="rtl">في قايمة أسعار مبدئية تحت. غيّر الأسماء والأرقام بتاعتك. المساعد بيقول الأسعار دي بالظبط وعمره ما بيألّف سعر.</span></p>
-  <?php if ($cfg_saved): ?>
-    <div class="alert alert-light">You already have a saved price list — it is loaded below. Full editing, the test calculator and the change history live on the
-      <a href="<?php echo base_url('pricing'); ?>" target="_blank">Products &amp; Pricing</a> page.</div>
-  <?php endif; ?>
 
   <div class="card"><div class="card-body">
     <div class="form-group col-md-4 px-0">
       <label>Currency word <small class="text-muted" dir="rtl">كلمة العملة</small></label>
-      <input id="pr_currency" class="form-control" value="<?php echo htmlspecialchars($cfg['currency'] ?? 'جنيه'); ?>">
+      <input id="pr_currency" class="form-control" value="<?php echo $h($cfg['currency'] ?? 'جنيه'); ?>">
     </div>
     <h6>Rooms <small class="text-muted" dir="rtl">الغرف</small></h6>
     <table class="table table-sm">
@@ -46,14 +108,47 @@
     <p class="text-muted mt-3 mb-0"><small>Children's age bands and multi-night offers come from the template and are kept as they are. Fine-tune them on the Products &amp; Pricing page.</small></p>
   </div></div>
 
-  <button class="btn btn-primary ob-save" id="ob_go">Save prices and continue</button>
+  <button class="btn btn-primary ob-save" id="ob_go"><?php echo $to_write > 0 ? 'Save prices and continue' : 'Continue'; ?></button>
 
 <?php endif; ?>
 <?php $this->load->view('admin/onboarding/_foot'); ?>
 <script>
 $(function () {
+  function useAll() { return $('#pr_all').is(':checked') ? '1' : '0'; }
+  function done(r) {
+    var kept = r.kept_existing || [], saved = r.saved_pages || [], m = [];
+    if (r.mode === 'faq_only') { OB.next(); return; }
+    if (saved.length) m.push('Saved on: ' + saved.join(', ') + '.');
+    if (kept.length) m.push(kept.length + ' page(s) already had a price list and were left as they are: ' + kept.join(', ') + '.');
+    if (m.length) { OB.msg('success', $('<div>').text(m.join(' ')).html()); setTimeout(OB.next, kept.length ? 2500 : 900); }
+    else OB.next();
+  }
 <?php if (empty($tpl['pricing_supported'])): ?>
-  $('#ob_go').on('click', function () { OB.post('save_pricing', {}, function () { OB.next(); }); });
+  var UNITS = <?php echo json_encode(array_values(array_diff(array_keys($units), array('custom')))); ?>;
+  function itemRow(it) {
+    var $u = $('<select class="form-control form-control-sm i-unit">');
+    UNITS.forEach(function (u) { $u.append($('<option>').val(u).text(u === 'item' ? '—' : u)); });
+    $u.val(it.unit || 'item');
+    return $('<tr>').append(
+      $('<td>').append($('<input class="form-control form-control-sm i-name" dir="auto">').val(it.name || '')),
+      $('<td>').append($('<input type="number" min="0" step="any" class="form-control form-control-sm i-price">').val(it.price || '')),
+      $('<td>').append($u)
+    );
+  }
+  for (var i = 0; i < 3; i++) $('#pr_items').append(itemRow({}));
+  $('#pr_add_item').on('click', function () { $('#pr_items').append(itemRow({})); });
+  $('#ob_go').on('click', function () {
+    var p = {currency: $('#pr_currency').val(), use_for_all: useAll()}, n = 0;
+    $('#pr_items tr').each(function () {
+      var $t = $(this);
+      p['items[' + n + '][name]'] = $t.find('.i-name').val();
+      p['items[' + n + '][price]'] = $t.find('.i-price').val();
+      p['items[' + n + '][unit]'] = $t.find('.i-unit').val();
+      n++;
+    });
+    OB.post('save_pricing', p, done);
+  });
+  $('#ob_skip').on('click', function () { OB.post('save_pricing', {skip: '1'}, function () { OB.next(); }); });
 <?php else: ?>
   var CFG = <?php echo json_encode($cfg, JSON_UNESCAPED_UNICODE); ?> || {};
   function roomRow(r) {
@@ -88,7 +183,7 @@ $(function () {
       var $t = $(this);
       return {name: $t.find('.p-name').val(), per_person: parseInt($t.find('.p-price').val(), 10) || 0};
     }).get();
-    OB.post('save_pricing', {config_json: JSON.stringify(out)}, function () { OB.next(); });
+    OB.post('save_pricing', {config_json: JSON.stringify(out), use_for_all: useAll()}, done);
   });
 <?php endif; ?>
 });
