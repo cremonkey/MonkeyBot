@@ -144,6 +144,18 @@ class Appointment_booking extends Home
         if ($clash) { echo json_encode(['status'=>'0','message'=>'That slot was just taken.']); return; }
         $key = substr(md5(uniqid('bk',true)),0,16);
         $this->basic->insert_data('ab_appointments', array('user_id'=>$uid,'service_id'=>$service_id,'customer_name'=>$name,'customer_phone'=>$phone,'customer_email'=>$email,'starts_at'=>$starts,'ends_at'=>$ends,'status'=>'pending','booking_key'=>$key,'source'=>'web','created_at'=>date('Y-m-d H:i:s')));
+
+        // Event Engine (brief 22). Wrapped: the customer has a confirmed booking either way.
+        try {
+            $this->load->helper('event');
+            event_emit($uid, 'appointment.created', 'appointment', (int) $this->db->insert_id(), array(
+                'service_id' => $service_id, 'service_name' => $svc['name'] ?? '',
+                'starts_at'  => $starts, 'ends_at' => $ends, 'source' => 'web',
+                'full_name'  => $name, 'phone' => $phone, 'email' => $email,
+                'booking_key'=> $key,
+            ));
+        } catch (Throwable $e) { log_message('error', 'appointment event_emit: ' . $e->getMessage()); }
+
         echo json_encode(['status'=>'1','message'=>'Booked for '.$starts.'. Reference: '.$key]);
     }
 
