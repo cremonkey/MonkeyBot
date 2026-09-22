@@ -285,3 +285,9 @@ pattern) once the volume is known. `message.*` must not be wired until that exis
 
 The engine is testable without CodeIgniter because every side effect goes through
 `Automation_gateway`; `tests/automation/run.php` substitutes a fake with the same methods.
+
+## Staging note
+`automation_engine_enabled` defaults FALSE (unset), same as production will. To exercise the
+worker on the shared `monkeybot-staging` stack, append `$config['automation_engine_enabled'] = TRUE;`
+to its `application/config/config.php` and restart `monkeybot-staging-app-1` — do NOT set this on
+production without a deliberate rollout (see "Enabling in production" above).
