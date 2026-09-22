@@ -630,18 +630,90 @@ class Inbox extends Home
 
     // ------------------------------------------------------------------ canned responses
 
+    /** canned_response.channels exists (migration 2026-09-30b-canned-response-channels.sql). */
+    private function canned_has_channels()
+    {
+        static $has = null;
+        if ($has === null) $has = $this->db->field_exists('channels', 'canned_response');
+        return $has;
+    }
+
     /**
-     * AJAX: canned_response rows for this tenant (reused from Livechat.php / module 82, see
-     * docs/product/unified-inbox.md). canned_response.media_type is fb/ig only in the schema,
-     * so — since the inbox is channel-agnostic — this returns every row for the tenant
-     * regardless of media_type rather than trying to add wa/tg/web categories here.
+     * AJAX: canned_response rows for this tenant (the same table Livechat.php / module 82 uses).
+     * With conversation_id, only the responses offered on that conversation's channel come back:
+     * rows whose `channels` is NULL (every row created before the column existed) show on every
+     * channel, exactly as before. Without conversation_id, every row of the tenant comes back.
+     * media_type (Livechat's fb/ig page category) is not read or changed here.
      */
     public function canned_responses()
     {
         $this->ajax_check();
         header('Content-Type: application/json');
-        $rows = $this->db->select('id, name, message')->from('canned_response')->where('user_id', $this->uid)
-            ->order_by('name', 'ASC')->get()->result_array();
-        echo json_encode(array('status' => '1', 'rows' => $rows));
+
+        $platform = null;
+        $conversation_id = (int) $this->input->post('conversation_id');
+        if ($conversation_id > 0) {
+            $conv = conversation_get($conversation_id, $this->uid); // tenant guard
+            if (empty($conv)) { echo json_encode(array('status' => '0', 'message' => 'Conversation not found')); return; }
+            $platform = $conv['platform'];
+        }
+
+        $has = $this->canned_has_channels();
+        $this->db->select($has ? 'id, name, message, channels' : 'id, name, message')->from('canned_response');
+        inbox_scope_canned($this->db, $this->uid, $platform, $has);
+        $rows = $this->db->order_by('name', 'ASC')->get()->result_array();
+        foreach ($rows as &$r) {
+            if (!$has) $r['channels'] = null;
+            $r['channel_list'] = $r['channels'] === null || $r['channels'] === '' ? array() : explode(',', $r['channels']);
+        }
+        unset($r);
+        echo json_encode(array('status' => '1', 'rows' => $rows, 'platform' => $platform, 'channels_supported' => $has));
+    }
+
+    /**
+     * AJAX POST: create an inbox canned response, or edit one of this tenant's (name, text and
+     * which channels it is offered on). New rows get page_id 0, so Livechat's per-page list
+     * (page_id + media_type) never shows them. Editing a Livechat row keeps its page_id and
+     * media_type untouched.
+     */
+    public function canned_save()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+
+        $id = (int) $this->input->post('canned_id');
+        $name = trim(strip_tags((string) $this->input->post('name', true)));
+        $message = trim((string) $this->input->post('message', true));
+        if ($name === '' || $message === '') { echo json_encode(array('status' => '0', 'message' => 'Name and message are required')); return; }
+        $data = array('name' => mb_substr($name, 0, 255), 'message' => mb_substr($message, 0, 5000));
+        if ($this->canned_has_channels()) {
+            $data['channels'] = inbox_canned_channels_normalize($this->input->post('channels'));
+        }
+
+        if ($id > 0) {
+            $own = $this->db->select('id')->from('canned_response')->where('user_id', $this->uid)->where('id', $id)->get()->row_array();
+            if (empty($own)) { echo json_encode(array('status' => '0', 'message' => 'Canned response not found')); return; }
+            $this->db->where('id', $id)->where('user_id', $this->uid)->update('canned_response', $data);
+            echo json_encode(array('status' => '1', 'message' => 'Canned response updated', 'id' => $id));
+            return;
+        }
+        $data['user_id'] = $this->uid;
+        $data['page_id'] = 0;
+        $this->db->insert('canned_response', $data);
+        echo json_encode(array('status' => '1', 'message' => 'Canned response saved', 'id' => (int) $this->db->insert_id()));
+    }
+
+    /** AJAX POST: delete one of this tenant's canned responses. */
+    public function canned_delete()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+
+        $id = (int) $this->input->post('canned_id');
+        $this->db->where('id', $id)->where('user_id', $this->uid)->delete('canned_response');
+        if ($this->db->affected_rows() < 1) { echo json_encode(array('status' => '0', 'message' => 'Canned response not found')); return; }
+        echo json_encode(array('status' => '1', 'message' => 'Canned response deleted'));
     }
 }

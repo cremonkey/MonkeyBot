@@ -227,5 +227,50 @@ check('label colour: CSS injection attempt dropped', inbox_label_normalize_color
 check('label colour: short form rejected', inbox_label_normalize_color('#fff'), null);
 check('label colour: empty -> NULL', inbox_label_normalize_color(''), null);
 
+// ============================================================================================
+echo "\n== canned responses filtered by channel ==\n";
+
+check('channels: NULL stays NULL (every pre-existing row = all channels)', inbox_canned_channels_normalize(null), null);
+check('channels: empty string -> NULL', inbox_canned_channels_normalize(''), null);
+check("channels: 'all' -> NULL", inbox_canned_channels_normalize('all'), null);
+check("channels: array('all') (the UI's 'All channels') -> NULL", inbox_canned_channels_normalize(array('all')), null);
+check('channels: stable order, deduplicated', inbox_canned_channels_normalize(array('tg', 'wa', 'tg', 'FB')), 'fb,wa,tg');
+check('channels: CSV input accepted', inbox_canned_channels_normalize('web, ig'), 'ig,web');
+check('channels: unknown values dropped', inbox_canned_channels_normalize(array('wa', "x');DROP TABLE y;--", 'sms')), 'wa');
+check('channels: only unknown values -> NULL (all), never an empty filter that hides the row', inbox_canned_channels_normalize(array('sms')), null);
+check('channels: every platform chosen -> NULL (one spelling for "all")', inbox_canned_channels_normalize(array('fb', 'ig', 'wa', 'tg', 'web')), null);
+check('channels: fits the varchar(64) column', strlen('fb,ig,wa,tg,web') <= 64, true);
+
+foreach (array('fb', 'ig', 'wa', 'tg', 'web') as $p) {
+    check("visible: NULL channels shown on $p (existing rows keep showing everywhere)", inbox_canned_visible_on(null, $p), true);
+}
+check("visible: '' shown everywhere", inbox_canned_visible_on('', 'tg'), true);
+check("visible: 'wa,tg' shown on wa", inbox_canned_visible_on('wa,tg', 'wa'), true);
+check("visible: 'wa,tg' hidden on fb", inbox_canned_visible_on('wa,tg', 'fb'), false);
+check("visible: 'fb' does not match 'fbx' style prefixes", inbox_canned_visible_on('fb', 'f'), false);
+
+$q = new FakeQB();
+inbox_scope_canned($q, 55, 'wa');
+check('canned scope: tenant guard is call #1', $q->calls[0], array('where', 'user_id', 55));
+check('canned scope: NULL channels always included', in_array(array('where', 'channels IS NULL', null), $q->calls, true), true);
+check('canned scope: FIND_IN_SET on the conversation platform',
+    in_array(array('or_where', "FIND_IN_SET('wa', channels) > 0"), $q->calls, true), true);
+check('canned scope: grouped so OR cannot escape the tenant guard',
+    $q->calls[1] === array('group_start') && end($q->calls) === array('group_end'), true);
+
+$q = new FakeQB();
+inbox_scope_canned($q, 55, "wa') OR 1=1 --");
+$raw = '';
+foreach ($q->calls as $c) if ($c[0] === 'or_where') $raw .= $c[1];
+check('canned scope: an unknown platform is never interpolated', strpos($raw, 'OR 1=1') === false, true);
+
+$q = new FakeQB();
+inbox_scope_canned($q, 55, null);
+check('canned scope: no conversation -> tenant rows only, no channel filter', $q->calls, array(array('where', 'user_id', 55)));
+
+$q = new FakeQB();
+inbox_scope_canned($q, 55, 'tg', false);
+check('canned scope: before the migration (no channels column) -> unfiltered as before', $q->calls, array(array('where', 'user_id', 55)));
+
 echo "\n== $pass passed, $fail failed ==\n";
 exit($fail === 0 ? 0 : 1);

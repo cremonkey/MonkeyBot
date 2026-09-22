@@ -213,3 +213,59 @@ if (!function_exists('inbox_scope_labels')) {
     }
 }
 
+// ------------------------------------------------------------------ canned responses by channel
+
+if (!function_exists('inbox_canned_channels_normalize')) {
+    /**
+     * The value stored in canned_response.channels. NULL means "every channel" (the value every
+     * pre-existing row has, so those keep showing everywhere). Accepts an array or a
+     * comma-separated string of conversation platforms. Unknown values are dropped. Choosing
+     * every platform, or none, or 'all', is stored as NULL too, so "all" has one spelling.
+     */
+    function inbox_canned_channels_normalize($input)
+    {
+        if ($input === null || $input === '' || $input === 'all') return null;
+        if (is_string($input)) $input = explode(',', $input);
+        if (!is_array($input)) return null;
+        $known = array('fb', 'ig', 'wa', 'tg', 'web');
+        $picked = array();
+        foreach ($input as $v) {
+            $v = strtolower(trim((string) $v));
+            if (in_array($v, $known, true)) $picked[$v] = true;
+        }
+        if (empty($picked) || count($picked) === count($known)) return null;
+        $out = array();
+        foreach ($known as $k) if (isset($picked[$k])) $out[] = $k; // stable order
+        return implode(',', $out);
+    }
+}
+
+if (!function_exists('inbox_canned_visible_on')) {
+    /** Whether a canned response with this `channels` value is offered on $platform. */
+    function inbox_canned_visible_on($channels, $platform)
+    {
+        if ($channels === null || trim((string) $channels) === '') return true;
+        return in_array((string) $platform, explode(',', (string) $channels), true);
+    }
+}
+
+if (!function_exists('inbox_scope_canned')) {
+    /**
+     * Tenant guard (first, always) plus the per-channel filter for canned_response.
+     * $platform NULL/'' = no channel filter (every row of the tenant). $has_channels_column is
+     * FALSE before the 2026-09-30b migration has run: then every row is returned, as before.
+     */
+    function inbox_scope_canned($db, $user_id, $platform = null, $has_channels_column = true)
+    {
+        $db->where('user_id', (int) $user_id);
+        $platform = (string) $platform;
+        if ($platform === '' || !$has_channels_column) return $db;
+        if (!in_array($platform, array('fb', 'ig', 'wa', 'tg', 'web'), true)) $platform = '-';
+        $db->group_start();
+        $db->where('channels IS NULL', null, false);
+        $db->or_where('channels', '');
+        $db->or_where("FIND_IN_SET('" . $platform . "', channels) > 0", null, false);
+        $db->group_end();
+        return $db;
+    }
+}

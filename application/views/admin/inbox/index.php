@@ -111,6 +111,29 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   </div>
 </section>
 
+<!-- Canned responses: which channels each one is offered on -->
+<div class="modal fade" id="ib_canned_modal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fas fa-comment-dots"></i> Canned responses</h5>
+      <button type="button" class="close" data-dismiss="modal">&times;</button></div>
+    <div class="modal-body">
+      <div id="ib_canned_table" class="mb-3" style="max-height:40vh;overflow-y:auto"></div>
+      <input type="hidden" id="ib_canned_id" value="0">
+      <input id="ib_canned_name" class="form-control form-control-sm mb-1" maxlength="255" placeholder="Name">
+      <textarea id="ib_canned_text" class="form-control form-control-sm mb-1" rows="3" placeholder="Message"></textarea>
+      <div class="mb-2" id="ib_canned_channels">
+        <small class="text-muted mr-2">Offer on:</small>
+        <label class="mr-2 mb-0"><input type="checkbox" class="ib-canned-all" checked> All channels</label>
+        <?php foreach ($platforms as $p): ?>
+          <label class="mr-2 mb-0"><input type="checkbox" class="ib-canned-ch" value="<?php echo htmlspecialchars($p); ?>"> <?php echo htmlspecialchars($plat_name[$p] ?? $p); ?></label>
+        <?php endforeach; ?>
+      </div>
+      <button type="button" id="ib_canned_save" class="btn btn-sm btn-primary">Save</button>
+      <button type="button" id="ib_canned_reset" class="btn btn-sm btn-link">New</button>
+    </div>
+  </div></div>
+</div>
+
 <!-- Label manager: create / rename / recolour / delete this account's labels -->
 <div class="modal fade" id="ib_labels_modal" tabindex="-1" role="dialog">
   <div class="modal-dialog" role="document"><div class="modal-content">
@@ -268,6 +291,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       $('#ib_composer, #ib_send').prop('disabled', false);
       $('#ib_deny').hide();
       loadSummary(false);
+      loadCanned();
       loadList(true); // refresh unread badges
     });
   }
@@ -355,14 +379,62 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   $('#ib_resolve').on('click', function () { post('set_status', {conversation_id: current.id, action: 'resolve'}, function (r) { note(r.message, r.status === '1'); if (r.status === '1') openConversation(current.id); }); });
   $('#ib_reopen').on('click', function () { post('set_status', {conversation_id: current.id, action: 'reopen'}, function (r) { note(r.message, r.status === '1'); if (r.status === '1') openConversation(current.id); }); });
 
-  post('canned_responses', {}, function (r) {
-    if (r.status !== '1' || !r.rows.length) return;
-    $('#ib_canned_menu').html(r.rows.map(function (c) {
-      return '<a class="dropdown-item ib-canned" href="#" data-msg="' + esc(c.message) + '">' + esc(c.name) + '</a>';
-    }).join(''));
-  });
+  // Canned responses offered in the composer are the ones for the open conversation's channel
+  // (a response with no channel set is offered everywhere, as before).
+  var CANNED_ALL = [];
+  function loadCanned() {
+    post('canned_responses', current ? {conversation_id: current.id} : {}, function (r) {
+      if (r.status !== '1') return;
+      var items = r.rows.map(function (c) {
+        return '<a class="dropdown-item ib-canned" href="#" data-msg="' + esc(c.message) + '">' + esc(c.name) + '</a>';
+      }).join('');
+      $('#ib_canned_menu').html((items || '<span class="dropdown-item-text text-muted small">None for this channel</span>') +
+        '<div class="dropdown-divider"></div><a class="dropdown-item small" href="#" id="ib_canned_manage"><i class="fas fa-cog"></i> Manage…</a>');
+      $('#ib_canned_channels').toggle(r.channels_supported !== false);
+    });
+  }
+  function loadCannedAll() {
+    post('canned_responses', {}, function (r) {
+      if (r.status !== '1') return;
+      CANNED_ALL = r.rows;
+      $('#ib_canned_table').html(CANNED_ALL.length ? '<table class="table table-sm mb-0"><tbody>' + CANNED_ALL.map(function (c) {
+        var ch = c.channel_list.length ? c.channel_list.map(function (p) { return esc(PLAT_NAME[p] || p); }).join(', ') : 'All channels';
+        return '<tr data-id="' + (+c.id) + '"><td><b>' + esc(c.name) + '</b><br><small class="text-muted">' + esc(String(c.message).substring(0, 140)) + '</small></td>' +
+          '<td class="text-nowrap"><small>' + ch + '</small></td>' +
+          '<td class="text-nowrap text-right"><button type="button" class="btn btn-sm btn-outline-primary ib-canned-edit">Edit</button> ' +
+          '<button type="button" class="btn btn-sm btn-outline-danger ib-canned-del"><i class="fas fa-trash"></i></button></td></tr>';
+      }).join('') + '</tbody></table>' : '<small class="text-muted">No canned responses yet.</small>');
+    });
+  }
+  function cannedForm(c) {
+    $('#ib_canned_id').val(c ? c.id : 0); $('#ib_canned_name').val(c ? c.name : ''); $('#ib_canned_text').val(c ? c.message : '');
+    var list = c ? c.channel_list : [];
+    $('.ib-canned-all').prop('checked', !list.length);
+    $('.ib-canned-ch').each(function () { $(this).prop('checked', list.indexOf(this.value) >= 0); });
+  }
   $(document).on('click', '.ib-canned', function (e) { e.preventDefault(); $('#ib_composer').val($(this).data('msg')); });
-
+  $(document).on('click', '#ib_canned_manage', function (e) { e.preventDefault(); cannedForm(null); loadCannedAll(); $('#ib_canned_modal').modal('show'); });
+  $(document).on('change', '.ib-canned-all', function () { if (this.checked) $('.ib-canned-ch').prop('checked', false); });
+  $(document).on('change', '.ib-canned-ch', function () { $('.ib-canned-all').prop('checked', !$('.ib-canned-ch:checked').length); });
+  $('#ib_canned_reset').on('click', function () { cannedForm(null); });
+  $(document).on('click', '.ib-canned-edit', function () {
+    var id = +$(this).closest('tr').data('id');
+    cannedForm(CANNED_ALL.filter(function (c) { return +c.id === id; })[0] || null);
+  });
+  $(document).on('click', '.ib-canned-del', function () {
+    if (!confirm('Delete this canned response?')) return;
+    post('canned_delete', {canned_id: $(this).closest('tr').data('id')}, function (r) {
+      note(r.message, r.status === '1'); if (r.status === '1') { loadCannedAll(); loadCanned(); }
+    });
+  });
+  $('#ib_canned_save').on('click', function () {
+    var ch = $('.ib-canned-all').is(':checked') ? [] : $('.ib-canned-ch:checked').map(function () { return this.value; }).get();
+    post('canned_save', {canned_id: $('#ib_canned_id').val(), name: $('#ib_canned_name').val(), message: $('#ib_canned_text').val(),
+      channels: ch.length ? ch : ['all']}, function (r) {
+      note(r.message, r.status === '1'); if (r.status === '1') { cannedForm(null); loadCannedAll(); loadCanned(); }
+    });
+  });
+  loadCanned();
 
   loadLabels();
   loadList(true);
