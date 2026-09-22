@@ -162,15 +162,15 @@ Source: `reengage_campaign` (rate limits, quiet hours, A/B, schedule) and `reeng
    `messages_per_hour`.
 2. Create a Sequence with one `send_message` step at delay 0 (or whatever offset matches the
    campaign's intent).
-3. **Important gap, read before migrating a real campaign:** Sequences today has **no**
-   rate-limit budget, quiet-hours window, daily cap or A/B split of its own — the
-   `reengage_rate_budget()` / `reengage_in_quiet_hours()` / `reengage_jitter_seconds()` helpers
-   `reengage_helper.php` provides are not wired into `sequence_advance()` or the worker. A
-   Sequence step's only real-time gate is `channel_policy_decide()` (the 24h/7-day messaging
-   window and opt-out check) — the same one every automated send in this app goes through, but
-   it says nothing about *how many* messages per hour or *what time of day*. **Do not migrate a
-   large or rate-sensitive Reengage campaign to a Sequence until this is closed** (tracked in
-   §7). A small, one-customer-at-a-time manual re-engagement fits today's Sequences fine.
+3. **Rate limit, quiet hours and jitter (closed 2026-09-27 — see §6.1 below):** Sequences now
+   has its own rate-limit budget, quiet-hours window and jitter for `send_message` steps,
+   wired into `sequence_advance()` (not the worker loop — see §6.1). It still has **no A/B
+   split**, and there is still no per-sequence daily cap (account-wide only — §6.1). Quiet
+   hours and jitter are **off by default** (see §6.1 for why) — turn them on per sequence (or
+   set an account-wide default in `sales_automation_settings`) before migrating a
+   rate-sensitive Reengage campaign that relied on its `quiet_start`/`quiet_end`/
+   `jitter_min_sec`/`jitter_max_sec` columns. Rate limiting (`messages_per_hour`) IS on by
+   default (30/hour, 200/day account-wide) — see §6.1 for the reasoning.
 4. Enroll the eligible recipients (or wire a Rule's `start_sequence` to whatever event puts
    someone in the old campaign's audience) and confirm the old `reengage_campaign` row is
    paused before double-sending.
@@ -192,6 +192,86 @@ keyed to `messenger_bot_drip_last_completed_day`/`_hour`.
 4. Stop new assignments into `messenger_bot_drip_campaign_assign` for that campaign once the
    Sequence is confirmed working, so a customer is never in both.
 
+## 6.1 Safety gate: rate limits, quiet hours, jitter, opt-out (2026-09-27)
+
+Closes the gap §6.B and §7 used to describe. For every step whose `action_type` is
+`send_message`, `sequence_advance()` (`application/helpers/sequence_helper.php`) now runs
+three checks **before** `channel_policy_decide()` even sees the send, plus one scheduling
+adjustment after:
+
+1. **Opt-out** — `skipped_opt_out`. Reuses `reengage_optout`, the SAME table
+   `Automation_gateway::context()` already reads into `$data['opted_out']` for every
+   automation (no second opt-out list was built). This was, strictly, already enforced before
+   this change — `channel_policy_decide()` itself refuses an opted-out automated send — but it
+   was folded into the generic `skipped_policy` reason. It now gets its own visible reason.
+2. **Quiet hours** — `skipped_quiet_hours`, via `reengage_in_quiet_hours()` (unchanged from
+   Reengage). Window: `sequences.quiet_hours_start`/`quiet_hours_end` if set on the sequence,
+   else `sales_automation_settings.default_quiet_hours_start`/`default_quiet_hours_end` for
+   the account, else **no quiet hours at all** (see "defaults" below).
+3. **Rate limit** — `skipped_rate_limit`, via `reengage_rate_budget()` (unchanged from
+   Reengage), counted from `sequence_step_log` rows with `status = 'success'` on
+   `send_message` steps across **every sequence the account owns** — an account-wide budget,
+   per the brief's own wording ("the hourly/daily budget ... for that account"), not a
+   per-sequence one. `messages_per_hour`: `sequences.messages_per_hour` if set, else
+   `sales_automation_settings.default_messages_per_hour`. `daily_cap`: account-wide only
+   (`sales_automation_settings.default_daily_cap`) — no per-sequence override; see the
+   migration's own comment for why.
+4. **Jitter** — not a skip. `reengage_jitter_seconds()` (unchanged from Reengage) computes a
+   delay; if it is non-zero, the step is **not** sent this tick. Its `sequence_step_log` row is
+   marked `pending_jitter` and `sequence_enrollments.next_run_at` is pushed forward by the
+   jitter amount — the worker never sleeps (brief: "do not sleep/block the worker"). The SAME
+   claim row is reused (not a new one) when the next tick finds the wait has elapsed, and the
+   step actually sends then. `jitter_min_seconds`/`jitter_max_seconds`: sequence override, else
+   `sales_automation_settings.default_jitter_min_seconds`/`default_jitter_max_seconds`.
+
+**Account-wide default source, reused not duplicated:** `sales_automation_settings` was
+checked first, as instructed, for an existing account-wide quiet-hours/rate table to reuse —
+it had none (only `followup_*`/`digest_*`/`deflect_alert_*`). Rather than invent a second
+one-row-per-tenant settings table, this migration **adds** `default_messages_per_hour`,
+`default_daily_cap`, `default_quiet_hours_start`, `default_quiet_hours_end`,
+`default_jitter_min_seconds`, `default_jitter_max_seconds` to it — `sales_automation_settings`
+was already the account's one-row "automation settings" home, so this keeps that count at one
+table, and any future automated-send feature (not just Sequences) can read the same defaults
+without adding a third.
+
+**Defaults, and why they differ by concern:** rate limiting is **on** by default (30/hour,
+200/day account-wide — roughly half Reengage's own per-campaign defaults, since a Sequences
+account budget is shared across every sequence at once) because the brief requires it
+unconditionally — a fresh account with no configuration must still have SOME budget, not "no
+limit" (reengage_helper.php's own stated philosophy: a safe default, not an open door). Quiet
+hours and jitter are **off** by default (`quiet_hours_start == quiet_hours_end`, `jitter_min ==
+jitter_max == 0`) — unlike Reengage, where quiet hours (22:00-08:00) are the default for a
+campaign an owner deliberately sets up, Sequences already had live, un-gated steps running
+(the brief's own example: "T +10 minutes: help message" for a fresh lead) — defaulting quiet
+hours on would silently defer those by up to 8 hours the moment this migration lands, which is
+exactly the kind of silent behavior change brief §51 rules out. Quiet hours and jitter are
+available per sequence (or account-wide), not imposed.
+
+**Stuck-step decision (brief §51 — pick a defensible behavior, document and test it):** an
+opt-out, quiet-hours or rate-limit skip is claimed **once**, logged **once**, and the
+enrollment **advances to its next step** — it is not retried on a later worker tick. See
+`sequence_advance()`'s doc comment ("STUCK-STEP DECISION") in `sequence_helper.php` for the
+full reasoning; in short: Sequences steps are anchored to a fixed T+offset from enrollment
+(§3), not a real-time queue the way Reengage's `reengage_recipient` rows are (retried every
+tick until a window opens) — retrying indefinitely would both fight that timing model (a
+"T+10 minutes" step firing 8 hours late is a worse surprise than a visible skip) and spam
+`sequence_step_log` with one row per tick for the whole quiet window instead of one meaningful,
+owner-visible count. A customer who genuinely needs a retry-until-window-opens queue belongs
+in Reengage (§6.B). Jitter is the one exception: it is not a refusal (the message WILL send),
+so it resumes on the next tick instead of being finalized — see point 4 above.
+
+**Visibility (brief §51):** `sequence_step_log.status` gained `skipped_opt_out`,
+`skipped_quiet_hours`, `skipped_rate_limit` and the transient `pending_jitter`. The
+enrollments page (`Sequences::enrollments()` / `admin/sequences/enrollments.php`) shows a
+per-sequence tally — "12 skipped: quiet hours" — for every non-zero skip/failure reason.
+
+**`respect_opt_out`:** `sequences.respect_opt_out` exists (default `TRUE`) but is a
+constrained column, not a working toggle — `CHECK (respect_opt_out = 1)` at the database
+layer, never read by `sequence_helper.php`. The opt-out check above is unconditional for
+every `send_message` step. This is deliberate: an automated send must never be exemptable
+from opt-out, not even by a UI bug or a direct SQL edit (see the migration file's own
+comment).
+
 ## 7. Known gaps (honest, not hidden — brief §51)
 
 - **No event → auto-enroll wiring.** A sequence's `trigger_event` + `enroll_conditions_json`
@@ -201,10 +281,9 @@ keyed to `messenger_bot_drip_last_completed_day`/`_hour`.
   fully works. Closing this gap is a small, well-scoped follow-up: a new branch in
   `Sequence_worker` (or a dedicated listener) that drains `events` for sequences with a
   non-`manual` `trigger_event`, exactly mirroring `Automation_engine::process_event()`.
-- **No rate limiting, quiet hours or daily cap.** See §6.B. `reengage_helper.php`'s budget/quiet-
-  hours/jitter functions exist and are proven in Reengage; wiring them into `sequence_advance()`
-  for `send_message` steps (in addition to the always-on `channel_policy_decide()` check) is the
-  next piece of work before Sequences is safe for large-audience re-engagement.
+- **No per-sequence daily cap, no A/B split.** See §6.1 — the daily cap is account-wide only
+  (deliberately; a Graph-quota protection, not a per-sequence curation knob). There is still
+  no A/B message variant on a step, unchanged from before this patch.
 - **No per-step retry.** `Automation_engine::execute_action()`'s retry/backoff loop (3 attempts,
   1s/3s backoff) IS in effect for a Sequence step's action, since it is the same dispatcher —
   but a step that still fails after retries simply advances to the next step; it is logged
@@ -265,13 +344,24 @@ docker exec -u www-data monkeybot-app-ojzrhf-app-1 php /var/www/html/index.php s
 
 | Suite | What it covers |
 |---|---|
-| `php tests/sequences/run.php` | Unit, no CodeIgniter/DB/network: enrollment idempotency, step-advancement math (absolute-offset `next_run_at`, completion, pause blocks advancing without losing position), stop-condition evaluation, the `replied_since_enrollment` field, a policy-denied step logged `skipped_policy` with nothing sent, replay never re-firing a claimed step, action dispatch (including `create_task`/`start_sequence`) reusing `Automation_engine`/`Automation_gateway`. Uses an injectable `db`/`engine` (`sequence_advance()`'s `$deps` parameter, mirroring `Automation_engine`'s own `gateway` injection) with a small in-memory `FakeDb` — see the file header. |
+| `php tests/sequences/run.php` | Unit, no CodeIgniter/DB/network: enrollment idempotency, step-advancement math (absolute-offset `next_run_at`, completion, pause blocks advancing without losing position), stop-condition evaluation, the `replied_since_enrollment` field, a policy-denied step logged `skipped_policy` with nothing sent, replay never re-firing a claimed step, action dispatch (including `create_task`/`start_sequence`) reusing `Automation_engine`/`Automation_gateway`. Extended 2026-09-27 (§6.1) with the safety gate: opt-out/quiet-hours/rate-limit each blocking a send and logging their own distinct `skipped_*` reason, quiet-hours/jitter's off-by-default fallback and inheritance from `sales_automation_settings`, an account-wide rate budget shared across two enrollments (and proven independent of a different account's budget), jitter rescheduling `next_run_at` and resuming on a later tick instead of sending immediately (reusing the SAME claim row, not a new one), a step within every limit still sending normally, and a gate-skipped step never retried on a later worker tick (advances past it instead). Uses an injectable `db`/`engine` (`sequence_advance()`'s `$deps` parameter, mirroring `Automation_engine`'s own `gateway` injection) with a small in-memory `FakeDb` — see the file header. |
 | `docker/scripts/staging_sequences_tests.sh` | HTTP + DB on a live stack: a 3-step sequence created through the real `Sequences` endpoints, two customers enrolled (idempotently), the CLI worker advancing each step at its backdated `next_run_at`, `add_label` unaffected by channel policy, `send_message` denied for an out-of-window customer and allowed for an in-window one, a `stop_condition` halting a sequence with the reason recorded, replay proven not to re-fire a claimed step, module 412 gating a member (never an admin), `sequence_worker` 404 over HTTP, the flag-off refusal, and a no-regression check that `/automations` still works with the two new action types offered. |
+| `docker/scripts/staging_sequences_safety_tests.sh` | HTTP + DB on a live stack, added 2026-09-27: the `sequences`/`sales_automation_settings` safety columns exist post-migration, a `send_message` step against an opted-out customer (`reengage_optout` row) logs `skipped_opt_out` and sends nothing, a sequence-level quiet-hours window blocks a send and logs `skipped_quiet_hours`, an account-wide `messages_per_hour` override exhausted by a first send blocks a second and logs `skipped_rate_limit`, a sequence-level jitter override reschedules `next_run_at` instead of sending on the first worker tick and actually sends on the next, and the enrollments page renders the "N skipped: ..." tallies. |
 | `docker/scripts/staging_phase0_tests.sh`, `docker/scripts/staging_automation_tests.sh` | Re-run against the same stack for no regression. |
 
-### Results (2026-09-22, this stack: mb-sequences-test, 127.0.0.1:8094)
+### Results (2026-09-22, mb-sequences-test, 127.0.0.1:8094 — Phase 10.5 as originally merged)
 
 - `php tests/sequences/run.php`: **56 passed, 0 failed**.
 - `docker/scripts/staging_sequences_tests.sh`: **47 passed, 0 failed**.
 - No-regression re-runs on the same stack: `docker/scripts/staging_automation_tests.sh`
   **44 passed, 0 failed**; `docker/scripts/staging_phase0_tests.sh` **19 passed, 0 failed**.
+
+### Results (2026-09-22, this safety patch — mb-seqsafety-test, 127.0.0.1:8095)
+
+- `php tests/sequences/run.php`: **90 passed, 0 failed** (56 original + 34 new safety-gate
+  cases — see the table row above for what they cover).
+- `docker/scripts/staging_sequences_safety_tests.sh`: see report / CI output for the current
+  pass count.
+- No-regression re-runs on the isolated stack: `docker/scripts/staging_sequences_tests.sh`,
+  `docker/scripts/staging_automation_tests.sh`, `docker/scripts/staging_phase0_tests.sh` — see
+  report / CI output for current pass counts.

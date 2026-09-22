@@ -88,8 +88,21 @@ class Sequences extends Home
             $rows[$i]['customer_name'] = $sub ? $sub['full_name'] : '(customer no longer found)';
         }
 
+        // Step-outcome counts, including the safety-gate skip reasons (2026-09-27) — brief
+        // §51: no silent failure. An owner must be able to see "12 skipped: quiet hours"
+        // without reading sequence_step_log by hand.
+        $this->db->select('l.status, COUNT(*) AS n')->from('sequence_step_log l')
+            ->join('sequence_enrollments e', 'e.id = l.enrollment_id', 'inner')
+            ->join('sequences s2', 's2.id = e.sequence_id', 'inner')
+            ->where('s2.user_id', $this->uid);
+        if ($sequence) $this->db->where('e.sequence_id', (int) $sequence_id);
+        $log_counts = $this->db->group_by('l.status')->get()->result_array();
+        $step_log_tally = array();
+        foreach ($log_counts as $c) $step_log_tally[$c['status']] = (int) $c['n'];
+
         $data['enrollments'] = $rows;
         $data['sequence'] = $sequence;
+        $data['step_log_tally'] = $step_log_tally;
         $data['page_title'] = $sequence ? 'Enrollments — ' . $sequence['name'] : 'All enrollments';
         $data['body'] = 'admin/sequences/enrollments';
         $this->_viewcontroller($data);

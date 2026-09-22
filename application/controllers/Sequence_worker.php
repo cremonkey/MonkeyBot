@@ -76,7 +76,16 @@ class Sequence_worker extends Home
         $started = microtime(true);
         $limit = max(1, min(2000, (int) $limit));
         $seen = 0;
-        $totals = array('success' => 0, 'skipped' => 0, 'skipped_policy' => 0, 'skipped_stop_condition' => 0, 'failed' => 0, 'duplicate' => 0, 'completed' => 0);
+        // 2026-09-27 (sequences safety gate): skipped_opt_out / skipped_quiet_hours /
+        // skipped_rate_limit are the new, distinct skip reasons (see sequence_helper.php's
+        // sequence_advance() doc comment); rescheduled_jitter is not a skip at all — the step
+        // WILL send, just on a later tick — see the same doc comment for why it is not
+        // claimed/finalized like the others.
+        $totals = array(
+            'success' => 0, 'skipped' => 0, 'skipped_policy' => 0, 'skipped_stop_condition' => 0,
+            'skipped_opt_out' => 0, 'skipped_quiet_hours' => 0, 'skipped_rate_limit' => 0,
+            'rescheduled_jitter' => 0, 'failed' => 0, 'duplicate' => 0, 'completed' => 0,
+        );
         $error = null;
 
         try {
@@ -106,7 +115,9 @@ class Sequence_worker extends Home
 
         $detail = "enrollments {$seen}, ok {$totals['success']}, completed {$totals['completed']}, "
                 . "skipped {$totals['skipped']}, policy {$totals['skipped_policy']}, "
-                . "stopped {$totals['skipped_stop_condition']}, failed {$totals['failed']}, duplicate {$totals['duplicate']}";
+                . "stopped {$totals['skipped_stop_condition']}, opt_out {$totals['skipped_opt_out']}, "
+                . "quiet_hours {$totals['skipped_quiet_hours']}, rate_limit {$totals['skipped_rate_limit']}, "
+                . "jitter {$totals['rescheduled_jitter']}, failed {$totals['failed']}, duplicate {$totals['duplicate']}";
         ops_health_record('sequence_worker', $error === null, microtime(true) - $started, $error === null ? $detail : $error);
         echo $detail . "\n";
     }
