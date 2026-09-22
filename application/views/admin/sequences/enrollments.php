@@ -21,6 +21,38 @@
     </div>
     <?php endif; ?>
 
+    <?php
+      // Step-outcome visibility (brief §51: no silent failure). Only the reasons that ever
+      // occurred are shown; 'success'/'completed' are not skips and are left out on purpose.
+      $skip_labels = array(
+        'skipped_policy'         => array('label' => 'Channel policy (messaging window / opt-out via Meta)', 'class' => 'secondary'),
+        'skipped_stop_condition' => array('label' => 'Stopped (stop condition matched)', 'class' => 'secondary'),
+        'skipped_opt_out'        => array('label' => 'Opted out', 'class' => 'danger'),
+        'skipped_quiet_hours'    => array('label' => 'Quiet hours', 'class' => 'warning'),
+        'skipped_rate_limit'     => array('label' => 'Rate limit', 'class' => 'warning'),
+        'failed'                 => array('label' => 'Failed', 'class' => 'danger'),
+      );
+      $any_skips = false;
+      foreach ($skip_labels as $k => $l) if (!empty($step_log_tally[$k])) $any_skips = true;
+    ?>
+    <?php if ($any_skips): ?>
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2">Step outcomes</h6>
+        <?php foreach ($skip_labels as $k => $l): if (empty($step_log_tally[$k])) continue; ?>
+          <span class="badge badge-<?php echo $l['class']; ?> mr-2 mb-1" style="font-size:.9em">
+            <?php echo (int) $step_log_tally[$k]; ?> skipped: <?php echo htmlspecialchars($l['label']); ?>
+          </span>
+        <?php endforeach; ?>
+        <?php if (!empty($step_log_tally['skipped_quiet_hours']) || !empty($step_log_tally['skipped_rate_limit'])): ?>
+          <div class="small text-muted mt-2">Quiet hours and rate-limit skips are not retried automatically — the sequence
+            moves on to its next step. Adjust the sequence's send limits, or re-enroll the customer by hand, if a
+            message genuinely needs to go out later.</div>
+        <?php endif; ?>
+      </div>
+    </div>
+    <?php endif; ?>
+
     <div class="card">
       <div class="card-body p-0">
         <?php if (empty($enrollments)): ?>

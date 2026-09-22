@@ -131,12 +131,183 @@ if (!function_exists('sequence_evaluation_data')) {
     }
 }
 
+if (!function_exists('sequence_setting')) {
+    /** NULL/'' on a row means "inherit" — the nullable-override convention every one of
+     *  this file's safety settings uses (sequences.* overriding sales_automation_settings.*). */
+    function sequence_setting($row, $key, $default)
+    {
+        if (!is_array($row) || !isset($row[$key]) || $row[$key] === null || $row[$key] === '') return $default;
+        return $row[$key];
+    }
+}
+
+if (!function_exists('sequence_account_defaults')) {
+    /**
+     * Account-wide fallback for messages_per_hour / quiet hours / jitter, read from
+     * `sales_automation_settings` (see the 2026-09-27-sequences-safety.sql migration header
+     * for why that table, not a new one, holds these). Hard-coded fallbacks below match the
+     * migration's own column DEFAULTs, so a tenant with no `sales_automation_settings` row
+     * at all (never having touched that page) gets the exact same numbers a fresh row would
+     * have — missing config is never an open safety hole (reengage_helper.php's own stated
+     * philosophy: a safe default, not "no limit").
+     */
+    function sequence_account_defaults($db, $user_id)
+    {
+        $defaults = array(
+            'default_messages_per_hour' => 30,
+            'default_daily_cap' => 200,
+            'default_quiet_hours_start' => '00:00:00',
+            'default_quiet_hours_end' => '00:00:00',
+            'default_jitter_min_seconds' => 0,
+            'default_jitter_max_seconds' => 0,
+        );
+        try {
+            $row = $db->from('sales_automation_settings')->where('user_id', (int) $user_id)->limit(1)->get()->row_array();
+            if (empty($row)) return $defaults;
+            foreach ($defaults as $k => $v) {
+                if (isset($row[$k]) && $row[$k] !== null && $row[$k] !== '') $defaults[$k] = $row[$k];
+            }
+            return $defaults;
+        } catch (Throwable $e) {
+            // sales_automation_settings missing/unreadable for any reason: fall back, never fail open.
+            return $defaults;
+        }
+    }
+}
+
+if (!function_exists('sequence_sent_since')) {
+    /**
+     * Successful send_message steps for this account (ALL its sequences combined — brief's
+     * own wording: "the hourly/daily budget ... for that account") since $since_sql.
+     * Mirrors Reengage_sender::sent_since(), counted from what was ACTUALLY sent so a cron
+     * outage cannot produce a burst (see reengage_rate_budget()'s own doc comment).
+     */
+    function sequence_sent_since($db, $user_id, $since_sql)
+    {
+        $sql = "SELECT COUNT(*) AS c FROM sequence_step_log l
+                INNER JOIN sequence_steps st ON st.id = l.step_id
+                INNER JOIN sequence_enrollments e ON e.id = l.enrollment_id
+                WHERE e.user_id = ? AND st.action_type = 'send_message' AND l.status = 'success' AND l.run_at >= ?";
+        $row = $db->query($sql, array((int) $user_id, $since_sql))->row_array();
+        return $row ? (int) $row['c'] : 0;
+    }
+}
+
+if (!function_exists('sequence_send_safety_gate')) {
+    /**
+     * The three checks Reengage_sender applies per send that Sequences never had (brief
+     * items 25/26/51; see docs/automations/sequences.md §6.B). Evaluated ONLY for
+     * send_message steps, and only AFTER this (enrollment, step) is already claimed, so
+     * each refusal is exactly one log row — never spammed on every worker tick a customer
+     * happens to still be in a quiet window (see sequence_advance()'s "no per-step retry"
+     * choice, documented there).
+     *
+     * @return array{status:string, detail:string}|null  null = all clear, proceed to jitter/send
+     */
+    function sequence_send_safety_gate($db, array $seq, array $enr, array $data, $now_ts, array $account_defaults)
+    {
+        // (a) opt-out — reuses reengage_optout via Automation_gateway::context()'s
+        // is_opted_out(), already promoted onto $data['opted_out'] by evaluation_data(). No
+        // second opt-out list; see the migration header and docs/automations/sequences.md.
+        if (!empty($data['opted_out'])) {
+            return array('status' => 'skipped_opt_out', 'detail' => 'customer has opted out of automated messages');
+        }
+
+        // (b) quiet hours
+        $qs = sequence_setting($seq, 'quiet_hours_start', $account_defaults['default_quiet_hours_start']);
+        $qe = sequence_setting($seq, 'quiet_hours_end', $account_defaults['default_quiet_hours_end']);
+        $now_hm = date('H:i', $now_ts);
+        if (reengage_in_quiet_hours($now_hm, $qs, $qe)) {
+            return array('status' => 'skipped_quiet_hours', 'detail' => "within quiet hours ({$qs}-{$qe}, now {$now_hm})");
+        }
+
+        // (c) rate limit — account-wide budget (see sequence_sent_since() doc comment)
+        $per_hour = (int) sequence_setting($seq, 'messages_per_hour', $account_defaults['default_messages_per_hour']);
+        $daily_cap = (int) $account_defaults['default_daily_cap']; // no per-sequence override — see migration header
+        $sent_hour = sequence_sent_since($db, (int) $enr['user_id'], date('Y-m-d H:i:s', $now_ts - 3600));
+        $sent_day = sequence_sent_since($db, (int) $enr['user_id'], date('Y-m-d H:i:s', $now_ts - 86400));
+        $budget = reengage_rate_budget($per_hour, $sent_hour, $daily_cap, $sent_day);
+        if ($budget <= 0) {
+            return array('status' => 'skipped_rate_limit', 'detail' => "hourly/daily send budget exhausted for this account ({$sent_hour}/{$per_hour} sent this hour)");
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('sequence_effective_jitter')) {
+    /** (d) jitter bounds — sequence override, else the account default. */
+    function sequence_effective_jitter(array $seq, array $account_defaults)
+    {
+        $min = (int) sequence_setting($seq, 'jitter_min_seconds', $account_defaults['default_jitter_min_seconds']);
+        $max = (int) sequence_setting($seq, 'jitter_max_seconds', $account_defaults['default_jitter_max_seconds']);
+        return reengage_jitter_seconds($min, $max);
+    }
+}
+
+if (!function_exists('sequence_finalize_step')) {
+    /**
+     * Common tail for every terminal outcome of a claimed step (success, any skipped_*,
+     * failed): write the log row's final status/detail, then advance the enrollment to its
+     * next step (or complete it) exactly as before — a failed/skipped step never blocks the
+     * rest of the sequence; the log row is the record that it happened (brief §51).
+     */
+    function sequence_finalize_step($db, $enrollment_id, array $enr, array $seq, $log_id, $status, $detail, $now_str)
+    {
+        $db->where('id', $log_id)->update('sequence_step_log', array('status' => $status, 'detail' => $detail));
+
+        $next_position = (int) $enr['current_step'] + 1;
+        $next_step = $db->from('sequence_steps')->where('sequence_id', (int) $seq['id'])
+            ->where('position', $next_position)->limit(1)->get()->row_array();
+        if ($next_step) {
+            $enrolled_ts = strtotime($enr['enrolled_at']);
+            $next_run_at = date('Y-m-d H:i:s', $enrolled_ts + max(0, (int) $next_step['delay_seconds']));
+            $db->where('id', $enrollment_id)->update('sequence_enrollments', array(
+                'current_step' => $next_position, 'next_run_at' => $next_run_at, 'updated_at' => $now_str,
+            ));
+        } else {
+            $db->where('id', $enrollment_id)->update('sequence_enrollments', array(
+                'current_step' => $next_position, 'status' => 'completed', 'next_run_at' => null, 'updated_at' => $now_str,
+            ));
+        }
+
+        return array('status' => $status, 'detail' => $detail);
+    }
+}
+
 if (!function_exists('sequence_advance')) {
     /**
      * Run the next due step of one enrollment: evaluate its stop_condition, run its action
      * through Automation_engine::execute_action() (so channel policy, retries and the send
      * path are IDENTICAL to an Automation Rule's), log it, and schedule (or complete/stop)
      * the enrollment. Idempotent per (enrollment, step) — see file header.
+     *
+     * SAFETY GATE (2026-09-27, closes the gap docs/automations/sequences.md §6.B/§7
+     * documented). For a send_message step only, BEFORE the action runs:
+     *   (a) opted out            -> claim, log skipped_opt_out, advance to next step
+     *   (b) quiet hours          -> claim, log skipped_quiet_hours, advance to next step
+     *   (c) rate budget exhausted -> claim, log skipped_rate_limit, advance to next step
+     *   (d) jitter > 0           -> mark the claim pending_jitter, push next_run_at forward
+     *                                by the jitter, do NOT advance — resumed on a later tick
+     *
+     * STUCK-STEP DECISION (brief §51: no silent failure, pick a defensible behavior and
+     * document + test it). (a)-(c) behave exactly like the pre-existing skipped_policy
+     * outcome: claimed ONCE, logged ONCE, and the enrollment ADVANCES to its next step — it
+     * is NOT retried on a later tick. Why: Sequences steps are anchored to a fixed T+offset
+     * from enrollment (see file header, "TIMING MODEL"), not a real-time queue the way
+     * Reengage's `reengage_recipient` rows are (pending/waiting_reentry, retried every tick
+     * until a window opens). Retrying the SAME step indefinitely would (1) fight that
+     * timing model — a "T+10 minutes" step that actually fires 6 hours later once quiet
+     * hours end is a worse surprise than a visible skip, especially once a LATER step (say
+     * T+6 hours) is now also due, and (2) spam sequence_step_log with one row per tick for
+     * every minute of an 8-hour quiet window instead of the one meaningful "12 skipped:
+     * quiet hours" an owner can act on (brief §51's own "provide retry where safe" — this is
+     * not that case). A customer who needs a real retry-until-window-opens queue is exactly
+     * what Reengage is for (docs/automations/sequences.md §6.B migration guide).
+     * Jitter (d) is the one case that DOES resume on a later tick, because it is not a
+     * refusal — the message WILL send, just not on this exact tick — so wasting the single
+     * per-step claim on it would be wrong; see sequence_finalize_step() vs. the
+     * pending_jitter branch below for how the claim row survives that resume.
      *
      * @param int|null $enrollment_id
      * @param int|null $now  unix time (tests); defaults to time()
@@ -154,14 +325,16 @@ if (!function_exists('sequence_advance')) {
      *                          context on every later one. Sequence_worker.php relies on
      *                          the default (fresh-per-call) path for exactly this reason.
      * @return array{status:string, detail:string}
-     *   status: success | skipped | skipped_policy | skipped_stop_condition | failed |
-     *           duplicate | completed
+     *   status: success | skipped | skipped_policy | skipped_stop_condition |
+     *           skipped_opt_out | skipped_quiet_hours | skipped_rate_limit |
+     *           rescheduled_jitter | failed | duplicate | completed
      */
     function sequence_advance($enrollment_id, $now = null, $deps = null)
     {
         $db = (is_array($deps) && isset($deps['db'])) ? $deps['db'] : sequence_db();
         $enrollment_id = (int) $enrollment_id;
-        $now_str = date('Y-m-d H:i:s', $now !== null ? (int) $now : time());
+        $now_ts = $now !== null ? (int) $now : time();
+        $now_str = date('Y-m-d H:i:s', $now_ts);
 
         try {
             $enr = $db->from('sequence_enrollments')->where('id', $enrollment_id)->where('status', 'active')->limit(1)->get()->row_array();
@@ -188,12 +361,25 @@ if (!function_exists('sequence_advance')) {
 
             // CLAIM this (enrollment, step) — the idempotency boundary. A concurrent or
             // repeat worker tick that loses this race stops here, having done nothing.
+            // EXCEPTION: a row that already exists with status 'pending_jitter' is not a
+            // duplicate — it is THIS step, mid-jitter-wait from an earlier tick (see the
+            // "jitter" branch below) — reuse it and resume instead of stopping.
             $db->query(
                 'INSERT IGNORE INTO sequence_step_log (enrollment_id, step_id, status, detail, run_at) VALUES (?, ?, ?, ?, ?)',
                 array($enrollment_id, (int) $step['id'], 'failed', 'processing', $now_str)
             );
             $log_id = (int) $db->insert_id();
-            if ($log_id <= 0) return array('status' => 'duplicate', 'detail' => 'this step already ran for this enrollment');
+            $resuming_jitter = false;
+            if ($log_id <= 0) {
+                $existing = $db->from('sequence_step_log')->where('enrollment_id', $enrollment_id)
+                    ->where('step_id', (int) $step['id'])->limit(1)->get()->row_array();
+                if ($existing && $existing['status'] === 'pending_jitter') {
+                    $log_id = (int) $existing['id'];
+                    $resuming_jitter = true;
+                } else {
+                    return array('status' => 'duplicate', 'detail' => 'this step already ran for this enrollment');
+                }
+            }
 
             if (is_array($deps) && isset($deps['engine'])) {
                 $engine = $deps['engine'];
@@ -211,8 +397,12 @@ if (!function_exists('sequence_advance')) {
             );
             $data = sequence_evaluation_data($engine, $enr, $event);
 
-            // ---- stop condition: evaluated BEFORE the action, halts the WHOLE enrollment ----
-            if (!empty($step['stop_condition_json'])) {
+            // ---- stop condition: evaluated BEFORE the action, halts the WHOLE enrollment.
+            // Skipped on the jitter-resume pass: it already ran on the pass that set
+            // pending_jitter, and re-checking it here could halt an enrollment mid-jitter for
+            // a condition that only just flipped — not worth the surprise for a wait that is
+            // at most ~60 seconds (one worker tick). ----
+            if (!$resuming_jitter && !empty($step['stop_condition_json'])) {
                 $verdict = $engine->conditions_match($step['stop_condition_json'], $data);
                 if ($verdict['matched']) {
                     $detail = 'stopped before this step: its stop condition is now true';
@@ -221,6 +411,32 @@ if (!function_exists('sequence_advance')) {
                         'status' => 'stopped', 'stopped_reason' => $detail, 'next_run_at' => null, 'updated_at' => $now_str,
                     ));
                     return array('status' => 'skipped_stop_condition', 'detail' => $detail);
+                }
+            }
+
+            $is_send = ((string) $step['action_type'] === 'send_message');
+
+            if ($is_send && !$resuming_jitter) {
+                if (!function_exists('reengage_in_quiet_hours')) {
+                    $CI =& get_instance();
+                    $CI->load->helper('reengage');
+                }
+                $account_defaults = sequence_account_defaults($db, (int) $enr['user_id']);
+
+                $gate = sequence_send_safety_gate($db, $seq, $enr, $data, $now_ts, $account_defaults);
+                if ($gate !== null) {
+                    return sequence_finalize_step($db, $enrollment_id, $enr, $seq, $log_id, $gate['status'], $gate['detail'], $now_str);
+                }
+
+                $jitter_seconds = sequence_effective_jitter($seq, $account_defaults);
+                if ($jitter_seconds > 0) {
+                    $detail = 'delaying send by ' . $jitter_seconds . 's (jitter)';
+                    $db->where('id', $log_id)->update('sequence_step_log', array('status' => 'pending_jitter', 'detail' => $detail));
+                    $db->where('id', $enrollment_id)->update('sequence_enrollments', array(
+                        'next_run_at' => date('Y-m-d H:i:s', $now_ts + $jitter_seconds), 'updated_at' => $now_str,
+                    ));
+                    // current_step is deliberately NOT advanced: this step has not run yet.
+                    return array('status' => 'rescheduled_jitter', 'detail' => $detail);
                 }
             }
 
@@ -233,26 +449,10 @@ if (!function_exists('sequence_advance')) {
             $result = $engine->execute_action(0, $action, $data, $event, $rule);
             $status = (string) $result['status'];
             $detail = $result['error'] !== null ? (string) $result['error'] : 'done';
-            $db->where('id', $log_id)->update('sequence_step_log', array('status' => $status, 'detail' => $detail));
 
             // ---- advance (a failed/skipped step does not block the rest of the sequence;
             // the log above is the record that it happened, per brief §51) ----
-            $next_position = (int) $enr['current_step'] + 1;
-            $next_step = $db->from('sequence_steps')->where('sequence_id', (int) $seq['id'])
-                ->where('position', $next_position)->limit(1)->get()->row_array();
-            if ($next_step) {
-                $enrolled_ts = strtotime($enr['enrolled_at']);
-                $next_run_at = date('Y-m-d H:i:s', $enrolled_ts + max(0, (int) $next_step['delay_seconds']));
-                $db->where('id', $enrollment_id)->update('sequence_enrollments', array(
-                    'current_step' => $next_position, 'next_run_at' => $next_run_at, 'updated_at' => $now_str,
-                ));
-            } else {
-                $db->where('id', $enrollment_id)->update('sequence_enrollments', array(
-                    'current_step' => $next_position, 'status' => 'completed', 'next_run_at' => null, 'updated_at' => $now_str,
-                ));
-            }
-
-            return array('status' => $status, 'detail' => $detail);
+            return sequence_finalize_step($db, $enrollment_id, $enr, $seq, $log_id, $status, $detail, $now_str);
         } catch (Throwable $e) {
             log_message('error', 'sequence_advance(' . $enrollment_id . '): ' . $e->getMessage());
             return array('status' => 'failed', 'detail' => $e->getMessage());

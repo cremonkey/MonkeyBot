@@ -36,6 +36,7 @@ set_error_handler(function ($no, $str, $file, $line) { throw new ErrorException(
 function log_message($level, $msg) { /* silence expected error-path logging in tests */ }
 
 require __DIR__ . '/../../application/libraries/Automation_engine.php';
+require __DIR__ . '/../../application/helpers/reengage_helper.php';
 require __DIR__ . '/../../application/helpers/sequence_helper.php';
 
 // ---------------------------------------------------------------- tiny harness
@@ -172,6 +173,22 @@ class FakeDb
             return;
         }
 
+        if (stripos($sql, 'FROM sequence_step_log l') !== false && stripos($sql, 'COUNT(*)') !== false) {
+            // sequence_sent_since(): successful send_message steps for this account since $since.
+            list($user_id, $since) = $params;
+            $count = 0;
+            foreach ((isset($this->tables['sequence_step_log']) ? $this->tables['sequence_step_log'] : array()) as $log) {
+                if ($log['status'] !== 'success') continue;
+                if ((string) $log['run_at'] < (string) $since) continue;
+                $step = isset($this->tables['sequence_steps'][$log['step_id']]) ? $this->tables['sequence_steps'][$log['step_id']] : null;
+                if (!$step || $step['action_type'] !== 'send_message') continue;
+                $enr = isset($this->tables['sequence_enrollments'][$log['enrollment_id']]) ? $this->tables['sequence_enrollments'][$log['enrollment_id']] : null;
+                if (!$enr || (string) $enr['user_id'] !== (string) $user_id) continue;
+                $count++;
+            }
+            return new FakeResult(array(array('c' => $count)));
+        }
+
         throw new RuntimeException('FakeDb::query() does not understand: ' . $sql);
     }
 }
@@ -214,6 +231,15 @@ class FakeGateway
 }
 
 function mk_engine(FakeGateway $gw) { return new Automation_engine(array('gateway' => $gw)); }
+
+/** A FakeGateway whose context resolves a real recipient, so a send_message step that
+ *  passes every gate actually reaches send_text() (not 'skipped, no recipient on this event'). */
+function ready_gateway($subscribe_id)
+{
+    $gw = new FakeGateway();
+    $gw->context = array('subscriber' => array('subscribe_id' => $subscribe_id));
+    return $gw;
+}
 
 function mk_sequence(FakeDb $db, $overrides = array())
 {
@@ -407,6 +433,136 @@ is_same('every step dispatched through the same gateway calls an Automation Rule
 is_same('create_task got the templated subject', 'Call ', $gw->calls[2][1][3]['subject']);   // {{full_name}} renders empty: no subscriber context in this fixture
 is_same('start_sequence composes an Automation Rule action -> Sequence enrollment', array(11, 42, 501), $gw->started_sequences[0]);
 is_same('the enrollment completed after its last step', 'completed', $db->tables['sequence_enrollments'][$eid]['status']);
+
+// ======================================================================
+// SAFETY GATE (2026-09-27): opt-out, quiet hours, rate limit, jitter.
+// See sequence_helper.php's sequence_advance() doc comment ("STUCK-STEP DECISION") for the
+// chosen, documented behaviour: (a)-(c) claim once, log once, advance to the next step —
+// never retried on a later tick. (d) is the one case that resumes on a later tick.
+// ======================================================================
+
+echo "-- safety gate: opted-out customer -------------------------------------\n";
+$db = new FakeDb();
+$sid = mk_sequence($db);
+mk_step($db, $sid, 0, 0, 'send_message', array('text' => 'Hello'));
+mk_step($db, $sid, 1, 600, 'add_label', array('label' => 'after'));
+list(, , $eid) = sequence_enroll(11, $sid, 501, 'fb', 'PSID501', 1, null, 1000000000, $db);
+
+$gw = new FakeGateway();
+$gw->context = array('promote' => array('opted_out' => true));
+$r = sequence_advance($eid, 1000000000, array('db' => $db, 'engine' => mk_engine($gw)));
+is_same('the send is refused as skipped_opt_out', 'skipped_opt_out', $r['status']);
+is_same('NOTHING was sent', 0, $gw->sent());
+is_same('the policy layer was never even asked (opt-out is checked first)', 0, count(array_filter($gw->calls, function ($c) { return $c[0] === 'policy_decide'; })));
+is_same('sequence_step_log recorded the specific reason, not a generic skip', 'skipped_opt_out', $db->tables['sequence_step_log'][1]['status']);
+is_same('the sequence still advances to the next step', 1, $db->tables['sequence_enrollments'][$eid]['current_step']);
+
+echo "-- safety gate: quiet hours ---------------------------------------------\n";
+$db = new FakeDb();
+// 1000000000 is 2001-09-09 01:46:40 UTC ('01:46') — bracket it with an explicit quiet window.
+$sid = mk_sequence($db, array('quiet_hours_start' => '00:00:00', 'quiet_hours_end' => '23:59:59'));
+mk_step($db, $sid, 0, 0, 'send_message', array('text' => 'Hello'));
+list(, , $eid) = sequence_enroll(11, $sid, 501, 'fb', 'PSID501', 1, null, 1000000000, $db);
+
+$gw = new FakeGateway();
+$r = sequence_advance($eid, 1000000000, array('db' => $db, 'engine' => mk_engine($gw)));
+is_same('the send is refused as skipped_quiet_hours', 'skipped_quiet_hours', $r['status']);
+is_same('NOTHING was sent', 0, $gw->sent());
+is_same('the enrollment completes (only step) rather than retrying', 'completed', $db->tables['sequence_enrollments'][$eid]['status']);
+
+echo "-- safety gate: quiet hours are OFF by default (no account/sequence config) --\n";
+$db = new FakeDb();
+$sid = mk_sequence($db); // no quiet_hours_* override, no sales_automation_settings row either
+mk_step($db, $sid, 0, 0, 'send_message', array('text' => 'Hello'));
+list(, , $eid) = sequence_enroll(11, $sid, 501, 'fb', 'PSID501', 1, null, 1000000000, $db);
+$gw = ready_gateway('PSID501');
+$r = sequence_advance($eid, 1000000000, array('db' => $db, 'engine' => mk_engine($gw)));
+is_same('a sequence with no quiet-hours config configured is never gated by it', 'success', $r['status']);
+is_same('it actually sent', 1, $gw->sent());
+
+echo "-- safety gate: account-wide quiet hours default (sales_automation_settings) --\n";
+$db = new FakeDb();
+$db->insert('sales_automation_settings', array('user_id' => 11, 'default_quiet_hours_start' => '00:00:00', 'default_quiet_hours_end' => '23:59:59'));
+$sid = mk_sequence($db); // sequence itself leaves quiet_hours_* NULL -> inherits the account default
+mk_step($db, $sid, 0, 0, 'send_message', array('text' => 'Hello'));
+list(, , $eid) = sequence_enroll(11, $sid, 501, 'fb', 'PSID501', 1, null, 1000000000, $db);
+$gw = new FakeGateway();
+$r = sequence_advance($eid, 1000000000, array('db' => $db, 'engine' => mk_engine($gw)));
+is_same('the account-wide default is inherited when the sequence leaves it NULL', 'skipped_quiet_hours', $r['status']);
+
+echo "-- safety gate: rate budget exhausted (account-wide, shared across enrollments) --\n";
+$db = new FakeDb();
+$sid = mk_sequence($db, array('messages_per_hour' => 1));
+mk_step($db, $sid, 0, 0, 'send_message', array('text' => 'Hello'));
+list(, , $eid_a) = sequence_enroll(11, $sid, 501, 'fb', 'PSID501', 1, null, 1000000000, $db);
+list(, , $eid_b) = sequence_enroll(11, $sid, 502, 'fb', 'PSID502', 1, null, 1000000000, $db);
+
+$gw = ready_gateway('PSID501');
+$engine = mk_engine($gw);
+$ra = sequence_advance($eid_a, 1000000000, array('db' => $db, 'engine' => $engine));
+is_same('the first send (within budget) succeeds', 'success', $ra['status']);
+is_same('it actually sent', 1, $gw->sent());
+
+$rb = sequence_advance($eid_b, 1000000000, array('db' => $db, 'engine' => $engine));
+is_same('the second send (budget of 1/hour already spent) is refused', 'skipped_rate_limit', $rb['status']);
+is_same('still only one message ever sent', 1, $gw->sent());
+is_same('the second enrollment still advances, it does not get stuck retrying', 'completed', $db->tables['sequence_enrollments'][$eid_b]['status']);
+
+// a different account's budget is untouched by another account's sends
+$sid2 = mk_sequence($db, array('user_id' => 22, 'messages_per_hour' => 1));
+mk_step($db, $sid2, 0, 0, 'send_message', array('text' => 'Hello'));
+list(, , $eid_c) = sequence_enroll(22, $sid2, 601, 'fb', 'PSID601', 1, null, 1000000000, $db);
+$rc = sequence_advance($eid_c, 1000000000, array('db' => $db, 'engine' => $engine));
+is_same("a different account's budget is independent", 'success', $rc['status']);
+
+echo "-- safety gate: jitter reschedules instead of sending immediately -------\n";
+$db = new FakeDb();
+$sid = mk_sequence($db, array('jitter_min_seconds' => 5, 'jitter_max_seconds' => 5)); // deterministic
+mk_step($db, $sid, 0, 0, 'send_message', array('text' => 'Hello'));
+list(, , $eid) = sequence_enroll(11, $sid, 501, 'fb', 'PSID501', 1, null, 1000000000, $db);
+
+$gw = ready_gateway('PSID501');
+$engine = mk_engine($gw);
+$r1 = sequence_advance($eid, 1000000000, array('db' => $db, 'engine' => $engine));
+is_same('the step is rescheduled, not sent, on the first pass', 'rescheduled_jitter', $r1['status']);
+is_same('NOTHING was sent yet', 0, $gw->sent());
+is_same('current_step is NOT advanced (this step has not run)', 0, $db->tables['sequence_enrollments'][$eid]['current_step']);
+is_same('next_run_at moved forward by exactly the jitter', date('Y-m-d H:i:s', 1000000000 + 5), $db->tables['sequence_enrollments'][$eid]['next_run_at']);
+is_same('the claim row is marked pending_jitter, not a terminal status', 'pending_jitter', $db->tables['sequence_step_log'][1]['status']);
+is_same('exactly one claim row exists so far', 1, count($db->tables['sequence_step_log']));
+
+$r2 = sequence_advance($eid, 1000000005, array('db' => $db, 'engine' => $engine));
+is_same('the SAME step resumes and actually sends once the jitter has elapsed', 'success', $r2['status']);
+is_same('it sent exactly once', 1, $gw->sent());
+is_same('the SAME claim row was reused, not a second one', 1, count($db->tables['sequence_step_log']));
+is_same('the enrollment now advances (only step -> completed)', 'completed', $db->tables['sequence_enrollments'][$eid]['status']);
+
+echo "-- safety gate: a step within every limit still sends normally (no regression) --\n";
+$db = new FakeDb();
+$sid = mk_sequence($db); // every setting left at its default (quiet OFF, jitter OFF, 30/hour, no opt-out)
+mk_step($db, $sid, 0, 0, 'send_message', array('text' => 'Hello {{full_name}}'));
+list(, , $eid) = sequence_enroll(11, $sid, 501, 'fb', 'PSID501', 1, null, 1000000000, $db);
+$gw = ready_gateway('PSID501');
+$r = sequence_advance($eid, 1000000000, array('db' => $db, 'engine' => mk_engine($gw)));
+is_same('the send goes through exactly as before this safety gate existed', 'success', $r['status']);
+is_same('it actually sent', 1, $gw->sent());
+
+echo "-- safety gate: a gate-skipped step is never retried on a later tick -----\n";
+$db = new FakeDb();
+$sid = mk_sequence($db, array('quiet_hours_start' => '00:00:00', 'quiet_hours_end' => '23:59:59'));
+mk_step($db, $sid, 0, 0, 'send_message', array('text' => 'Hello'));
+mk_step($db, $sid, 1, 600, 'add_label', array('label' => 'after'));
+list(, , $eid) = sequence_enroll(11, $sid, 501, 'fb', 'PSID501', 1, null, 1000000000, $db);
+$gw = new FakeGateway();
+$engine = mk_engine($gw);
+$r1 = sequence_advance($eid, 1000000000, array('db' => $db, 'engine' => $engine));
+is_same('step 1 is skipped for quiet hours', 'skipped_quiet_hours', $r1['status']);
+is_same('the enrollment already advanced past the quiet-hours step', 1, $db->tables['sequence_enrollments'][$eid]['current_step']);
+// simulate the worker calling again on a LATER tick (still well within the same quiet window)
+$r2 = sequence_advance($eid, 1000000700, array('db' => $db, 'engine' => $engine));
+is_same('the second step (add_label, not a send) runs normally — the sequence is not stuck', 'success', $r2['status']);
+is_same('the skipped send_message step was never retried', 0, $gw->sent());
+is_same('exactly one action ever dispatched (add_label only)', 1, count($gw->calls));
 
 echo "\n== $PASS passed, $FAIL failed ==\n";
 exit($FAIL === 0 && $PASS > 0 ? 0 : 1);
