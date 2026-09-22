@@ -12,7 +12,7 @@ underlying feature already has.
 
 ## 1. Templates are data
 
-A vertical is one JSON file in `application/config/industry_templates/`:
+A vertical is one JSON file in `application/data/industry_templates/`:
 
 ```
 hotel.json  clinic.json  ecommerce.json  real_estate.json
@@ -60,7 +60,7 @@ failure mode the price guard exists to prevent.
 
 ### Adding a vertical
 
-1. Copy `clinic.json` (no pricing) or `hotel.json` (pricing) to `application/config/industry_templates/<key>.json`.
+1. Copy `clinic.json` (no pricing) or `hotel.json` (pricing) to `application/data/industry_templates/<key>.json`.
 2. Set `key` to the filename. Write natural Egyptian Arabic — it is customer-facing text, not a translation.
 3. Keep `starter_faq` between 6 and 10 entries and keep the `عدّلني` marker in every Arabic answer.
 4. Give the pipeline one `won` and one `lost` stage.
