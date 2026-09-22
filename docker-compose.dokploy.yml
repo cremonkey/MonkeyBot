@@ -22,6 +22,10 @@ services:
     restart: unless-stopped
     env_file:
       - /root/monkeybot/.env
+    networks:
+      default:
+        aliases:
+          - monkeybot-php-app
     volumes:
       - ./:/var/www/html:rw
       - app_cache:/var/www/html/application/cache

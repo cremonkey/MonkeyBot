@@ -11,3 +11,7 @@ download/
 .env
 .env.*
 !.env.example
+
+# ad-hoc backups made before live edits (e.g. Foo.php.bak-graphver-20260821)
+*.bak
+*.bak-*

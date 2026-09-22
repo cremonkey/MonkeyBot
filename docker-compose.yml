@@ -10,6 +10,10 @@ services:
       MYSQL_USER: ${MYSQL_USER:-monkeybot}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me-now}
       TZ: ${TZ:-UTC}
+    networks:
+      default:
+        aliases:
+          - monkeybot-php-app
     volumes:
       - ./:/var/www/html:rw
       - app_cache:/var/www/html/application/cache
