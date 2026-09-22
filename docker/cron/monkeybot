@@ -24,3 +24,10 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Lead scoring (SPEC-07): -1 point per day for subscribers idle 7+ days. Daily, 03:15 server time.
 15 3 * * * root flock -n /run/monkeybot-lead-decay.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 280 php /var/www/html/index.php cron_job lead_score_decay >> /var/log/monkeybot-cron.log 2>&1
+
+# Sequences (Phase 10.5): advance enrollments whose next_run_at is due. Every minute, same
+# flock + GET_LOCK pattern as the automation worker, and gated by the SAME config flag
+# 'automation_engine_enabled' — a sequence step sending a message has the same blast radius
+# as an automation action, so it must never be able to run while the main flag is off.
+# NOT installed on the host by the 10.5 branch — see docs/automations/sequences.md.
+* * * * * root flock -n /run/monkeybot-sequence.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 55 php /var/www/html/index.php sequence_worker run >> /var/log/monkeybot-cron.log 2>&1

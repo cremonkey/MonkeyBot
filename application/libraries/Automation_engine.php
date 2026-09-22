@@ -302,6 +302,8 @@ class Automation_engine
             'send_message'       => 'Send the customer a message',
             'call_webhook'       => 'Send the details to another system',
             'write_google_sheet' => 'Add a row to your Google Sheet',
+            'create_task'        => 'Create a follow-up task for your team',
+            'start_sequence'     => 'Start a sequence for the customer',
         );
     }
 
@@ -316,6 +318,8 @@ class Automation_engine
             case 'send_message':       return 'Message: ' . mb_substr((string) $this->param($a, 'text', $data), 0, 80);
             case 'call_webhook':       return 'POST to ' . $this->param($a, 'url', $data);
             case 'write_google_sheet': return 'Append a row to the connected sheet';
+            case 'create_task':        return 'Task: ' . $this->param($a, 'subject', $data);
+            case 'start_sequence':     return 'Start sequence #' . $this->param($a, 'sequence_id', $data);
         }
         return 'Unknown action "' . $a['type'] . '"';
     }
@@ -543,6 +547,21 @@ class Automation_engine
                         'note'  => (string) $this->param($action, 'note', $data, ''),
                         'event' => isset($event['event_type']) ? $event['event_type'] : '',
                     )));
+
+                case 'create_task':
+                    $deal_id = (int) self::resolve_field($data, 'deal.id');
+                    if ($subscriber_id <= 0 && $deal_id <= 0) return array(self::ST_SKIPPED, 'no customer or deal on this event', false);
+                    return $this->norm($this->gw->create_task($user_id, $subscriber_id, $deal_id, array(
+                        'subject'        => (string) $this->param($action, 'subject', $data, 'Follow up'),
+                        'description'    => (string) $this->param($action, 'description', $data, ''),
+                        'due_in_minutes' => (int) $this->param($action, 'due_in_minutes', $data, 0),
+                    )));
+
+                case 'start_sequence':
+                    $sequence_id = (int) $this->param($action, 'sequence_id', $data, 0);
+                    if ($sequence_id <= 0) return array(self::ST_FAILED, 'no sequence chosen', false);
+                    if ($subscriber_id <= 0) return array(self::ST_SKIPPED, 'no customer on this event', false);
+                    return $this->norm($this->gw->start_sequence($user_id, $sequence_id, $subscriber_id));
             }
         } catch (Throwable $e) {
             // An action that blows up must not abort the run or the worker (brief 51).

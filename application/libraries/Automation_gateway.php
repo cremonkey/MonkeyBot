@@ -358,6 +358,59 @@ class Automation_gateway
         }
     }
 
+    /**
+     * A follow-up task for the team, in crm_activities (SPEC-12) — the same table the CRM's
+     * own task list reads. Used by the automation/sequence action 'create_task' (brief §25's
+     * "T +1 day: create human follow-up task").
+     */
+    public function create_task($user_id, $subscriber_id, $deal_id, array $data)
+    {
+        try {
+            if (!$this->CI->db->table_exists('crm_activities')) return array(false, 'tasks are not available in this build', false);
+            $subject = trim((string) (isset($data['subject']) ? $data['subject'] : ''));
+            if ($subject === '') $subject = 'Follow up';
+            $due_minutes = max(0, (int) (isset($data['due_in_minutes']) ? $data['due_in_minutes'] : 0));
+            $this->CI->db->insert('crm_activities', array(
+                'deal_id'       => (int) $deal_id > 0 ? (int) $deal_id : null,
+                'subscriber_id' => (int) $subscriber_id > 0 ? (int) $subscriber_id : null,
+                'user_id'       => (int) $user_id,
+                'type'          => 'follow_up',
+                'subject'       => mb_substr($subject, 0, 150),
+                'description'   => mb_substr((string) (isset($data['description']) ? $data['description'] : ''), 0, 2000),
+                'due_date'      => date('Y-m-d H:i:s', strtotime('+' . $due_minutes . ' minutes')),
+                'status'        => 'pending',
+                'created_at'    => date('Y-m-d H:i:s'),
+            ));
+            return array(true, null, false);
+        } catch (Throwable $e) {
+            return array(false, $e->getMessage(), true);
+        }
+    }
+
+    /**
+     * Enroll one customer into a Sequence (brief §25 + §23's "start sequence" action) — how
+     * an Automation Rule composes with a Sequence. Idempotent: sequence_enroll() never
+     * double-enrolls (UNIQUE(sequence_id, subscriber_id, platform)).
+     */
+    public function start_sequence($user_id, $sequence_id, $subscriber_id)
+    {
+        try {
+            if (!function_exists('sequence_enroll')) $this->CI->load->helper('sequence');
+            $sub = $this->CI->db->select('id, subscribe_id, page_table_id, social_media')
+                ->from('messenger_bot_subscriber')->where('id', (int) $subscriber_id)->where('user_id', (int) $user_id)
+                ->limit(1)->get()->row_array();
+            if (empty($sub)) return array(false, 'customer not found for this account', false);
+
+            list($ok, $err) = sequence_enroll(
+                (int) $user_id, (int) $sequence_id, (int) $sub['id'],
+                (string) $sub['social_media'], (string) $sub['subscribe_id'], (int) $sub['page_table_id']
+            );
+            return array($ok, $err, false);
+        } catch (Throwable $e) {
+            return array(false, $e->getMessage(), true);
+        }
+    }
+
     public function sleep_backoff($seconds)
     {
         $s = (int) $seconds;

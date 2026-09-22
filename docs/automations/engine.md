@@ -144,7 +144,9 @@ A list, run in order. Every action is logged whatever happens.
   {"type": "notify_team",        "channel": "whatsapp", "to": "201000000000", "text": "New hot lead: {{full_name}}"},
   {"type": "send_message",       "text": "Thanks {{full_name}}!"},
   {"type": "call_webhook",       "url": "https://example.com/hook"},
-  {"type": "write_google_sheet", "note": "from automation"}
+  {"type": "write_google_sheet", "note": "from automation"},
+  {"type": "create_task",        "subject": "Call {{full_name}} back", "due_in_minutes": 60},
+  {"type": "start_sequence",     "sequence_id": 5}
 ]
 ```
 
@@ -161,8 +163,18 @@ unknown field renders empty.
 | `send_message` | messages **the customer** | **Always** goes through `channel_policy_decide()` first. See below. |
 | `call_webhook` | POSTs JSON | `https://` only, 5s timeout, certificate verification on, no redirects. |
 | `write_google_sheet` | appends a row via `crm_sheet_helper` | Needs the tenant's CRM Google Sheet connected. |
+| `create_task` (Phase 10.5) | `crm_activities` follow-up row | Requires `crm_activities` (SPEC-12); added for Sequences, usable from a Rule too. |
+| `start_sequence` (Phase 10.5) | enrolls the customer into a Sequence — `Automation_gateway::start_sequence()` → `sequence_enroll()` | Idempotent (see `docs/automations/sequences.md`). **This is how an Automation Rule composes with a Sequence** — e.g. brief §23's `lead.qualified` example: `TRIGGER lead.qualified → THEN start_sequence`. |
 
 An **unknown action type** fails that action and is recorded as such; it does not abort the run.
+
+**Sequences (brief §25)** — a named, ordered list of timed steps per enrolled customer — are
+built ON this engine, not beside it: `application/helpers/sequence_helper.php`'s
+`sequence_advance()` runs each step through this exact `Automation_engine::execute_action()`
+dispatcher, so every action above (including `send_message`'s channel-policy gate) behaves
+identically whether it came from a Rule or a Sequence step. See `docs/automations/sequences.md`
+for the full picture, including the manual migration guide for Sales_automation follow-ups,
+Reengage campaigns and Visual Flow Builder drip (none of which this phase touches).
 
 ### Action statuses
 
@@ -282,6 +294,8 @@ pattern) once the volume is known. `message.*` must not be wired until that exis
 | `docker/scripts/staging_automation_tests.sh` | 44 HTTP + DB assertions on a live stack: rules created through the UI endpoints, a real `crm/deal_move` emitting a real event, the CLI worker running it, tags and scores actually changed, policy-denied send logged with nothing sent, replay idempotent, feature flag off, module 409 gate, `automation_worker` 404 over HTTP, cross-tenant reads and writes refused | 44 passed, 0 failed |
 | `docker/scripts/staging_phase0_tests.sh` | Phase 0 regression, unchanged by this branch | 19 passed, 0 failed |
 | `php tests/run.php`, `php tests/policy/run.php` | channel adapters, channel policy | 117 / 20 passed, 0 failed |
+| `php tests/sequences/run.php` (Phase 10.5) | Sequences unit tests, including `create_task`/`start_sequence` dispatch through this engine — see `docs/automations/sequences.md` §10 | 56 passed, 0 failed |
+| `docker/scripts/staging_sequences_tests.sh` (Phase 10.5, re-run on the SAME stack as this table's other two staging suites) | Sequences HTTP + DB regression, confirming `/automations` unaffected | 47 passed, 0 failed |
 
 The engine is testable without CodeIgniter because every side effect goes through
 `Automation_gateway`; `tests/automation/run.php` substitutes a fake with the same methods.
