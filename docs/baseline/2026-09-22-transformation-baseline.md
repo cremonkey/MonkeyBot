@@ -720,3 +720,38 @@ stayed `ok` throughout (no prod changes made). Nothing pushed.
 
 **Still pending owner decisions, unchanged:** the S-14 production charset fix (needs a restart,
 timing is the owner's call) and pushing this work to GitHub.
+
+### Full roadmap closed except one deliberate exception (2026-09-22, final consolidation)
+Every remaining phase-work item was built, merged, and verified together on `release/9.x-integration`:
+
+| Phase | Feature | Status |
+|---|---|---|
+| 10.5 | Sequences safety parity (rate limits, quiet hours, jitter, opt-out) | Verified — 90+23/0 |
+| 10.5 | Prompt-to-Flow (AI drafts a Visual Flow Builder flow, human reviews/saves) | Verified — 37+14/0 |
+| 11 | Client provisioning from Agency Control Center | Verified — 35+33/0 |
+| 9.5 | AI conversation summary (Inbox) | Verified — part of 71+26/0 below |
+| 11 | Usage/billing readiness (Agency Control Center) | Verified — part of 71+26/0 below |
+
+**Final full regression, fresh DB (50 migrations, 0 errors, 189 tables):**
+unit suites 117+20+65+51+56+90+37+35+71+486 = 1,028 assertions;
+staging HTTP suites 19+16+12+44+96+39+47+23+14+33+26 = 369 assertions.
+**All 1,397 assertions passed, 0 failed.** Production `/health` stayed `ok` throughout
+(no prod code changes made in this consolidation pass — everything ran on staging).
+
+### Roadmap status vs. the master brief (§52-53) — final
+Every item is done except one, held back deliberately:
+
+- **Graph API v26 migration (phase 3), brief §9/§0 — NOT DONE, by design.** Every Graph call
+  is pinned to v20.0 today (`fb_graph_helper.php`); the config target v26.0 exists but no call
+  site uses it. This cannot be closed by more code alone: it changes behavior against Meta's
+  live API for every connected client Facebook/Instagram page, and the only way to verify it
+  is genuinely safe is testing against real Graph API responses with real page tokens — nothing
+  a sandbox can substitute for. This is an owner decision on timing and rollout (e.g. a single
+  canary page first), not a remaining implementation task.
+- Everything else in §52's four phases (9.0 Stable Core, 9.5 Unified Conversations, 10 AI Sales
+  Platform, 10.5 Automation OS, 11 Agency SaaS) is built and verified on staging.
+
+**Still pending, unrelated to feature completeness:** pushing `release/9.x-integration` to GitHub
+(credential issue, flagged earlier) and applying this final consolidation's migrations to
+production (the earlier 9-phase batch is already live; this last batch — sequences-safety,
+prompt-to-flow, provisioning, summary/billing — is staged and tested but not yet deployed).
