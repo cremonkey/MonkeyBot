@@ -93,7 +93,7 @@ check "re-enrolling the same customer returns the SAME enrollment id" "$(echo "$
 check "exactly two enrollment rows exist (no double-enroll)" "$(sql "SELECT COUNT(*) FROM sequence_enrollments")" "2"
 
 echo "== feature flag (brief 50): sequence_worker uses the SAME flag as automation_worker =="
-FLAG_LINE=$(grep -n "automation_engine_enabled" "$ROOT/application/config/config.php" | head -1 | cut -d: -f1)
+FLAG_LINE=$(grep -Fn '$config['"'"'automation_engine_enabled'"'"'] = ' "$ROOT/application/config/config.php" | head -1 | cut -d: -f1)
 if [ -n "$FLAG_LINE" ]; then
   sed -i "${FLAG_LINE}s/TRUE/FALSE/" "$ROOT/application/config/config.php"
   out=$(cli sequence_worker run 2>&1)
