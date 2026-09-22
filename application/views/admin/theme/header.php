@@ -79,7 +79,7 @@ $selected_global_media_type = $this->using_media_type;
         $current_account = isset($fb_rx_account_switching_info[$this->session->userdata("facebook_rx_fb_user_info")]['name']) ? $fb_rx_account_switching_info[$this->session->userdata("facebook_rx_fb_user_info")]['name'] : $this->lang->line("No Account");
         $fb_img = base_url('assets/img/avatar/avatar-1.png');
         if(isset($fb_rx_account_switching_info[$this->session->userdata("facebook_rx_fb_user_info")]['access_token']))
-        $fb_img = graph_url('me/picture?access_token=', TRUE).$fb_rx_account_switching_info[$this->session->userdata("facebook_rx_fb_user_info")]['access_token'].'&width=150&height=150';
+        $fb_img = graph_url_group('reads', 'me/picture?access_token=').$fb_rx_account_switching_info[$this->session->userdata("facebook_rx_fb_user_info")]['access_token'].'&width=150&height=150';
      ?>
 
       <ul class="navbar-nav navbar-right d-none d-md-block ml-2 mr-1 facebook">

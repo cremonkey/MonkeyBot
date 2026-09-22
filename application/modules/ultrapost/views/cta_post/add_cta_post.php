@@ -208,7 +208,7 @@
 		          		<div class="section-title text-info" style="margin: -30px 0px 10px 0px; font-weight: normal;">
 		          			<?php echo $this->lang->line('This preview may differ with actual post.'); ?>
 		          		</div>
-			          	<?php $profile_picture=graph_url("me/picture?access_token={$facebook_rx_fb_user_info_access_token}&width=150&height=150", TRUE);?>
+			          	<?php $profile_picture=graph_url_group("reads", "me/picture?access_token={$facebook_rx_fb_user_info_access_token}&width=150&height=150");?>
 						<ul class="list-unstyled list-unstyled-border">
 							<li class="media">
 							  <img class="mr-3 rounded-circle" width="50" src="<?php echo $profile_picture;?>" alt="avatar">

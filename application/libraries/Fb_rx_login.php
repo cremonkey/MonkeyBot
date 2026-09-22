@@ -224,7 +224,7 @@ class Fb_rx_login
 		$access_token=$this->user_access_token;
 		$client_id=$this->app_id;
 		$result=array();
-		$url=graph_url("oauth/access_token_info?client_id={$client_id}&access_token={$access_token}", TRUE);
+		$url=graph_url_group("oauth", "oauth/access_token_info?client_id={$client_id}&access_token={$access_token}");
 
 		$headers = array("Content-type: application/json");
 
@@ -252,7 +252,7 @@ class Fb_rx_login
 
 		$client_id=$this->app_id;
 		$result=array();
-		$url=graph_url("oauth/access_token_info?client_id={$client_id}&access_token={$access_token}", TRUE);
+		$url=graph_url_group("oauth", "oauth/access_token_info?client_id={$client_id}&access_token={$access_token}");
 
 		$headers = array("Content-type: application/json");
 
@@ -284,7 +284,7 @@ class Fb_rx_login
 		$app_secret=$this->app_secret;
 		$short_token=$short_lived_user_token;
 
-		$url=graph_url("oauth/access_token?grant_type=fb_exchange_token&client_id={$app_id}&client_secret={$app_secret}&fb_exchange_token={$short_token}", TRUE);
+		$url=graph_url_group("oauth", "oauth/access_token?grant_type=fb_exchange_token&client_id={$app_id}&client_secret={$app_secret}&fb_exchange_token={$short_token}");
 
 		$headers = array("Content-type: application/json");
 
@@ -418,14 +418,14 @@ class Fb_rx_login
 
 	public function send_user_roll_access($app_id,$user_id, $user_access_token)
 	{
-		$url=graph_url("{$app_id}/roles?user={$user_id}&role=testers&access_token={$user_access_token}&method=post", TRUE);
+		$url=graph_url_group("page_admin", "{$app_id}/roles?user={$user_id}&role=testers&access_token={$user_access_token}&method=post");
 		$resuls = $this->run_curl_for_fb($url);
 		return json_decode($resuls,TRUE);
 	}
 
 	public function block_person_from_commenting($page_id,$commenter_id,$page_access_token)
 	{
-		$url=graph_url("{$page_id}/blocked?access_token={$page_access_token}", TRUE);
+		$url=graph_url_group("page_admin", "{$page_id}/blocked?access_token={$page_access_token}");
 		$post_data = [];
 		$post_data['user'] = $commenter_id;
 		$post_data = json_encode($post_data);
@@ -481,14 +481,14 @@ class Fb_rx_login
 
 	public function get_videolist_from_fb_page($page_id,$access_token)
 	{
-		$url = graph_url("$page_id/videos?access_token=$access_token&fields=is_crossposting_eligible,description,created_time,permalink_url,picture", TRUE);
+		$url = graph_url_group("reads", "$page_id/videos?access_token=$access_token&fields=is_crossposting_eligible,description,created_time,permalink_url,picture");
 		$video_list = $this->run_curl_for_fb($url);
 		return json_decode($video_list,TRUE);
 	}
 
 	public function get_crosspost_whitelisted_pages($page_id,$access_token)
 	{
-		$url = graph_url("$page_id/crosspost_whitelisted_pages?access_token=$access_token&limit=200", TRUE);
+		$url = graph_url_group("reads", "$page_id/crosspost_whitelisted_pages?access_token=$access_token&limit=200");
 		$whitelisted_pages = $this->run_curl_for_fb($url);
 		return json_decode($whitelisted_pages,TRUE);
 	}
@@ -794,14 +794,14 @@ class Fb_rx_login
 
 	public function delete_comment($comment_id,$post_access_token){
 
-		$url=graph_url("{$comment_id}?method=delete&access_token={$post_access_token}", TRUE);
+		$url=graph_url_group("page_admin", "{$comment_id}?method=delete&access_token={$post_access_token}");
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 	}
 
 
 	public function hide_comment($comment_id,$post_access_token){
-		$url=graph_url("{$comment_id}?method=post&access_token={$post_access_token}&is_hidden=true", TRUE);
+		$url=graph_url_group("page_admin", "{$comment_id}?method=post&access_token={$post_access_token}&is_hidden=true");
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 	}
@@ -824,8 +824,8 @@ class Fb_rx_login
 		//	$url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&limit=200&fields=participants,message_count,unread_count,senders,is_subscribed,snippet,id", TRUE);	
 
 		if($platform=='ig')
-		$url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,id,updated_time&platform=instagram", TRUE);	
-		else $url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&folder={$folder}&limit=500&fields=participants,message_count,unread_count,is_subscribed,snippet,id,updated_time,link", TRUE);	
+		$url = graph_url_group("reads", "{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,id,updated_time&platform=instagram");	
+		else $url = graph_url_group("reads", "{$page_id}/conversations?access_token={$post_access_token}&folder={$folder}&limit=500&fields=participants,message_count,unread_count,is_subscribed,snippet,id,updated_time,link");	
 
 		do
 		{
@@ -892,9 +892,9 @@ class Fb_rx_login
 		{
 
 			if($platform=='ig')
-			$url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,id,updated_time&platform=instagram", TRUE);	
+			$url = graph_url_group("reads", "{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,id,updated_time&platform=instagram");	
 
-			$url = graph_url("{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,message_count,unread_count,is_subscribed,snippet,id,updated_time,link", TRUE);	
+			$url = graph_url_group("reads", "{$page_id}/conversations?access_token={$post_access_token}&limit=500&fields=participants,message_count,unread_count,is_subscribed,snippet,id,updated_time,link");	
 		}
 
 		do
@@ -940,14 +940,14 @@ class Fb_rx_login
 	
 	
 	public function get_messages_from_thread($thread_id,$post_access_token){
-		$url= graph_url("{$thread_id}/messages?access_token={$post_access_token}&fields=id,message,created_time,from&limit=200", TRUE);
+		$url= graph_url_group("reads", "{$thread_id}/messages?access_token={$post_access_token}&fields=id,message,created_time,from&limit=200");
 		$results = $this->run_curl_for_fb($url);
 		$results=json_decode($results,true);
 		return $results;
 	}
 
 	public function get_messages_from_thread_instagram($thread_id,$post_access_token){
-		$url= graph_url("{$thread_id}/messages?access_token={$post_access_token}&fields=id,message,created_time,from,to,is_unsupported,attachments,story&limit=200", TRUE);
+		$url= graph_url_group("reads", "{$thread_id}/messages?access_token={$post_access_token}&fields=id,message,created_time,from,to,is_unsupported,attachments,story&limit=200");
 		$results = $this->run_curl_for_fb($url);
 		$results=json_decode($results,true);
 		return $results;
@@ -1001,7 +1001,7 @@ class Fb_rx_login
 
 	public function get_post_info_by_id($post_id,$page_access_token)
 	{
-	 	$url=graph_url("?ids={$post_id}&access_token={$page_access_token}&fields=id,message,permalink_url,picture,created_time", TRUE);
+	 	$url=graph_url_group("reads", "?ids={$post_id}&access_token={$page_access_token}&fields=id,message,permalink_url,picture,created_time");
 	   	$results= $this->run_curl_for_fb($url);
 	   	$results= json_decode($results,TRUE);
 	   	return $results;
@@ -1030,7 +1030,7 @@ class Fb_rx_login
 	 */
 	public function send_private_reply($message,$comment_id,$post_access_token)
 	{
-		$url = graph_url("me/messages?access_token={$post_access_token}", TRUE);
+		$url = graph_url_group("send", "me/messages?access_token={$post_access_token}");
 		$payload = json_encode(array(
 			"recipient" => array("comment_id" => (string) $comment_id),
 			"message"   => array("text" => $message),
@@ -1125,7 +1125,7 @@ class Fb_rx_login
 
 	public function debug_access_token($input_token){
 
-		$url=graph_url("debug_token?input_token={$input_token}&access_token={$this->user_access_token}", TRUE);
+		$url=graph_url_group("reads", "debug_token?input_token={$input_token}&access_token={$this->user_access_token}");
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 
@@ -1394,7 +1394,7 @@ class Fb_rx_login
 
 	public function app_info_graber($app_id='',$app_secret='')
 	{
-		$url = graph_url($app_id, TRUE)."?access_token=".$app_id."|".$app_secret."&fields=name,link,id,category,photo_url";
+		$url = graph_url_group("reads", $app_id)."?access_token=".$app_id."|".$app_secret."&fields=name,link,id,category,photo_url";
 		$headers = array("Content-type: application/json");
 		$ch = curl_init();
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
@@ -1467,9 +1467,9 @@ class Fb_rx_login
 		if($media_type=="") $media_type="fb";
 
 		if($media_type=="fb")
-			$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
+			$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$post_access_token}");
 		else
-			$url = graph_url("me/messenger_profile?access_token={$post_access_token}&platform=instagram", TRUE);
+			$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$post_access_token}&platform=instagram");
 		
 		$get_started_data='{"fields":["persistent_menu"]}';
 	
@@ -1496,7 +1496,7 @@ class Fb_rx_login
 	/* Delete get Started Button */
 	public function delete_get_started_button($post_access_token='')
 	{
-		$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
+		$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$post_access_token}");
 		$get_started_data='{"fields":["get_started"]}';
 	
 		$ch = curl_init();
@@ -1535,7 +1535,7 @@ class Fb_rx_login
 	public function add_get_started_button($post_access_token='')
 	{
 	
-		$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
+		$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$post_access_token}");
 		$get_started_data='{"get_started":{"payload":"GET_STARTED_PAYLOAD"}}';
 	
 		$ch = curl_init();
@@ -1573,7 +1573,7 @@ class Fb_rx_login
 	{
 		if($welcome_message=='') return false;
 	
-		$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
+		$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$post_access_token}");
 		$get_started_data=array
 		(
 			'greeting'=>array(0=>array("locale"=>"default","text"=>$welcome_message))
@@ -1615,7 +1615,7 @@ class Fb_rx_login
 
 	public function unset_welcome_message($post_access_token='')
 	{
-		$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
+		$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$post_access_token}");
 		$get_started_data='{"fields":["greeting"]}';
 	
 		$ch = curl_init();
@@ -1656,9 +1656,9 @@ class Fb_rx_login
 		if($media_type=="") $media_type="fb";
 
 		if($media_type=="fb")
-			$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
+			$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$post_access_token}");
 		else
-			$url = graph_url("me/messenger_profile?access_token={$post_access_token}&platform=instagram", TRUE);
+			$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$post_access_token}&platform=instagram");
 
 		$get_started_data=$menu_content_json;
 	
@@ -1686,7 +1686,7 @@ class Fb_rx_login
 
 	function get_page_review_status($post_access_token='')
 	{
-		$url=graph_url("me/messaging_feature_review?access_token={$post_access_token}", TRUE);
+		$url=graph_url_group("messaging_feature_review", "me/messaging_feature_review?access_token={$post_access_token}");
 		$headers = array("Content-type: application/json");
 		$ch = curl_init();
 		curl_setopt($ch, CURLOPT_URL, $url);
@@ -1705,58 +1705,15 @@ class Fb_rx_login
 	}
 
 
-	//https://developers.facebook.com/docs/messenger-platform/send-messages/broadcast-messages/estimate-reach/
-	function start_reach_estimation($post_access_token='')
-	{
-		$url=graph_url("me/broadcast_reach_estimations?access_token={$post_access_token}&method=post", TRUE);
-		$ch = curl_init();
-		$headers = array("Content-type: application/json");
-
-		curl_setopt($ch, CURLOPT_URL, $url);
-		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-		// curl_setopt($ch,CURLOPT_POST,1);
-		//curl_setopt($ch,CURLOPT_POSTFIELDS,$message);
-		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
-		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
-		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
-		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
-		curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3");   
-		$st=curl_exec($ch);  
-
-		$result=json_decode($st,TRUE);
-
-		return $result;
-	}
-
-
-
-	function reach_estimation_count($reach_estimation_id='',$post_access_token='')
-	{
-		$url=graph_url("{$reach_estimation_id}?access_token={$post_access_token}", TRUE);
-		$ch = curl_init();
-		$headers = array("Content-type: application/json");
-
-		curl_setopt($ch, CURLOPT_URL, $url);
-		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-		// curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);  
-		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);  
-		curl_setopt($ch, CURLOPT_COOKIEJAR,'cookie.txt');  
-		curl_setopt($ch, CURLOPT_COOKIEFILE,'cookie.txt');  
-		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);  
-		curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.3) Gecko/20070309 Firefox/2.0.0.3");   
-		$st=curl_exec($ch);  
-
-		$result=json_decode($st,TRUE);
-
-		return $result;
-	}
-	
+	// start_reach_estimation() / reach_estimation_count() removed 2026-09-22:
+	// dead code (me/broadcast_reach_estimations), never called anywhere in the
+	// codebase (grep confirms; the system has never sent a broadcast) -- see
+	// docs/GRAPH_API_MIGRATION.md Phase 3. Not a version-flip candidate.
 
 	/*** Subscription based message sent  https://developers.facebook.com/docs/messenger-platform/send-messages/message-tags ***/
 	function send_non_promotional_message_subscription($message='[]',$post_access_token='')
 	{
-		$url = graph_url("me/messages?access_token={$post_access_token}", TRUE);
+		$url = graph_url_group("send", "me/messages?access_token={$post_access_token}");
 
 		$ch = curl_init();
 		$headers = array("Content-type: application/json");
@@ -1814,7 +1771,7 @@ class Fb_rx_login
 		}
 
 		// Fetch all current whitelisted domains 
-		$url = graph_url("me/messenger_profile?fields=whitelisted_domains&access_token={$access_token}", TRUE);
+		$url = graph_url_group("messenger_profile", "me/messenger_profile?fields=whitelisted_domains&access_token={$access_token}");
 		$ch = curl_init();
 	 	$headers = array("Content-type: application/json");
 	 	curl_setopt($ch, CURLOPT_URL, $url);
@@ -1835,7 +1792,7 @@ class Fb_rx_login
  		$current_whitelisted_domains= isset($result['data'][0]['whitelisted_domains']) ? $result['data'][0]['whitelisted_domains'] : array();
  		$current_whitelisted_domains[]=$domain;
 
- 		$url = graph_url("me/messenger_profile?access_token={$access_token}", TRUE);
+ 		$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$access_token}");
  		$whitelisted_domains_data['whitelisted_domains']= $current_whitelisted_domains;
  		$whitelisted_domains_data=json_encode($whitelisted_domains_data);
 
@@ -1869,7 +1826,23 @@ class Fb_rx_login
 	// page_messages_reported_conversations_by_report_type_unique and page_messages_active_threads_unique metrics have been depreciated
 	function get_analytics_data($access_token="",$from_date="",$to_date='')
 	{
-		$url = graph_url("me/insights/?metric=page_messages_total_messaging_connections,page_messages_new_conversations_unique,page_messages_blocked_conversations_unique,page_messages_reported_conversations_unique&access_token={$access_token}&since={$from_date}&until={$to_date}", TRUE);
+		$insights_metrics = "page_messages_total_messaging_connections,page_messages_new_conversations_unique,page_messages_blocked_conversations_unique,page_messages_reported_conversations_unique";
+
+		// Phase 3 graceful degradation: Meta's v25.0 changelog documents metrics
+		// removed "when v26.0 releases" (see fb_graph_insights_dropped_metrics()).
+		// None of the metrics above are on that list today, so this never fires
+		// while the 'insights' group is pinned to legacy -- it only protects a
+		// future version flip or metric addition from a raw Graph API error.
+		$unsupported_metrics = fb_graph_insights_unsupported($insights_metrics);
+		if (!empty($unsupported_metrics) && fb_graph_group_version('insights') !== fb_graph_version('legacy'))
+		{
+			return array('error' => array(
+				'message' => 'Graph insights metric(s) not supported on the configured API version: ' . implode(',', $unsupported_metrics) . '. See docs/GRAPH_API_MIGRATION.md (Phase 3, insights group).',
+				'monkeybot_gate' => 'insights_dropped_metric',
+			));
+		}
+
+		$url = graph_url_group("insights", "me/insights/?metric={$insights_metrics}&access_token={$access_token}&since={$from_date}&until={$to_date}");
     	$ch = curl_init();
     	$headers = array("Content-type: application/json");
     	curl_setopt($ch, CURLOPT_URL, $url);
@@ -1889,40 +1862,40 @@ class Fb_rx_login
 	
 	function create_label($page_access_token="",$label="") //{"id": 1712444532121303}
 	{
-		$url=graph_url("me/custom_labels?access_token={$page_access_token}", TRUE);
+		$url=graph_url_group("labels", "me/custom_labels?access_token={$page_access_token}");
 		$json=json_encode(array("page_label_name"=>$label));
 		return $this->call_api_post($json,$url);
 	}
 
 	function assign_label($page_access_token='',$psid='',$label_id='') //{"success": true}
 	{
-		$url=graph_url("{$label_id}/label?access_token={$page_access_token}", TRUE);
+		$url=graph_url_group("labels", "{$label_id}/label?access_token={$page_access_token}");
 		$json=json_encode(array("user"=>$psid));
 		return $this->call_api_post($json,$url);
 	}
 
 	function deassign_label($page_access_token='',$psid='',$label_id='')//{"success": true}
 	{
-		$url=graph_url("{$label_id}/label?access_token={$page_access_token}", TRUE);
+		$url=graph_url_group("labels", "{$label_id}/label?access_token={$page_access_token}");
 		$json=json_encode(array("user"=>$psid));
 		return $this->call_api_post($json,$url,true);
 	}
 
 	function delete_label($page_access_token='',$label_id='')//{"success": true}
 	{
-		$url=graph_url("{$label_id}?access_token={$page_access_token}", TRUE);
+		$url=graph_url_group("labels", "{$label_id}?access_token={$page_access_token}");
 		return $this->call_api_post('',$url,true);
 	}
 
 	function retrieve_label($page_access_token='')
 	{
-		$url=graph_url("me/custom_labels?fields=page_label_name&access_token={$page_access_token}&limit=200", TRUE);
+		$url=graph_url_group("labels", "me/custom_labels?fields=page_label_name&access_token={$page_access_token}&limit=200");
 		return $this->call_api_post('',$url,false);
 	}
 
 	function retrieve_level_of_psid($psid,$page_access_token){
 
-		$url=graph_url("{$psid}/custom_labels?fields=page_label_name&access_token=$page_access_token&limit=200", TRUE);
+		$url=graph_url_group("labels", "{$psid}/custom_labels?fields=page_label_name&access_token=$page_access_token&limit=200");
 		return $this->call_api_post('',$url,false);
 
 	}
@@ -1985,7 +1958,7 @@ class Fb_rx_login
 	function fb_like_comment_share($url,$access_token)
 	{
 		
-		$url=graph_url("?id={$url}&fields=engagement,og_object&access_token={$access_token}", TRUE);
+		$url=graph_url_group("reads", "?id={$url}&fields=engagement,og_object&access_token={$access_token}");
 		$response1=$this->run_curl_for_fb($url);
 		$response = json_decode($response1,true);
 		if(isset($response['error']['message'])){
@@ -2035,7 +2008,7 @@ class Fb_rx_login
 		$keyword=urlencode($keyword);
 		$center=$latitude.",".$longitude;	
 	
-		$url=graph_url("search?q={$keyword}&type=place&access_token={$access_token}&fields=id,name,overall_star_rating,website,about,category_list,checkins,cover,description,engagement,hours,is_always_open,is_permanently_closed,payment_options,price_range,rating_count,restaurant_services,is_verified,location,link,phone&center={$center}&distance={$distance}&limit={$search_limit}", TRUE);
+		$url=graph_url_group("reads", "search?q={$keyword}&type=place&access_token={$access_token}&fields=id,name,overall_star_rating,website,about,category_list,checkins,cover,description,engagement,hours,is_always_open,is_permanently_closed,payment_options,price_range,rating_count,restaurant_services,is_verified,location,link,phone&center={$center}&distance={$distance}&limit={$search_limit}");
 		 $results=$this->facebook_api_call($url);
 		
 		 if(isset($results['error']['message']))
@@ -2113,13 +2086,13 @@ class Fb_rx_login
 	{
 		
 		if($social_media_type=='ig'){
-			$url = graph_url("me/messenger_profile?platform=instagram&access_token={$post_access_token}", TRUE);
+			$url = graph_url_group("messenger_profile", "me/messenger_profile?platform=instagram&access_token={$post_access_token}");
 			$icebreakers_content_array=json_decode($icebreakers_content_json,true);
 			$icebreakers_content_array['platform']="instagram";
 			$icebreakers_content_json=json_encode($icebreakers_content_array);
 		}
 		else
-			$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
+			$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$post_access_token}");
 
 
 		$ice_breakers_data=$icebreakers_content_json;
@@ -2157,9 +2130,9 @@ class Fb_rx_login
 	public function delete_ice_breakers($post_access_token='',$social_media_type='fb')
 	{	
 		if($social_media_type=='fb')
-			$url = graph_url("me/messenger_profile?access_token={$post_access_token}", TRUE);
+			$url = graph_url_group("messenger_profile", "me/messenger_profile?access_token={$post_access_token}");
 		else
-			$url = graph_url("me/messenger_profile?platform=instagram&access_token={$post_access_token}", TRUE);
+			$url = graph_url_group("messenger_profile", "me/messenger_profile?platform=instagram&access_token={$post_access_token}");
 
 		$get_started_data='{"fields":["ice_breakers"]}';
 	
@@ -2313,14 +2286,14 @@ class Fb_rx_login
 
 	public function instagram_get_hashtag_id($user_id,$tag,$user_access_token)
 	{
-		$url = graph_url("ig_hashtag_search?user_id={$user_id}&access_token={$user_access_token}&q={$tag}", TRUE);
+		$url = graph_url_group("reads", "ig_hashtag_search?user_id={$user_id}&access_token={$user_access_token}&q={$tag}");
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 	}
 
 	public function instagram_get_hashtag_result($user_id,$hashtag_id,$result_type,$user_access_token)
 	{
-		$url = graph_url("{$hashtag_id}/{$result_type}?user_id={$user_id}&access_token={$user_access_token}&fields=id,media_url,like_count,comments_count,permalink,caption,media_type&limit=50", TRUE);
+		$url = graph_url_group("reads", "{$hashtag_id}/{$result_type}?user_id={$user_id}&access_token={$user_access_token}&fields=id,media_url,like_count,comments_count,permalink,caption,media_type&limit=50");
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 	}
@@ -2329,14 +2302,14 @@ class Fb_rx_login
 
 	public function instagram_hide_comment($comment_id,$post_access_token)
 	{
-		$url=graph_url("{$comment_id}?method=post&access_token={$post_access_token}&hide=true", TRUE);
+		$url=graph_url_group("page_admin", "{$comment_id}?method=post&access_token={$post_access_token}&hide=true");
 		$results= $this->run_curl_for_fb($url);
 		return json_decode($results,TRUE);
 	}
 
 	public function instagram_delete_comment($comment_id,$post_access_token)
 	{
-		$url=graph_url("{$comment_id}?access_token={$post_access_token}&method=delete", TRUE);
+		$url=graph_url_group("page_admin", "{$comment_id}?access_token={$post_access_token}&method=delete");
 		$resuls = $this->run_curl_for_fb($url);
 		return json_decode($resuls,TRUE);
 	}
@@ -2365,7 +2338,7 @@ class Fb_rx_login
 	public function instagram_auto_mention_comment($auto_reply_comment_message, $media_id, $user_access_token, $user_id, $comment_id)
 	{
 		$auto_reply_comment_message=urlencode($auto_reply_comment_message);
-		$url=graph_url("{$user_id}/mentions?comment_id={$comment_id}&media_id={$media_id}&message={$auto_reply_comment_message}&access_token={$user_access_token}&method=post", TRUE);
+		$url=graph_url_group("page_admin", "{$user_id}/mentions?comment_id={$comment_id}&media_id={$media_id}&message={$auto_reply_comment_message}&access_token={$user_access_token}&method=post");
 		$resuls = $this->run_curl_for_fb($url);
 		return json_decode($resuls,TRUE);
 	}
@@ -2373,7 +2346,7 @@ class Fb_rx_login
 	public function instagram_auto_mention_caption_comment($auto_reply_comment_message, $media_id, $user_access_token, $user_id)
 	{
 		$auto_reply_comment_message=urlencode($auto_reply_comment_message);
-		$url=graph_url("{$user_id}/mentions?&media_id={$media_id}&message={$auto_reply_comment_message}&access_token={$user_access_token}&method=post", TRUE);
+		$url=graph_url_group("page_admin", "{$user_id}/mentions?&media_id={$media_id}&message={$auto_reply_comment_message}&access_token={$user_access_token}&method=post");
 		$resuls = $this->run_curl_for_fb($url);
 		return json_decode($resuls,TRUE);
 	}

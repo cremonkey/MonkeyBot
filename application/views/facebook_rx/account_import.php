@@ -87,7 +87,7 @@
 				<?php $i=0; foreach($existing_accounts as $value) : ?>
 					<div class="col-12">
 						
-						<?php $profile_picture=graph_url("me/picture?access_token={$value['user_access_token']}&width=150&height=150", TRUE); ?>
+						<?php $profile_picture=graph_url_group("reads", "me/picture?access_token={$value['user_access_token']}&width=150&height=150"); ?>
 
 				    	<div class="card profile-widget my-0">
 				    		<div class="profile-widget-header">
