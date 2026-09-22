@@ -699,3 +699,24 @@ branch ships — the worker will not run until explicitly enabled (brief §50 fe
 
 **Not yet done:** none of this is pushed or deployed. The Unified Inbox (brief §13) is the next
 piece that depends on both 9.0 and 9.5, now both merged and available to build on.
+
+### Unified Inbox merged (2026-09-25, autonomous continuation)
+| Phase | Feature | Status |
+|---|---|---|
+| 9.5 | Unified Inbox (brief §13/§14/§46) | Verified — 56/0 unit, 39/0 staging |
+
+Clean merge into `release/9.x-integration` (entitlement_helper.php map extended to `inbox => 411`,
+no conflict this time). Livechat.php (fb/ig, module 82) is kept running as-is, not redirected —
+both write the same trigger-linked `livechat_messages`/`conversations` data, so the two screens
+stay consistent; redirecting it was judged out of scope without a full parity check. Deferred:
+Pusher realtime (polling v1), AI-suggested-reply display (needs `ai_conversation_history` keyed
+to `conversation_id`, an ADR-001 gap), labels (existing table keys off `messenger_bot_subscriber.id`,
+excludes 3 of 5 channels), attachments (text only this phase).
+
+**Full regression after this merge, fresh DB (46 migrations, 0 errors, 185 tables):**
+unit suites 117+20+65+51+56+486 = 795 assertions; staging HTTP suites
+19+16+12+44+96+39 = 226 assertions. All 1,021 assertions passed, 0 failed. Production `/health`
+stayed `ok` throughout (no prod changes made). Nothing pushed.
+
+**Still pending owner decisions, unchanged:** the S-14 production charset fix (needs a restart,
+timing is the owner's call) and pushing this work to GitHub.
