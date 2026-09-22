@@ -50,7 +50,11 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
             </div>
             <div class="d-flex justify-content-between">
               <label class="form-check form-check-sm mt-2"><input type="checkbox" id="ib_note_mode" class="form-check-input"> <span class="form-check-label">Internal note (not sent to customer)</span></label>
-              <button id="ib_send" class="btn btn-primary" disabled><i class="fas fa-paper-plane"></i> Send</button>
+              <span>
+                <input type="file" id="ib_image_input" accept="image/jpeg,image/png" style="display:none">
+                <button id="ib_attach" class="btn btn-outline-secondary" style="display:none" title="Send an image (JPEG or PNG, up to 5 MB)"><i class="fas fa-image"></i></button>
+                <button id="ib_send" class="btn btn-primary" disabled><i class="fas fa-paper-plane"></i> Send</button>
+              </span>
             </div>
           </div>
         </div>
@@ -289,6 +293,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       $('#ib_handoff_badge').text(r.handoff_label);
       $('#ib_assign').val(current.assigned_user_id || 0);
       $('#ib_composer, #ib_send').prop('disabled', false);
+      $('#ib_attach').toggle(r.can_send_image === true);
       $('#ib_deny').hide();
       loadSummary(false);
       loadCanned();
@@ -314,13 +319,28 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
 
   $('#ib_summary_refresh').on('click', function () { loadSummary(true); });
 
+  // Media URLs come from the server already restricted to http(s) (inbox_message_render) and
+  // are escaped again here; nothing from a message is ever inserted as raw HTML.
+  function renderAttachment(a) {
+    var u = esc(a.url);
+    if (a.type === 'image') return '<a href="' + u + '" target="_blank" rel="noopener noreferrer"><img src="' + u + '" alt="image" style="max-width:220px;max-height:220px;border-radius:4px" loading="lazy"></a>';
+    if (a.type === 'video') return '<video src="' + u + '" controls preload="none" style="max-width:260px"></video>';
+    if (a.type === 'audio') return '<audio src="' + u + '" controls preload="none"></audio>';
+    return '<a href="' + u + '" target="_blank" rel="noopener noreferrer"><i class="fas fa-file"></i> Download file</a>';
+  }
+
   function renderMessages(messages, replace) {
     var html = messages.map(function (m) {
       var mine = m.sender === 'bot';
       var who = m.sender === 'system' ? 'System' : (mine ? (m.agent_name || 'Bot') : 'Customer');
+      var r = m.render || {text: m.message_content, attachments: [], media_unavailable: false};
+      var body = '';
+      if (r.text) body += '<div style="white-space:pre-wrap">' + esc(r.text) + '</div>';
+      (r.attachments || []).forEach(function (a) { body += '<div class="mt-1">' + renderAttachment(a) + '</div>'; });
+      if (r.media_unavailable) body += '<em class="small">Media message — this channel does not store the file, so it cannot be shown here.</em>';
       return '<div class="mb-2 text-' + (mine ? 'right' : 'left') + '">' +
-        '<div class="d-inline-block p-2 rounded" style="max-width:80%;background:' + (mine ? '#4b7bec;color:#fff' : '#fff') + ';border:1px solid #e3e3e3">' +
-        esc(m.message_content) + '</div><br><small class="text-muted">' + esc(who) + ' · ' + esc(m.conversation_time) + '</small></div>';
+        '<div class="d-inline-block p-2 rounded text-left" style="max-width:80%;background:' + (mine ? '#4b7bec;color:#fff' : '#fff') + ';border:1px solid #e3e3e3">' +
+        body + '</div><br><small class="text-muted">' + esc(who) + ' · ' + esc(m.conversation_time) + '</small></div>';
     }).join('');
     if (replace) $('#ib_thread').html(html); else $('#ib_thread').prepend(html);
     if (replace) $('#ib_thread').scrollTop($('#ib_thread')[0].scrollHeight);
@@ -348,6 +368,25 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
         note(r.message || 'Could not send.', false);
       }
     });
+  });
+
+  $('#ib_attach').on('click', function (e) { e.preventDefault(); if (current) $('#ib_image_input').val('').trigger('click'); });
+  $('#ib_image_input').on('change', function () {
+    var f = this.files && this.files[0];
+    if (!current || !f) return;
+    if (['image/jpeg', 'image/png'].indexOf(f.type) < 0) return note('Only JPEG and PNG images can be sent.', false);
+    if (f.size > 5 * 1024 * 1024) return note('The image is larger than 5 MB.', false);
+    var fd = new FormData();
+    fd.append('csrf_token', TOKEN); fd.append('conversation_id', current.id); fd.append('image', f);
+    $('#ib_attach').prop('disabled', true);
+    $.ajax({url: BASE + 'inbox/reply_image', type: 'POST', data: fd, processData: false, contentType: false, dataType: 'json'})
+      .done(function (r) {
+        if (r.status === '1') { $('#ib_deny').hide(); openConversation(current.id); }
+        else if (r.denied) { $('#ib_deny_text').text(r.explain); $('#ib_deny').show(); }
+        else note(r.message || 'Could not send the image.', false);
+      })
+      .fail(function () { note('Could not send the image.', false); })
+      .always(function () { $('#ib_attach').prop('disabled', false); });
   });
 
   $('#ib_save_note_instead').on('click', function () {

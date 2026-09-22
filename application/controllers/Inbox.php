@@ -86,8 +86,7 @@ class Inbox extends Home
 
         foreach ($rows as &$r) {
             $r['handoff_label'] = inbox_handoff_label($r['handoff_state']);
-            $r['last_message_preview'] = $r['last_message_preview'] !== null
-                ? mb_substr(strip_tags((string) $r['last_message_preview']), 0, 120) : '';
+            $r['last_message_preview'] = inbox_message_preview($r['last_message_preview']);
             $r['customer_name'] = $r['display_name'] !== null && trim((string) $r['display_name']) !== ''
                 ? $r['display_name'] : ($r['phone'] ?: $r['external_thread_id']);
         }
@@ -124,6 +123,10 @@ class Inbox extends Home
         $this->db->order_by('id', 'DESC');
         $this->db->limit($limit);
         $messages = array_reverse($this->db->get()->result_array());
+        // What the thread shows: text plus any media URL already in the stored row (fb/ig
+        // webhook bodies, Send API bodies). The stored row is never changed.
+        foreach ($messages as &$m) $m['render'] = inbox_message_render($m['message_content']);
+        unset($m);
 
         if ($mark_read && $conv['unread_count'] > 0) {
             $this->db->where('id', $conv['id'])->where('user_id', $this->uid)
@@ -138,6 +141,7 @@ class Inbox extends Home
 
         echo json_encode(array('status' => '1', 'conversation' => $conv, 'handoff_label' => inbox_handoff_label($conv['handoff_state']),
             'messages' => $messages, 'notes' => $notes, 'has_more' => count($messages) === $limit,
+            'can_send_image' => $before_id === 0 ? $this->can_send_image($conv) : null,
             'labels' => isset($labels[$conv['id']]) ? $labels[$conv['id']] : array()));
     }
 
@@ -196,6 +200,80 @@ class Inbox extends Home
             : $this->write_agent_message($conv, $text, (string) ($result->external_message_id ?: ''), $account['fb_page_id']);
 
         echo json_encode(array('status' => '1', 'message' => 'Sent', 'message_id' => $message_id));
+    }
+
+    /** Whether this conversation's channel adapter can send an image (capability matrix,
+     *  docs/channels/adapters.md). Used to show or hide the attach button. */
+    private function can_send_image($conv)
+    {
+        $account = $this->resolve_send_account($conv);
+        if ($account === null) return false;
+        $adapter = channel_adapter($account['key']);
+        return $adapter !== null && $adapter->supports(\MonkeyBot\Channels\Capability::SEND_IMAGE);
+    }
+
+    /**
+     * AJAX POST (multipart): send an image reply. Same order of checks as reply(): tenant guard,
+     * channel account, then channel_policy_decide(sender='human'). Then the channel must support
+     * send_image, and only then is the upload validated (bytes, not the client's name or type:
+     * JPEG/PNG, max 5 MB) and stored under upload/inbox/ with a random name and an extension
+     * taken from the detected type. The provider fetches the image by its public URL. Only on a
+     * successful send is a livechat_messages row written. A failed send deletes the stored file
+     * and writes nothing (brief §51, no silent failure).
+     */
+    public function reply_image()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+
+        $conv = conversation_get((int) $this->input->post('conversation_id'), $this->uid);
+        if (empty($conv)) { echo json_encode(array('status' => '0', 'message' => 'Conversation not found')); return; }
+
+        $account = $this->resolve_send_account($conv);
+        if ($account === null) {
+            echo json_encode(array('status' => '0', 'message' => 'No active channel account found for this conversation')); return;
+        }
+        $adapter = channel_adapter($account['key']);
+        if ($adapter === null || !$adapter->supports(\MonkeyBot\Channels\Capability::SEND_IMAGE)) {
+            echo json_encode(array('status' => '0', 'unsupported' => true, 'message' => 'Sending images is not supported on this channel yet')); return;
+        }
+
+        $decision = inbox_reply_decision($account['policy_key'], $conv['last_inbound_at'], false);
+        if (!$decision['allowed']) {
+            echo json_encode(array('status' => '0', 'denied' => true, 'reason' => $decision['reason'],
+                'explain' => $decision['explain'], 'message' => $decision['explain']));
+            return;
+        }
+
+        $f = isset($_FILES['image']) && is_array($_FILES['image']) ? $_FILES['image'] : null;
+        if ($f === null || is_array($f['tmp_name']) || !is_uploaded_file((string) $f['tmp_name'])) {
+            echo json_encode(array('status' => '0', 'message' => 'No image was uploaded')); return;
+        }
+        $check = inbox_image_upload_validate((string) $f['tmp_name'], (int) $f['size'], (int) $f['error']);
+        if (!$check['ok']) { echo json_encode(array('status' => '0', 'message' => $check['error'])); return; }
+
+        $rel = inbox_image_storage_name($this->uid, $check['ext'], bin2hex(random_bytes(12)));
+        $abs = FCPATH . $rel;
+        if (!is_dir(dirname($abs)) && !@mkdir(dirname($abs), 0755, true) && !is_dir(dirname($abs))) {
+            echo json_encode(array('status' => '0', 'message' => 'Could not store the image')); return;
+        }
+        if (!move_uploaded_file((string) $f['tmp_name'], $abs)) {
+            echo json_encode(array('status' => '0', 'message' => 'Could not store the image')); return;
+        }
+        @chmod($abs, 0644);
+        $url = base_url($rel);
+
+        $out = \MonkeyBot\Channels\OutboundMessage::media($account['recipient'], 'image', $url, '', $account['credentials'], $this->uid);
+        $result = $adapter->sendMedia($out);
+        if (!$result->ok) {
+            @unlink($abs);
+            echo json_encode(array('status' => '0', 'message' => $result->error)); return;
+        }
+
+        $message_id = $this->write_agent_message($conv, inbox_image_message_content($account['recipient'], $url),
+            (string) ($result->external_message_id ?: ''), $account['fb_page_id']);
+        echo json_encode(array('status' => '1', 'message' => 'Sent', 'message_id' => $message_id, 'url' => $url));
     }
 
     /** Writes the livechat_messages row for a sent agent reply. The BEFORE INSERT trigger

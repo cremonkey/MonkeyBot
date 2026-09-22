@@ -272,5 +272,106 @@ $q = new FakeQB();
 inbox_scope_canned($q, 55, 'tg', false);
 check('canned scope: before the migration (no channels column) -> unfiltered as before', $q->calls, array(array('where', 'user_id', 55)));
 
+// ============================================================================================
+echo "\n== attachments: rendering what the stored row already has ==\n";
+
+$r = inbox_message_render('Hello there');
+check('plain text renders as text, no attachments', array($r['text'], $r['attachments'], $r['media_unavailable']), array('Hello there', array(), false));
+
+$fb_in = json_encode(array('object' => 'page', 'entry' => array(array('id' => 'P1', 'messaging' => array(array(
+    'sender' => array('id' => 'S1'), 'recipient' => array('id' => 'P1'),
+    'message' => array('mid' => 'm1', 'attachments' => array(
+        array('type' => 'image', 'payload' => array('url' => 'https://scontent.xx.fbcdn.net/v/t1/abc.jpg?x=1')),
+        array('type' => 'audio', 'payload' => array('url' => 'https://cdn.fbsbx.com/v/t59/voice.mp4')),
+    )),
+))))));
+$r = inbox_message_render($fb_in);
+check('fb inbound webhook body: image + audio URLs extracted', $r['attachments'], array(
+    array('type' => 'image', 'url' => 'https://scontent.xx.fbcdn.net/v/t1/abc.jpg?x=1'),
+    array('type' => 'audio', 'url' => 'https://cdn.fbsbx.com/v/t59/voice.mp4')));
+check('fb inbound webhook body: no raw JSON shown as text', $r['text'], '');
+
+$ig_in = json_encode(array('object' => 'instagram', 'entry' => array(array('messaging' => array(array(
+    'sender' => array('id' => 'S1'), 'message' => array('mid' => 'm2', 'text' => 'شوف الصورة'),
+))))));
+check('ig inbound text body: text extracted', inbox_message_render($ig_in)['text'], 'شوف الصورة');
+
+$evil = json_encode(array('object' => 'page', 'entry' => array(array('messaging' => array(array(
+    'message' => array('attachments' => array(
+        array('type' => 'image', 'payload' => array('url' => 'javascript:alert(1)')),
+        array('type' => 'file', 'payload' => array('url' => 'data:text/html,<script>alert(1)</script>')),
+        array('type' => 'image', 'payload' => array('url' => '//evil.example/x.png')),
+    )),
+))))));
+$r = inbox_message_render($evil);
+check('javascript:, data: and scheme-relative URLs are never rendered', $r['attachments'], array());
+check('...and the bubble says media is unavailable instead of showing raw JSON', array($r['text'], $r['media_unavailable']), array('', true));
+
+$fallback = json_encode(array('object' => 'page', 'entry' => array(array('messaging' => array(array(
+    'message' => array('attachments' => array(array('type' => 'fallback', 'payload' => array('url' => 'https://example.com/share')))),
+))))));
+check('unknown attachment type (fallback/share) is not rendered as media', inbox_message_render($fallback)['attachments'], array());
+
+$sent_img = inbox_image_message_content('7101234567890123', 'https://app.example.com/upload/inbox/2026/09/inbox11_ab.jpg');
+check('image reply content: Send API shape (what Livechat renders for its own media sends)', json_decode($sent_img, true), array(
+    'recipient' => array('id' => '7101234567890123'),
+    'message' => array('attachment' => array('type' => 'image', 'payload' => array('url' => 'https://app.example.com/upload/inbox/2026/09/inbox11_ab.jpg', 'is_reusable' => false)))));
+check('image reply content renders as an image in the inbox', inbox_message_render($sent_img)['attachments'],
+    array(array('type' => 'image', 'url' => 'https://app.example.com/upload/inbox/2026/09/inbox11_ab.jpg')));
+
+$sent_text = json_encode(array('recipient' => array('id' => 'S1'), 'message' => array('text' => 'Bot reply', 'quick_replies' => array())));
+check('Send API text body (fb bot rows) renders its text, not raw JSON', inbox_message_render($sent_text)['text'], 'Bot reply');
+$tpl = json_encode(array('recipient' => array('id' => 'S1'), 'message' => array('attachment' => array('type' => 'template', 'payload' => array('template_type' => 'button', 'text' => 'Choose one')))));
+check('button template renders its text', inbox_message_render($tpl)['text'], 'Choose one');
+
+foreach (array('[non-text message]', '[non-text]') as $ph) {
+    $r = inbox_message_render($ph);
+    check("'$ph' (wa/tg/openwa log no URL) -> media unavailable, no fake attachment", array($r['text'], $r['attachments'], $r['media_unavailable']), array('', array(), true));
+}
+check('other JSON is shown as stored (as before)', inbox_message_render('{"foo":1}')['text'], '{"foo":1}');
+check('broken JSON is shown as stored', inbox_message_render('{not json')['text'], '{not json');
+
+check('preview: image-only message', inbox_message_preview($sent_img), '[image]');
+check('preview: fb webhook body text', inbox_message_preview($ig_in), 'شوف الصورة');
+check('preview: wa media placeholder', inbox_message_preview('[non-text message]'), '[media]');
+check('preview: tags stripped, 120 chars max', inbox_message_preview('<b>' . str_repeat('x', 200) . '</b>'), str_repeat('x', 120));
+check('preview: NULL (no messages) -> empty', inbox_message_preview(null), '');
+
+echo "\n== attachments: upload validation (bytes, not names) ==\n";
+
+$tmpdir = sys_get_temp_dir() . '/inbox_upload_test_' . getmypid();
+@mkdir($tmpdir);
+$img = imagecreatetruecolor(8, 6);
+imagepng($img, "$tmpdir/ok.png");
+imagejpeg($img, "$tmpdir/ok.jpg");
+imagegif($img, "$tmpdir/x.gif");
+file_put_contents("$tmpdir/shell.jpg", "<?php system(\$_GET['c']); ?>");
+file_put_contents("$tmpdir/poly.jpg", file_get_contents("$tmpdir/ok.jpg") . "<?php echo 1; ?>");
+file_put_contents("$tmpdir/x.svg", '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+file_put_contents("$tmpdir/empty.png", '');
+
+$v = inbox_image_upload_validate("$tmpdir/ok.png", filesize("$tmpdir/ok.png"));
+check('real PNG accepted, extension from the bytes', array($v['ok'], $v['ext'], $v['mime']), array(true, 'png', 'image/png'));
+$v = inbox_image_upload_validate("$tmpdir/ok.jpg", filesize("$tmpdir/ok.jpg"));
+check('real JPEG accepted as .jpg', array($v['ok'], $v['ext']), array(true, 'jpg'));
+check('GIF refused (not every channel accepts it)', inbox_image_upload_validate("$tmpdir/x.gif", filesize("$tmpdir/x.gif"))['ok'], false);
+check('PHP script named .jpg refused', inbox_image_upload_validate("$tmpdir/shell.jpg", filesize("$tmpdir/shell.jpg"))['ok'], false);
+check('JPEG with appended PHP (polyglot) refused', inbox_image_upload_validate("$tmpdir/poly.jpg", filesize("$tmpdir/poly.jpg"))['ok'], false);
+check('SVG refused (scriptable)', inbox_image_upload_validate("$tmpdir/x.svg", filesize("$tmpdir/x.svg"))['ok'], false);
+check('empty file refused', inbox_image_upload_validate("$tmpdir/empty.png", 0)['ok'], false);
+check('over the size limit refused', inbox_image_upload_validate("$tmpdir/ok.png", filesize("$tmpdir/ok.png"), 0, 10)['ok'], false);
+check('PHP upload error INI_SIZE -> "larger than 5 MB"', inbox_image_upload_validate("$tmpdir/ok.png", 1, UPLOAD_ERR_INI_SIZE)['error'], 'The image is larger than 5 MB');
+check('partial upload refused', inbox_image_upload_validate("$tmpdir/ok.png", 1, UPLOAD_ERR_PARTIAL)['ok'], false);
+check('missing file refused', inbox_image_upload_validate("$tmpdir/nope.png", 10)['ok'], false);
+check('limit is 5 MB', inbox_image_max_bytes(), 5242880);
+array_map('unlink', glob("$tmpdir/*")); @rmdir($tmpdir);
+
+$name = inbox_image_storage_name(11, 'png', 'ABCDEF0123zz../', strtotime('2026-09-30 10:00:00'));
+check('stored under upload/inbox/YYYY/MM with a tenant prefix and a hex-only random part', $name, 'upload/inbox/2026/09/inbox11_abcdef0123.png');
+check('storage extension can only be jpg or png', inbox_image_storage_name(11, 'php', 'aa', 0), 'upload/inbox/1970/01/inbox11_aa.jpg');
+check('media URL filter: https kept', inbox_safe_media_url('https://x.example/a.jpg'), 'https://x.example/a.jpg');
+check('media URL filter: ftp dropped', inbox_safe_media_url('ftp://x.example/a.jpg'), null);
+check('media URL filter: non-string dropped', inbox_safe_media_url(array('https://x')), null);
+
 echo "\n== $pass passed, $fail failed ==\n";
 exit($fail === 0 ? 0 : 1);
