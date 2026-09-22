@@ -12,6 +12,8 @@ class Ai_content_writer extends Home
     {
         parent::__construct();
         if ($this->session->userdata('logged_in') != 1) redirect('home/login_page', 'location');
+        $this->load->helper('entitlement');
+        entitlement_require('ai_content_writer');
         $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
     }
 

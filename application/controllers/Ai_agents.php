@@ -14,6 +14,8 @@ class Ai_agents extends Home
     {
         parent::__construct();
         if ($this->session->userdata('logged_in') != 1) redirect('home/login_page', 'location');
+        $this->load->helper('entitlement');
+        entitlement_require('ai_agents');
         $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
     }
 
@@ -67,7 +69,8 @@ class Ai_agents extends Home
         $acc = $this->basic->get_data('open_ai_config', ['where'=>['user_id'=>$this->uid]], '', '', 1);
         if (empty($acc)) { echo json_encode(['status'=>'0','message'=>'No AI credentials configured']); return; }
         $acc = $acc[0];
-        $key = $acc['open_ai_secret_key'] ?? '';
+        $this->load->helper('ai_knowledge');
+        $key = ai_openai_key($this->uid);   // decrypted; the stored value is 'enc::...'
         if ($key === '') { echo json_encode(['status'=>'0','message'=>'No OpenAI key']); return; }
 
         $agent_name  = trim((string)$this->input->post('agent_name', true));

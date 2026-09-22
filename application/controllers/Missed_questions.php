@@ -14,6 +14,8 @@ class Missed_questions extends Home
     {
         parent::__construct();
         if ($this->session->userdata('logged_in') != 1) redirect('home/login_page', 'location');
+        $this->load->helper('entitlement');
+        entitlement_require('missed_questions');
         $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
     }
 

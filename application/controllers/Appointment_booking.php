@@ -16,6 +16,8 @@ class Appointment_booking extends Home
         $public = array('book', 'slots', 'submit_booking', 'reminder');
         if (!in_array($seg, $public)) {
             if ($this->session->userdata('logged_in') != 1) redirect('home/login_page', 'location');
+            $this->load->helper('entitlement');
+            entitlement_require('appointment_booking');
             $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
         }
     }
