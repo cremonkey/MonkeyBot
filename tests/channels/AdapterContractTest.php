@@ -601,3 +601,32 @@ t('adapters never throw from send even on garbage responses', function () {
         }
     }
 });
+
+t('fb/ig: HUMAN_AGENT tag from the policy reaches the payload; no metadata = legacy RESPONSE body', function () {
+    $specs = adapter_specs();
+    foreach (array('fb', 'ig') as $key) {
+        $t = FakeTransport::replying(200, $specs[$key]['ok_response'][1] ?? '{"message_id":"m1"}');
+        ChannelRegistry::for($key, $t)->sendText(OutboundMessage::text($specs[$key]['recipient'], 'x', $specs[$key]['account'])
+            ->withMetadata(array('messaging_type' => 'MESSAGE_TAG', 'tag' => 'HUMAN_AGENT')));
+        $b = json_decode($t->only()->body, true);
+        assert_same('MESSAGE_TAG', $b['messaging_type'], "$key text type");
+        assert_same('HUMAN_AGENT', $b['tag'], "$key text tag");
+
+        $t = FakeTransport::replying(200, $specs[$key]['ok_response'][1] ?? '{"message_id":"m1"}');
+        ChannelRegistry::for($key, $t)->sendMedia(OutboundMessage::media($specs[$key]['recipient'], 'image', 'https://cdn.example.com/a.jpg', '', $specs[$key]['account'])
+            ->withMetadata(array('messaging_type' => 'MESSAGE_TAG', 'tag' => 'HUMAN_AGENT')));
+        $b = json_decode($t->only()->body, true);
+        assert_same('HUMAN_AGENT', $b['tag'], "$key image tag");
+
+        // inside 24h the policy returns RESPONSE / no tag: body must be the exact legacy one
+        $t = FakeTransport::replying(200, $specs[$key]['ok_response'][1] ?? '{"message_id":"m1"}');
+        ChannelRegistry::for($key, $t)->sendText(OutboundMessage::text($specs[$key]['recipient'], 'hello there', $specs[$key]['account'])
+            ->withMetadata(array('messaging_type' => 'RESPONSE', 'tag' => null)));
+        assert_request_equals($specs[$key]['request']('hello there'), $t->only());
+        // an unknown tag is never forwarded
+        $t = FakeTransport::replying(200, $specs[$key]['ok_response'][1] ?? '{"message_id":"m1"}');
+        ChannelRegistry::for($key, $t)->sendText(OutboundMessage::text($specs[$key]['recipient'], 'hello there', $specs[$key]['account'])
+            ->withMetadata(array('messaging_type' => 'MESSAGE_TAG', 'tag' => 'CONFIRMED_EVENT_UPDATE')));
+        assert_request_equals($specs[$key]['request']('hello there'), $t->only());
+    }
+});

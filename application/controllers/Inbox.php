@@ -190,7 +190,8 @@ class Inbox extends Home
                 $webRow = $this->write_agent_message($conv, $text, '');
             })->sendText(\MonkeyBot\Channels\OutboundMessage::text($account['recipient'], $text, array(), $this->uid));
         } else {
-            $result = channel_adapter($account['key'])->sendText(\MonkeyBot\Channels\OutboundMessage::text(...$outbound_args));
+            $result = channel_adapter($account['key'])->sendText(\MonkeyBot\Channels\OutboundMessage::text(...$outbound_args)
+                ->withMetadata(array('messaging_type' => $decision['messaging_type'] ?? null, 'tag' => $decision['tag'] ?? null)));
         }
 
         if (!$result->ok) {
@@ -285,7 +286,8 @@ class Inbox extends Home
         @chmod($abs, 0644);
         $url = base_url($rel);
 
-        $out = \MonkeyBot\Channels\OutboundMessage::media($account['recipient'], 'image', $url, '', $account['credentials'], $this->uid);
+        $out = \MonkeyBot\Channels\OutboundMessage::media($account['recipient'], 'image', $url, '', $account['credentials'], $this->uid)
+            ->withMetadata(array('messaging_type' => $decision['messaging_type'] ?? null, 'tag' => $decision['tag'] ?? null));
         $result = $adapter->sendMedia($out);
         if (!$result->ok) {
             @unlink($abs);

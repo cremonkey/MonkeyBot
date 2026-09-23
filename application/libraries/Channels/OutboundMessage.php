@@ -46,6 +46,12 @@ final class OutboundMessage
             array('type' => (string) $type, 'url' => (string) $url, 'caption' => (string) $caption));
     }
 
+    /** A copy carrying extra send metadata (e.g. the policy's messaging_type / tag). */
+    public function withMetadata(array $extra)
+    {
+        return new self($this->recipient, $this->text, $this->account, $this->tenant_id, $this->media, array_merge($this->metadata, $extra));
+    }
+
     /** Credential lookup; '' when absent. */
     public function credential($key)
     {

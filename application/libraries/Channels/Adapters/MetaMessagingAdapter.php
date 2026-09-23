@@ -33,11 +33,11 @@ abstract class MetaMessagingAdapter extends AbstractChannelAdapter
         // Byte-for-byte the legacy request: the legacy-tier "me/messages" endpoint
         // (same path Home::send_reply uses for all webhook replies), token in the
         // query string, JSON body, 20s timeout, peer verification on.
-        $payload = json_encode(array(
+        $payload = json_encode(self::withSendType(array(
             'recipient'      => array('id' => $message->recipient),
             'messaging_type' => 'RESPONSE',
             'message'        => array('text' => $message->text),
-        ));
+        ), $message));
         $res = $this->http->send(new HttpRequest(
             'POST',
             graph_url_group('send', 'me/messages?access_token=') . urlencode($token),
@@ -67,11 +67,11 @@ abstract class MetaMessagingAdapter extends AbstractChannelAdapter
         if ((string) $message->recipient === '' || $url === '') return $this->invalid('empty media url or recipient');
         if ((string) ($media['caption'] ?? '') !== '') return $this->invalid('image captions are not supported on this channel');
 
-        $payload = json_encode(array(
+        $payload = json_encode(self::withSendType(array(
             'recipient'      => array('id' => $message->recipient),
             'messaging_type' => 'RESPONSE',
             'message'        => array('attachment' => array('type' => 'image', 'payload' => array('url' => $url, 'is_reusable' => false))),
-        ));
+        ), $message));
         $res = $this->http->send(new HttpRequest(
             'POST',
             graph_url_group('send', 'me/messages?access_token=') . urlencode($token),
@@ -83,6 +83,23 @@ abstract class MetaMessagingAdapter extends AbstractChannelAdapter
             null
         ));
         return $this->interpretGraph($res);
+    }
+
+    /**
+     * Outside the 24h window the policy engine allows a human reply only as
+     * messaging_type MESSAGE_TAG + tag HUMAN_AGENT (up to 7 days). The caller passes that
+     * decision in the message metadata; without it the payload is exactly the legacy
+     * RESPONSE body (key order included), so every existing caller is byte-identical.
+     */
+    protected static function withSendType(array $payload, OutboundMessage $message)
+    {
+        $type = (string) ($message->metadata['messaging_type'] ?? '');
+        $tag  = (string) ($message->metadata['tag'] ?? '');
+        if ($type === 'MESSAGE_TAG' && $tag === 'HUMAN_AGENT') {
+            $payload['messaging_type'] = 'MESSAGE_TAG';
+            $payload['tag'] = 'HUMAN_AGENT';
+        }
+        return $payload;
     }
 
     protected function interpretGraph(HttpResponse $res)
