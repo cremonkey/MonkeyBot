@@ -492,7 +492,7 @@ foreach (array_merge(glob($root . '/application/controllers/*.php'), glob($root 
         if (strpos($window, 'inbox_realtime_notify(') === false) $unwired[] = basename($f) . ':' . ($n + 1);
     }
 }
-check('found every livechat_messages writer (8 today)', $sites, 8);
+check('found every livechat_messages writer (9 today)', $sites, 9);
 check('every livechat_messages insert is followed by inbox_realtime_notify()', $unwired, array());
 $inbox = file_get_contents($root . '/application/controllers/Inbox.php');
 check('Inbox::realtime_auth checks CSRF and authorizes only $this->uid', strpos($inbox, 'csrf_token_check(true)') !== false

@@ -224,6 +224,13 @@ if (!function_exists('cpr_write')) {
 
         if (!$db->insert('livechat_messages', $row)) throw new \RuntimeException('insert failed');
         $id = (int) $db->insert_id();
+        // realtime Unified Inbox (ids only, fire-and-forget, never throws into the reply path)
+        try {
+            if (function_exists('get_instance') && ($CI =& get_instance()) && isset($CI->load)) {
+                $CI->load->helper('inbox_realtime');
+                if (function_exists('inbox_realtime_notify')) inbox_realtime_notify($CI, $id);
+            }
+        } catch (\Throwable $e) { /* realtime is best-effort */ }
 
         $conv = 0;
         $q = $db->select('conversation_id')->from('livechat_messages')->where('id', $id)->limit(1)->get();
