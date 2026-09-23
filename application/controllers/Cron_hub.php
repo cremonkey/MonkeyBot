@@ -107,6 +107,51 @@ class Cron_hub extends Home
         exit($fail === 0 ? 0 : 1);
     }
 
+    /**
+     * CLI: SPEC-20 embedding backfill - embed every KB chunk lacking a vector for the current
+     * model. The supported replacement for docker/scripts/backfill_kb_embeddings.php: it runs
+     * inside CodeIgniter, so keys stored encrypted ('enc::') are decrypted (ai_openai_key)
+     * and every call is recorded in ai_usage_log. Idempotent, batched (96), backs off on
+     * 429/5xx. See docs/runbooks/kb-embeddings-backfill.md.
+     *   php index.php cron_hub backfill_embeddings [--dry-run] [--user N] [--batch N] [--pause-ms N]
+     * ('=' is not a permitted URI character, so "--user N" / "--user:N", not "--user=N".)
+     * Exit code 0 when nothing failed, 1 otherwise.
+     */
+    public function backfill_embeddings()
+    {
+        if (!is_cli()) { show_404(); return; }
+        $opts = array('dry_run' => false, 'user_id' => 0);
+        $args = func_get_args();
+        $map = array('--user' => 'user_id', '--batch' => 'batch', '--pause-ms' => 'pause_ms');
+        for ($i = 0; $i < count($args); $i++) {
+            $a = (string) $args[$i];
+            if ($a === '--dry-run' || $a === 'dry-run') { $opts['dry_run'] = true; continue; }
+            $name = $a; $val = null;
+            if (strpos($a, ':') !== false) list($name, $val) = explode(':', $a, 2);
+            if (!isset($map[$name])) { echo "unknown argument: {$a}\n"; exit(2); }
+            if ($val === null) $val = isset($args[$i + 1]) ? $args[++$i] : '';
+            if (!ctype_digit((string) $val)) { echo "{$name} needs a number\n"; exit(2); }
+            $opts[$map[$name]] = (int) $val;
+        }
+
+        $this->load->helper(array('ai_knowledge', 'ai_usage'));
+        $lock = $this->db->query("SELECT GET_LOCK('mb_embedding_backfill', 0) AS l")->row_array();
+        if (empty($lock['l'])) { echo "another backfill_embeddings run holds the lock\n"; exit(1); }
+        $t0 = microtime(true);
+        try {
+            $t = ai_embedding_backfill($opts, function ($line) { echo $line, "\n"; });
+        } catch (Throwable $e) {
+            echo 'backfill aborted: ', $e->getMessage(), "\n";
+            $t = array('failed' => -1);
+        }
+        $this->db->query("SELECT RELEASE_LOCK('mb_embedding_backfill')");
+        if ((int) $t['failed'] < 0) exit(1);
+        printf("%s users=%d pending=%d embedded=%d failed=%d skipped_no_key=%d calls=%d retries=%d (%.1fs)\n",
+            $opts['dry_run'] ? 'dry run, no API calls:' : 'done:', $t['users'], $t['pending'], $t['embedded'], $t['failed'],
+            $t['skipped_no_key'], $t['calls'], $t['retries'], microtime(true) - $t0);
+        exit($t['failed'] > 0 ? 1 : 0);
+    }
+
     /** CLI: re-chunk a KB source (or all) with the AI chunker and re-embed. Reprocesses
      *  content already stored, replacing length-based chunks with clean semantic ones.
      *  php index.php cron_hub rechunk_kb [source_id]   (omit id = all active sources) */

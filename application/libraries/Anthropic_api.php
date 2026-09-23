@@ -17,9 +17,11 @@ class Anthropic_api
      * @param string $system       Optional system prompt (system-role messages are also collected).
      * @param float  $temperature
      * @param array  $tools        Optional Anthropic tool definitions.
+     * @param int    $timeout      Total request timeout in seconds (default 60, as before). The
+     *                             price judge passes a short one: it fails open, so waiting buys nothing.
      * @return string JSON string with normalized choices[0]['text'] (+ raw content/stop_reason/usage).
      */
-    public function anthropic_completion($api_key, $messages, $model = 'claude-haiku-4-5', $max_tokens = 1024, $system = '', $temperature = 0.7, $tools = null)
+    public function anthropic_completion($api_key, $messages, $model = 'claude-haiku-4-5', $max_tokens = 1024, $system = '', $temperature = 0.7, $tools = null, $timeout = 60)
     {
         // Split out system-role messages; Anthropic takes system as a top-level param.
         $system_parts = array();
@@ -72,7 +74,9 @@ class Anthropic_api
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        $timeout = (int) $timeout > 0 ? (int) $timeout : 60;
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+        if ($timeout < 60) curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, min(5, $timeout));
         $result = curl_exec($ch);
         $curl_err = curl_error($ch);
         curl_close($ch);

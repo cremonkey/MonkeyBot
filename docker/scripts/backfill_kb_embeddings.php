@@ -9,6 +9,12 @@
  * real ai_embed_texts()/ai_pack_vector() from the helper so the stored vectors
  * are byte-identical to what the request path produces.
  *
+ * DEPRECATED - kept only as a fallback. The supported path is the CodeIgniter CLI command,
+ * which decrypts 'enc::' keys (this script skips those tenants), backs off on rate limits
+ * and takes a lock:
+ *   php index.php cron_hub backfill_embeddings [--dry-run] [--user N]
+ * See docs/runbooks/kb-embeddings-backfill.md.
+ *
  * Usage:
  *   docker exec monkeybot-app-1 php /var/www/html/docker/scripts/backfill_kb_embeddings.php [--dry-run]
  */
@@ -16,6 +22,11 @@
 if (PHP_SAPI !== 'cli') {
     exit("CLI only.\n");
 }
+
+echo "NOTE: this script is deprecated. The supported path is:\n"
+    . "  php index.php cron_hub backfill_embeddings [--dry-run] [--user N]\n"
+    . "It decrypts 'enc::' OpenAI keys (skipped here) and backs off on rate limits.\n"
+    . "See docs/runbooks/kb-embeddings-backfill.md.\n\n";
 
 define('BASEPATH', true);
 if (!function_exists('log_message')) {

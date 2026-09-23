@@ -38,7 +38,9 @@ class Ai_provider
             $CI->load->library('Anthropic_api');
             $purpose = isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply';
             if ($tools_on) return $this->anthropic_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $system, $temperature, $tools_context, $cfg, $purpose);
-            $raw = $CI->anthropic_api->anthropic_completion($api_key, $messages, $model, $max_tokens, $system, $temperature);
+            // Optional short timeout (price judge); unset keeps the driver's 60s default.
+            $timeout = isset($overrides['timeout']) && (int) $overrides['timeout'] > 0 ? (int) $overrides['timeout'] : 60;
+            $raw = $CI->anthropic_api->anthropic_completion($api_key, $messages, $model, $max_tokens, $system, $temperature, null, $timeout);
             $this->log_usage($CI, $cfg, 'anthropic', $model, $raw, $purpose);
             return $raw;
         }

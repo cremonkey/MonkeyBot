@@ -801,7 +801,10 @@ traffic, not a development task.
 | 17c cost | `Ai_provider` tool loops (every tool-enabled reply) were not logged at all: every round is now logged. Integration health check logged as `health_check`, not `chat_reply`. Preview accounted via `Ai_provider`. `backfill_kb_embeddings.php` no longer dies on `get_instance()` after the first batch and records its embeddings. | Implemented, unit-tested |
 | 18 KB ownership | Every by-id statement in the KB module, Missed_questions, Ai_improvement and Onboarding is tenant-scoped (static sweep in `tests/ai_safety`). `toggle_status_action` now refuses a foreign id instead of answering "Status updated". | Audited, one fix |
 
-Still open: `backfill_kb_embeddings.php` reads the stored `open_ai_secret_key` without `secret_decrypt` (S-04), so it cannot embed for tenants whose key is `enc::`.
+Closed on `feat/price-judge-provider` (2026-09-23):
+
+- The price judge follows the tenant's provider. `ai_verify_price_grounding()` sends Anthropic tenants to `claude-haiku-4-5` through `Ai_provider` (decrypted Anthropic key, 8s timeout, temperature 0, usage purpose `price_judge`) with the same prompt and the same verdict parsing (`ai_price_judge_verdict()`). The OpenAI request is unchanged. Anthropic tenants no longer get `unknown` on every priced reply.
+- The embedding backfill is a CodeIgniter CLI command, `php index.php cron_hub backfill_embeddings [--dry-run] [--user N]`, which decrypts `enc::` keys, backs off on 429/5xx and records usage. `backfill_kb_embeddings.php` is deprecated and says so. See `docs/runbooks/kb-embeddings-backfill.md`.
 
 ### Deferred-items round (2026-09-23)
 Built, merged into `release/9.x-integration` and verified together:
