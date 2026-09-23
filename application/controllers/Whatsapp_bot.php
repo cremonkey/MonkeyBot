@@ -148,5 +148,6 @@ class Whatsapp_bot extends Home
             'message_content'=>$content, 'conversation_time'=>date('Y-m-d H:i:s'),
             'fb_message_id'=>'', 'message_status'=>'sent', 'from_business_suite'=>'0',
         ));
+        $this->load->helper('inbox_realtime'); inbox_realtime_notify($this, $this->db->insert_id());
     }
 }

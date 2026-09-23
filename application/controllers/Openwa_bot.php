@@ -799,5 +799,6 @@ class Openwa_bot extends Messenger_bot
             'message_status' => 'sent',
             'from_business_suite' => '0',
         ));
+        $this->load->helper('inbox_realtime'); inbox_realtime_notify($this, $this->db->insert_id());
     }
 }

@@ -281,6 +281,7 @@ class Home extends CI_Controller
         if (!empty($social_media)) $insert_data['platform'] = $social_media;
         if (!empty($user_id)) $insert_data['user_id'] = $user_id;
         $this->basic->insert_data("livechat_messages", $insert_data);
+        $this->load->helper('inbox_realtime'); inbox_realtime_notify($this, $this->db->insert_id());
     }
 
 
@@ -7944,6 +7945,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             $insert_data['delivery_status_updated_at'] = $currtime;
             $this->basic->insert_data("livechat_messages",$insert_data);
             $message_id = $this->db->insert_id();
+            $this->load->helper('inbox_realtime'); inbox_realtime_notify($this, $message_id); // Unified Inbox realtime; no-op without Pusher, never throws
             $message_content = $insert_data['message_content'];
             $last_conversation_message = make_message_preview($message_content);
             $conversation_time = $insert_data['conversation_time'] ?? $currtime;

@@ -175,7 +175,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   var current = null, listStart = 0, threadBeforeId = 0, LABELS = [];
   var esc = function (s) { return $('<div>').text(s == null ? '' : String(s)).html(); };
   var note = function (m, ok) { if (typeof iziToast !== 'undefined') iziToast[ok ? 'success' : 'error']({message: m, position: 'topRight'}); else alert(m); };
-  var post = function (path, data, cb) { data.csrf_token = TOKEN; $.post(BASE + 'inbox/' + path, data, cb, 'json'); };
+  var post = function (path, data, cb) { data.csrf_token = TOKEN; return $.post(BASE + 'inbox/' + path, data, cb, 'json'); };
 
   function labelBadge(l, removable) {
     var bg = l.color || '#6c757d';
@@ -299,6 +299,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       $('#ib_thread_header').html('<b><i class="' + (PLAT_ICON[current.platform] || '') + ' mr-1"></i>' +
         esc(current.external_thread_id) + '</b> <span class="badge badge-light">' + esc(r.handoff_label) + '</span>');
       renderMessages(r.messages, true);
+      lastMsgId = r.messages.length ? +r.messages[r.messages.length - 1].id : 0;
       renderNotes(r.notes);
       renderConvLabels(r.labels || []);
       $('#ib_right').show();
@@ -504,6 +505,72 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
     });
   });
   loadCanned();
+
+  // ---- live updates: Pusher (tenant's private channel) when configured, polling always as fallback.
+  // Events carry ids only; everything shown is re-fetched through the tenant-scoped endpoints above.
+  var RT = <?php echo json_encode(isset($realtime) ? $realtime : null); ?>;
+  var POLL = <?php echo json_encode(isset($poll_seconds) ? $poll_seconds : null); ?>;
+  var rtConnected = false, pollTimer = null, refreshTimer = null, lastMsgId = 0, busy = false, again = false, hitCurrent = false;
+
+  function refreshCurrent() {
+    if (!current) return;
+    if (busy) { again = true; return; } // a refresh is in flight: run once more when it lands
+    var id = current.id; busy = true; again = false;
+    post('conversation_thread', {conversation_id: id, mark_read: document.hidden ? 0 : 1}, function (r) {
+      busy = false;
+      if (again) setTimeout(refreshCurrent, 0);
+      if (r.status !== '1' || !current || String(current.id) !== String(id)) return;
+      var newest = r.messages.length ? +r.messages[r.messages.length - 1].id : 0;
+      if (newest !== lastMsgId) { lastMsgId = newest; renderMessages(r.messages, true); }
+      renderNotes(r.notes);
+      renderAiDraft(r.ai_draft);
+      $('#ib_handoff_badge').text(r.handoff_label);
+    }).fail(function () { busy = false; });
+  }
+  function refreshAll() {
+    if (listStart === 0) loadList(true); // never throw away "Load more" pages the agent opened
+    refreshCurrent();
+  }
+  function schedulePoll() {
+    clearInterval(pollTimer);
+    if (!POLL) return;
+    pollTimer = setInterval(function () { if (!document.hidden) refreshAll(); }, 1000 * (rtConnected ? POLL[1] : POLL[0]));
+  }
+  if (POLL || RT) document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshAll(); });
+  schedulePoll();
+
+  function startRealtime() {
+    if (!RT || typeof Pusher === 'undefined') return;
+    try {
+      var client = new Pusher(RT.key, {
+        cluster: RT.cluster || undefined,
+        authEndpoint: BASE + 'inbox/realtime_auth',
+        auth: {params: {csrf_token: TOKEN}}
+      });
+      var ch = client.subscribe(RT.channel);
+      ch.bind('pusher:subscription_succeeded', function () { rtConnected = true; schedulePoll(); });
+      ch.bind('pusher:subscription_error', function () { rtConnected = false; schedulePoll(); });
+      client.connection.bind('state_change', function (s) {
+        var up = s.current === 'connected';
+        if (!up && rtConnected) { rtConnected = false; schedulePoll(); }
+      });
+      ch.bind('message', function (ev) {
+        if (current && ev && String(ev.conversation_id) === String(current.id)) hitCurrent = true;
+        clearTimeout(refreshTimer); // coalesce bursts (inbound + bot reply) into one refresh
+        refreshTimer = setTimeout(function () {
+          if (listStart === 0) loadList(true);
+          if (hitCurrent) { hitCurrent = false; refreshCurrent(); }
+        }, 400);
+      });
+    } catch (e) { rtConnected = false; schedulePoll(); }
+  }
+  if (RT) {
+    if (typeof Pusher !== 'undefined') startRealtime();
+    else $(window).on('load', function () {
+      if (typeof Pusher !== 'undefined') return startRealtime();
+      $.ajax({url: 'https://js.pusher.com/7.2/pusher.min.js', dataType: 'script', cache: true}).done(startRealtime);
+    });
+  }
 
   loadLabels();
   loadList(true);

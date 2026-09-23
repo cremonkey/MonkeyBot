@@ -1,0 +1,54 @@
+# Unified Inbox realtime (Pusher) + log-noise isolated TEST stack. Never the shared staging
+# stack (monkeybot-staging), never production. Copy of docker-compose.inbox2-test.yml with its
+# own project/port/volume, plus a fake Pusher HTTP API (tests/inbox/fake_pusher.php) so the
+# publish path is proven end to end without any Pusher account:
+#  - run with: docker compose -p mb-rt-test -f docker-compose.rt-test.yml up -d
+#  - own DB volume with a FRESH schema (initial_db.sql + migrations), never production data
+#  - no Traefik labels, not on dokploy-network; web bound to 127.0.0.1:8107 only
+#  - fakegw / fakepusher are reachable only inside this project's network
+#  - reuses the production image tag so the test runs the same PHP runtime
+# Credentials come from .env.staging (gitignored, chmod 600), generated on the host.
+# The app entrypoint writes application/config/database.php and chowns cache/logs/upload/config
+# of the bind-mounted tree: after the run, `git checkout -- application/config` and chown back.
+# Tear down with: docker compose -p mb-rt-test -f docker-compose.rt-test.yml down -v
+services:
+  app:
+    image: monkeybot-app-ojzrhf-app:latest
+    env_file: [.env.staging]
+    networks:
+      default:
+        aliases: [monkeybot-php-app]
+    volumes:
+      - ./:/var/www/html:rw
+    depends_on:
+      db:
+        condition: service_healthy
+  web:
+    image: nginx:1.27-alpine
+    depends_on: [app]
+    ports: ["127.0.0.1:8107:80"]
+    volumes:
+      - ./:/var/www/html:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+  fakegw:
+    image: monkeybot-app-ojzrhf-app:latest
+    entrypoint: ["php", "-S", "0.0.0.0:8080", "/srv/fake_gateway.php"]
+    volumes:
+      - ./tests/inbox/fake_gateway.php:/srv/fake_gateway.php:ro
+  fakepusher:
+    image: monkeybot-app-ojzrhf-app:latest
+    entrypoint: ["php", "-S", "0.0.0.0:8080", "/srv/fake_pusher.php"]
+    volumes:
+      - ./tests/inbox/fake_pusher.php:/srv/fake_pusher.php:ro
+  db:
+    image: mariadb:10.11
+    env_file: [.env.staging]
+    command: ["--character-set-server=utf8", "--collation-server=utf8_general_ci", "--sql-mode=", "--innodb-file-per-table=1"]
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      retries: 30
+    volumes:
+      - rt_test_db:/var/lib/mysql
+volumes:
+  rt_test_db:
