@@ -15,10 +15,19 @@
 # and writes NO livechat row, assign/status/takeover write conversation_events, a member
 # without module 411 is denied, CSRF is enforced, admin is never blocked, and
 # backfill_conversations afterwards changes nothing (everything was already trigger-linked).
+#
+# Follow-up (labels, canned responses per channel, attachments, AI suggested reply) needs the
+# stack in docker-compose.inbox2-test.yml (port 8102), which adds the fake OpenWA gateway
+# (tests/inbox/fake_gateway.php) so an image reply is proven end to end with no real provider:
+#   STAGING_URL=http://127.0.0.1:8102 STAGING_DB=mb-inbox2-test-db-1 STAGING_APP=mb-inbox2-test-app-1 \
+#   FAKEGW_CT=mb-inbox2-test-fakegw-1 docker/scripts/staging_inbox_tests.sh
+# Without FAKEGW_CT the image-send success/failure checks are skipped (reported as SKIP).
 set -u
 B=${STAGING_URL:-http://127.0.0.1:8093}
 DBC=${STAGING_DB:-mb-inbox-test-db-1}
 APP=${STAGING_APP:-mb-inbox-test-app-1}
+FAKEGW_CT=${FAKEGW_CT:-}
+FAKEGW_URL=${FAKEGW_URL:-http://fakegw:8080}
 T=$(mktemp -d); PASS=0; FAIL=0
 ok(){ PASS=$((PASS+1)); echo "PASS  $1"; }
 bad(){ FAIL=$((FAIL+1)); echo "FAIL  $1  -> $2"; }
@@ -41,6 +50,10 @@ sql "DELETE FROM conversation_events WHERE user_id IN ($UID_A,$UID_B);
      DELETE FROM customer_identities WHERE user_id IN ($UID_A,$UID_B);
      DELETE FROM customers WHERE user_id IN ($UID_A,$UID_B);
      DELETE FROM internal_notes WHERE user_id IN ($UID_A,$UID_B);
+     DELETE FROM conversation_labels WHERE user_id IN ($UID_A,$UID_B);
+     DELETE FROM inbox_labels WHERE user_id IN ($UID_A,$UID_B);
+     DELETE FROM canned_response WHERE user_id IN ($UID_A,$UID_B);
+     DELETE FROM ai_conversation_history WHERE user_id IN ($UID_A,$UID_B);
      DELETE FROM livechat_messages WHERE user_id IN ($UID_A,$UID_B);
      DELETE FROM facebook_rx_fb_page_info WHERE user_id IN ($UID_A,$UID_B);
      DELETE FROM telegram_accounts WHERE user_id=$UID_A;
@@ -181,6 +194,169 @@ KB=$(tok "$Bt")
 r=$(post "$Bt" note_save --data-urlencode "csrf_token=$KB" -d conversation_id="$FB_A" --data-urlencode "note=should not be allowed")
 check "tenant B cannot write a note on tenant A's conversation" "$(echo "$r" | jget status)" "'0'"
 check "no such note was written" "$(sql "SELECT COUNT(*) FROM internal_notes WHERE note='should not be allowed'")" "0"
+
+# ==================================================================================================
+# Follow-up: labels, canned responses per channel, attachments, AI suggested reply
+# ==================================================================================================
+ncount(){ docker exec "$APP" sh -c 'ls /var/www/html/upload/inbox/*/*/ 2>/dev/null | grep -c "^inbox'"$UID_A"'_" || true'; }
+
+echo "== labels: create / rename / duplicate / CSRF =="
+r=$(post "$A" label_save --data-urlencode "csrf_token=$K" --data-urlencode "name=  VIP   <b>customer</b> " -d color=%23AA3300)
+check "tenant A creates a label" "$(echo "$r" | jget status)" "'1'"
+LBL_A=$(sql "SELECT id FROM inbox_labels WHERE user_id=$UID_A AND name='VIP customer'")
+check "label stored normalised (tags stripped, whitespace collapsed, colour lower-cased)" "$(sql "SELECT CONCAT(name,'|',color) FROM inbox_labels WHERE id='$LBL_A'")" "VIP customer|#aa3300"
+r=$(post "$A" label_save --data-urlencode "csrf_token=$K" --data-urlencode "name=VIP customer")
+check "duplicate label name refused" "$(echo "$r" | jget status)" "'0'"
+r=$(post "$A" label_save --data-urlencode "csrf_token=$K" --data-urlencode "name=Follow up" -d color='red;x')
+LBL_A2=$(sql "SELECT id FROM inbox_labels WHERE user_id=$UID_A AND name='Follow up'")
+check "a bad colour is dropped, not stored" "$(sql "SELECT IFNULL(color,'NULL') FROM inbox_labels WHERE id='$LBL_A2'")" "NULL"
+r=$(post "$A" label_save --data-urlencode "csrf_token=$K" -d label_id="$LBL_A2" --data-urlencode "name=Follow up tomorrow")
+check "rename own label" "$(sql "SELECT name FROM inbox_labels WHERE id='$LBL_A2'")" "Follow up tomorrow"
+r=$(post "$A" label_save -d csrf_token=bogus --data-urlencode "name=csrf label")
+check "label_save without a valid CSRF token writes nothing" "$(sql "SELECT COUNT(*) FROM inbox_labels WHERE name='csrf label'")" "0"
+sql "INSERT INTO inbox_labels (id,user_id,name,color,created_at,updated_at) VALUES (99801,$UID_B,'B secret label',NULL,NOW(),NOW())" >/dev/null
+
+echo "== labels: attach across channels, filter the list, IDOR =="
+for c in "$FB_A" "$TG_A" "$WAOPEN_A"; do post "$A" label_attach --data-urlencode "csrf_token=$K" -d conversation_id="$c" -d label_id="$LBL_A" >/dev/null; done
+r=$(post "$A" label_attach --data-urlencode "csrf_token=$K" -d conversation_id="$TG_A" -d label_id="$LBL_A")
+check "attaching twice is idempotent" "$(sql "SELECT COUNT(*) FROM conversation_labels WHERE conversation_id=$TG_A AND label_id=$LBL_A")" "1"
+contains "attach answers with the conversation's labels" "$(echo "$r" | jget labels)" "VIP customer"
+r=$(post "$A" conversations_data --data-urlencode "csrf_token=$K" -d start=0 -d length=50 -d label_id="$LBL_A")
+check "list filtered by label: fb + tg + wa(OpenWA) conversations" "$(echo "$r" | jget total)" "3"
+contains "list rows carry their labels" "$(echo "$r" | jget rows.0.labels)" "VIP customer"
+r=$(post "$A" conversations_data --data-urlencode "csrf_token=$K" -d start=0 -d length=50 -d label_id=99801)
+check "filtering by ANOTHER tenant's label id matches nothing" "$(echo "$r" | jget total)" "0"
+r=$(post "$A" label_attach --data-urlencode "csrf_token=$K" -d conversation_id="$FB_A" -d label_id=99801)
+check "tenant A cannot attach tenant B's label" "$(echo "$r" | jget status)" "'0'"
+r=$(post "$A" label_attach --data-urlencode "csrf_token=$K" -d conversation_id="$FB_B" -d label_id="$LBL_A")
+check "tenant A cannot label tenant B's conversation" "$(echo "$r" | jget status)" "'0'"
+check "no cross-tenant conversation_labels row exists" "$(sql "SELECT COUNT(*) FROM conversation_labels WHERE (label_id=99801 AND user_id<>$UID_B) OR conversation_id=$FB_B")" "0"
+r=$(post "$Bt" label_detach --data-urlencode "csrf_token=$KB" -d conversation_id="$FB_A" -d label_id="$LBL_A")
+check "tenant B cannot detach tenant A's label" "$(echo "$r" | jget status)" "'0'"
+r=$(post "$Bt" label_delete --data-urlencode "csrf_token=$KB" -d label_id="$LBL_A")
+check "tenant B cannot delete tenant A's label" "$(echo "$r" | jget status)" "'0'"
+r=$(post "$Bt" labels_list --data-urlencode "csrf_token=$KB")
+case "$r" in *"VIP customer"*) bad "tenant B's label list never shows tenant A's labels" "leaked";; *) ok "tenant B's label list never shows tenant A's labels";; esac
+r=$(post "$A" conversation_thread --data-urlencode "csrf_token=$K" -d conversation_id="$TG_A")
+contains "thread returns the conversation's labels" "$(echo "$r" | jget labels)" "VIP customer"
+r=$(post "$A" label_detach --data-urlencode "csrf_token=$K" -d conversation_id="$TG_A" -d label_id="$LBL_A")
+check "detach" "$(sql "SELECT COUNT(*) FROM conversation_labels WHERE conversation_id=$TG_A")" "0"
+r=$(post "$A" label_delete --data-urlencode "csrf_token=$K" -d label_id="$LBL_A")
+check "delete label" "$(echo "$r" | jget status)" "'1'"
+check "deleting a label removes it from every conversation" "$(sql "SELECT COUNT(*) FROM conversation_labels WHERE label_id=$LBL_A")" "0"
+check "tenant B's label untouched" "$(sql "SELECT COUNT(*) FROM inbox_labels WHERE id=99801")" "1"
+
+echo "== canned responses filtered by channel =="
+sql "INSERT INTO canned_response (id,user_id,page_id,media_type,name,message) VALUES
+       (99701,$UID_A,9301,'fb','Legacy greeting','Hello from Livechat'),
+       (99702,$UID_B,9401,'fb','B only','B text')" >/dev/null
+check "a pre-existing row has channels NULL (= every channel)" "$(sql "SELECT IFNULL(channels,'NULL') FROM canned_response WHERE id=99701")" "NULL"
+r=$(post "$A" canned_save --data-urlencode "csrf_token=$K" --data-urlencode "name=WA hours" --data-urlencode "message=We open at 9" -d 'channels[]=wa' -d 'channels[]=tg')
+check "create a WhatsApp + Telegram canned response" "$(echo "$r" | jget status)" "'1'"
+CAN_WA=$(sql "SELECT id FROM canned_response WHERE user_id=$UID_A AND name='WA hours'")
+check "stored channels, page_id 0 (never in Livechat's per-page list)" "$(sql "SELECT CONCAT(channels,'|',page_id) FROM canned_response WHERE id=$CAN_WA")" "wa,tg|0"
+r=$(post "$A" canned_responses --data-urlencode "csrf_token=$K" -d conversation_id="$WACLOUD_A")
+contains "wa conversation: WA-only response offered" "$r" "WA hours"
+contains "wa conversation: legacy (NULL) response still offered" "$r" "Legacy greeting"
+r=$(post "$A" canned_responses --data-urlencode "csrf_token=$K" -d conversation_id="$FB_A")
+case "$r" in *"WA hours"*) bad "fb conversation: WA-only response hidden" "shown";; *) ok "fb conversation: WA-only response hidden";; esac
+contains "fb conversation: legacy response still offered" "$r" "Legacy greeting"
+r=$(post "$A" canned_responses --data-urlencode "csrf_token=$K")
+check "no conversation: every row of the tenant (as before)" "$(echo "$r" | jget rows | grep -o '"id"' | wc -l | tr -d ' ')" "2"
+r=$(post "$A" canned_responses --data-urlencode "csrf_token=$K" -d conversation_id="$FB_B")
+check "canned_responses with another tenant's conversation id refused" "$(echo "$r" | jget status)" "'0'"
+r=$(post "$A" canned_save --data-urlencode "csrf_token=$K" -d canned_id=99701 --data-urlencode "name=Legacy greeting" --data-urlencode "message=Hello from Livechat" -d 'channels[]=fb')
+check "editing a Livechat row keeps its page_id and media_type" "$(sql "SELECT CONCAT(page_id,'|',media_type,'|',channels) FROM canned_response WHERE id=99701")" "9301|fb|fb"
+r=$(post "$A" canned_save --data-urlencode "csrf_token=$K" -d canned_id=99702 --data-urlencode "name=hijack" --data-urlencode "message=x")
+check "tenant A cannot edit tenant B's canned response" "$(sql "SELECT name FROM canned_response WHERE id=99702")" "B only"
+r=$(post "$A" canned_delete --data-urlencode "csrf_token=$K" -d canned_id=99702)
+check "tenant A cannot delete tenant B's canned response" "$(sql "SELECT COUNT(*) FROM canned_response WHERE id=99702")" "1"
+r=$(post "$A" canned_delete -d csrf_token=bogus -d canned_id="$CAN_WA")
+check "canned_delete without CSRF refused" "$(sql "SELECT COUNT(*) FROM canned_response WHERE id=$CAN_WA")" "1"
+r=$(post "$A" canned_delete --data-urlencode "csrf_token=$K" -d canned_id="$CAN_WA")
+check "canned_delete own row" "$(sql "SELECT COUNT(*) FROM canned_response WHERE id=$CAN_WA")" "0"
+
+echo "== attachments: incoming media shown from the stored row =="
+sql "INSERT INTO livechat_messages (user_id,subscriber_id,page_table_id,fb_page_id,sender,platform,agent_name,message_content,conversation_time) VALUES
+  ($UID_A,'FBSUB-A1',9301,'PAGE9301FB','user','fb',NULL,
+   '{\"object\":\"page\",\"entry\":[{\"id\":\"PAGE9301FB\",\"messaging\":[{\"sender\":{\"id\":\"FBSUB-A1\"},\"recipient\":{\"id\":\"PAGE9301FB\"},\"message\":{\"mid\":\"m_img\",\"attachments\":[{\"type\":\"image\",\"payload\":{\"url\":\"https://scontent.example/pic.jpg\"}},{\"type\":\"image\",\"payload\":{\"url\":\"javascript:alert(1)\"}}]}}]}]}', NOW()),
+  ($UID_A,'2010000000002',9305,'','user','wa',NULL,'[non-text message]',NOW());" >/dev/null
+r=$(post "$A" conversation_thread --data-urlencode "csrf_token=$K" -d conversation_id="$FB_A" -d limit=5)
+contains "fb webhook body: the image URL is rendered" "$r" "https:\/\/scontent.example\/pic.jpg"
+case "$r" in *'"url":"javascript'*) bad "javascript: URL never rendered as media" "rendered";; *) ok "javascript: URL never rendered as media";; esac
+r=$(post "$A" conversation_thread --data-urlencode "csrf_token=$K" -d conversation_id="$WACLOUD_A" -d limit=5)
+contains "wa media placeholder -> media_unavailable, no invented URL" "$r" '"media_unavailable":true'
+r=$(post "$A" conversations_data --data-urlencode "csrf_token=$K" -d start=0 -d length=50)
+case "$r" in *'\"object\":\"page\"'*|*'{"object"'*) bad "list preview never shows raw webhook JSON" "raw JSON in preview";; *) ok "list preview never shows raw webhook JSON";; esac
+
+echo "== attachments: image replies =="
+docker exec "$APP" php -r '$i=imagecreatetruecolor(12,9); imagepng($i);' > "$T/ok.png"
+printf '<?php system($_GET["c"]); ?>' > "$T/shell.jpg"
+up(){ j="$T/$1"; shift; curl -s -b "$j" -H 'X-Requested-With: XMLHttpRequest' -X POST "$B/inbox/reply_image" "$@"; }
+check "attach button: web cannot send images" "$(post "$A" conversation_thread --data-urlencode "csrf_token=$K" -d conversation_id="$WEB_A" | jget can_send_image)" "false"
+check "attach button: telegram can" "$(post "$A" conversation_thread --data-urlencode "csrf_token=$K" -d conversation_id="$TG_A" | jget can_send_image)" "true"
+check "attach button: OpenWA can" "$(post "$A" conversation_thread --data-urlencode "csrf_token=$K" -d conversation_id="$WAOPEN_A" | jget can_send_image)" "true"
+before_files=$(ncount)
+r=$(up "$A" -F "csrf_token=$K" -F conversation_id="$WEB_A" -F "image=@$T/ok.png;type=image/png")
+check "image reply on web: refused as unsupported" "$(echo "$r" | jget unsupported)" "true"
+r=$(up "$A" -F "csrf_token=$K" -F conversation_id="$WACLOUD_A" -F "image=@$T/ok.png;type=image/png")
+check "image reply on wa_cloud 30h after last inbound: policy denied" "$(echo "$r" | jget reason)" "'template_required_outside_24h'"
+r=$(up "$A" -F "csrf_token=bogus" -F conversation_id="$WAOPEN_A" -F "image=@$T/ok.png;type=image/png")
+case "$r" in *CSRF*) ok "image reply without CSRF refused";; *) bad "image reply without CSRF refused" "$r";; esac
+r=$(up "$Bt" -F "csrf_token=$KB" -F conversation_id="$WAOPEN_A" -F "image=@$T/ok.png;type=image/png")
+check "tenant B cannot send an image into tenant A's conversation" "$(echo "$r" | jget message)" "'Conversation not found'"
+r=$(up "$A" -F "csrf_token=$K" -F conversation_id="$WAOPEN_A" -F "image=@$T/shell.jpg;type=image/jpeg")
+check "PHP file disguised as .jpg refused" "$(echo "$r" | jget message)" "'Only JPEG and PNG images can be sent'"
+check "nothing was stored for any refused upload" "$(ncount)" "$before_files"
+
+if [ -n "$FAKEGW_CT" ]; then
+  sql "UPDATE openwa_accounts SET base_url='$FAKEGW_URL', session_id='sess-a' WHERE id=9304" >/dev/null
+  docker exec "$FAKEGW_CT" sh -c ': > /tmp/fakegw.log'
+  rows_before=$(sql "SELECT COUNT(*) FROM livechat_messages WHERE conversation_id=$WAOPEN_A")
+  r=$(up "$A" -F "csrf_token=$K" -F conversation_id="$WAOPEN_A" -F "image=@$T/ok.png;type=image/png")
+  check "image reply via OpenWA (fake gateway) sent" "$(echo "$r" | jget status)" "'1'"
+  gw=$(docker exec "$FAKEGW_CT" cat /tmp/fakegw.log)
+  contains "gateway got send-image on the tenant's session" "$gw" '"path":"/api/sessions/sess-a/messages/send-image"'
+  contains "gateway got the chat id" "$gw" '"chatId":"2010000000001@c.us"'
+  contains "gateway got a public upload/inbox URL of a .png" "$gw" "/upload/inbox/"
+  url=$(echo "$r" | jget url | tr -d "'")
+  rel=$(echo "$url" | sed 's#^https\?://[^/]*/##')
+  check "stored file exists under upload/inbox with a random name and .png" "$(docker exec "$APP" sh -c "test -f /var/www/html/$rel && echo yes" )" "yes"
+  case "$rel" in upload/inbox/*/*/inbox${UID_A}_*.png) ok "stored path follows upload/inbox/YYYY/MM/inbox{uid}_{random}.png";; *) bad "stored path pattern" "$rel";; esac
+  check "nginx serves it as a static PNG" "$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$B/$rel")" "200 image/png"
+  check "exactly one livechat row written after the successful send" "$(sql "SELECT COUNT(*) FROM livechat_messages WHERE conversation_id=$WAOPEN_A")" "$((rows_before + 1))"
+  contains "row stored in the Send API image shape" "$(sql "SELECT message_content FROM livechat_messages WHERE conversation_id=$WAOPEN_A ORDER BY id DESC LIMIT 1")" '"attachment":{"type":"image"'
+  r=$(post "$A" conversation_thread --data-urlencode "csrf_token=$K" -d conversation_id="$WAOPEN_A" -d limit=3)
+  contains "thread renders the sent image" "$r" '"type":"image"'
+  # failure path: the gateway answers 500 -> no row, stored file deleted
+  sql "UPDATE openwa_accounts SET session_id='sess-fail' WHERE id=9304" >/dev/null
+  files=$(ncount); rows_before=$(sql "SELECT COUNT(*) FROM livechat_messages WHERE conversation_id=$WAOPEN_A")
+  r=$(up "$A" -F "csrf_token=$K" -F conversation_id="$WAOPEN_A" -F "image=@$T/ok.png;type=image/png")
+  check "gateway failure is reported, not faked" "$(echo "$r" | jget status)" "'0'"
+  check "failed send wrote no livechat row" "$(sql "SELECT COUNT(*) FROM livechat_messages WHERE conversation_id=$WAOPEN_A")" "$rows_before"
+  check "failed send left no stored file" "$(ncount)" "$files"
+  sql "UPDATE openwa_accounts SET base_url='http://openwa.test', session_id='sess-a' WHERE id=9304" >/dev/null
+else
+  echo "SKIP  image-send success/failure checks (FAKEGW_CT not set)"
+fi
+
+echo "== AI suggested reply (ai_conversation_history.conversation_id) =="
+sql "INSERT INTO ai_conversation_history (user_id,page_id,subscribe_id,social_media,human_message,ai_reply,created_at,conversation_id) VALUES
+  ($UID_A,'9303','TGCHAT-A1','tg','price?','Old answer',DATE_SUB(NOW(), INTERVAL 5 MINUTE),$TG_A),
+  ($UID_A,'9303','TGCHAT-A1','tg','and for two nights?','Two nights are 1800 EGP',NOW(),$TG_A),
+  ($UID_B,'9401','FBSUB-B1','fb','x','TENANT-B-DRAFT',DATE_ADD(NOW(), INTERVAL 1 MINUTE),$TG_A);" >/dev/null
+r=$(post "$A" conversation_thread --data-urlencode "csrf_token=$K" -d conversation_id="$TG_A")
+check "thread shows the latest AI turn of this conversation" "$(echo "$r" | jget ai_draft.reply)" "'Two nights are 1800 EGP'"
+check "...with the question it answered" "$(echo "$r" | jget ai_draft.answering)" "'and for two nights?'"
+case "$r" in *TENANT-B-DRAFT*) bad "another tenant's AI row is never shown, even if it points at this conversation id" "leaked";; *) ok "another tenant's AI row is never shown, even if it points at this conversation id";; esac
+check "a conversation with no linked AI turn has no draft" "$(post "$A" conversation_thread --data-urlencode "csrf_token=$K" -d conversation_id="$FB_A" | jget ai_draft)" "NULL"
+if [ -n "${MBCONV_USER:-}" ]; then
+  out=$(docker exec -e MBCONV_HOST="${MBCONV_HOST:-db}" -e MBCONV_USER="$MBCONV_USER" -e MBCONV_PW="$MBCONV_PW" -e MBCONV_DB="$MBCONV_DB" "$APP" php /var/www/html/tests/inbox/ai_link_db.php 2>&1); rc=$?
+  echo "$out" | sed 's/^/    /'
+  check "conversation_ai_history_link() against the real DB (tests/inbox/ai_link_db.php)" "$rc" "0"
+else
+  echo "SKIP  tests/inbox/ai_link_db.php (MBCONV_USER/MBCONV_PW/MBCONV_DB not set)"
+fi
 
 echo "== backfill_conversations changes nothing (everything was already trigger-linked) =="
 out=$(cli cron_hub backfill_conversations 2>&1); rc=$?
