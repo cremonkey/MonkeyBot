@@ -802,3 +802,26 @@ traffic, not a development task.
 | 18 KB ownership | Every by-id statement in the KB module, Missed_questions, Ai_improvement and Onboarding is tenant-scoped (static sweep in `tests/ai_safety`). `toggle_status_action` now refuses a foreign id instead of answering "Status updated". | Audited, one fix |
 
 Still open: `backfill_kb_embeddings.php` reads the stored `open_ai_secret_key` without `secret_decrypt` (S-04), so it cannot embed for tenants whose key is `enc::`.
+
+### Deferred-items round (2026-09-23)
+Built, merged into `release/9.x-integration` and verified together:
+
+| Item | Status |
+|---|---|
+| Setup Guide scoped to the pages chosen for the business (steps 2-7) | Deployed 2026-09-23 (a08dcf1f) |
+| Price lists per page + generic products & services catalog | Deployed 2026-09-23 (243509d0) |
+| Setup Guide step 5 writes per-page lists / catalog; checklist per page | Verified, not deployed |
+| Baseline 17: preview follows the provider, price guard fail-closed (`price_guard_fail_closed`, default off), every AI cost call logged | Verified, not deployed |
+| Baseline 18: KB ownership audit (1 fix) + Missed_questions honest not-found | Verified, not deployed |
+| Inbox: labels, canned responses per channel, media display + image replies, AI suggested reply | Verified, not deployed (migrations 2026-09-30, -30b, -30c) |
+| fb/ig human replies 24h-7d now carry MESSAGE_TAG/HUMAN_AGENT (was always RESPONSE) | Verified, not deployed |
+| Baseline 14: nightly backup + weekly restore test (`/usr/local/bin/monkeybot-backup.sh`, `/etc/cron.d/monkeybot-ops`) | Live on host |
+| Baseline 21: 5-minute health watcher (on-host; an off-host monitor still needs an external account) | Live on host |
+
+Regression: unit suites 152+118+65+114+149+97+20+117+37+35+90+71 = 1,165;
+staging HTTP suites 12+92+180+19+65+16+14+33+26+44+47 = 548. **1,713 passed, 0 failed.**
+
+Open, needs the owner: Facebook/Instagram inbound stopped on 2026-09-19 (app-level webhook
+subscriptions are enabled; page-level `subscribed_apps` or page tokens need checking); webhook
+signature enforcement cannot be evaluated until Meta traffic arrives (no counters yet); S-14
+charset; GitHub push.
