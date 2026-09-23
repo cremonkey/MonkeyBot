@@ -133,5 +133,6 @@ class Telegram_bot extends Home
         );
         if ($media_json !== null) $row['media_json'] = $media_json; // only set once the column exists
         $this->basic->insert_data('livechat_messages', $row);
+        $this->load->helper('inbox_realtime'); inbox_realtime_notify($this, $this->db->insert_id());
     }
 }

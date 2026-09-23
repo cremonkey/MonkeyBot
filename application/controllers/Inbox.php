@@ -23,7 +23,7 @@ class Inbox extends Home
     {
         parent::__construct();
         if ($this->session->userdata('logged_in') != 1) redirect('home/login_page', 'location');
-        $this->load->helper(array('entitlement', 'conversation', 'inbox', 'channel_policy', 'channel_adapter', 'secret'));
+        $this->load->helper(array('entitlement', 'conversation', 'inbox', 'channel_policy', 'channel_adapter', 'secret', 'inbox_realtime'));
         entitlement_require('inbox');
         // Tenant guard used by every query in this controller (brief: "user_id = $this->uid always").
         $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
@@ -41,6 +41,10 @@ class Inbox extends Home
             : array();
         $data['platforms'] = conversation_platforms();
         $data['states'] = conversation_states();
+        // Realtime: NULL when Pusher is not configured -> the page only polls (see realtime_auth()).
+        $data['realtime'] = inbox_realtime_client_config($this, $this->uid);
+        // Auto-refresh (polling fallback): config item inbox_poll_enabled === FALSE turns it off entirely.
+        $data['poll_seconds'] = $this->config->item('inbox_poll_enabled') === FALSE ? null : inbox_realtime_poll_intervals($this->config->item('inbox_poll_seconds'), $this->config->item('inbox_poll_seconds_realtime'));
         $data['page_title'] = 'Inbox';
         $data['body'] = 'admin/inbox/index';
         $this->_viewcontroller($data);
@@ -149,6 +153,23 @@ class Inbox extends Home
             'can_send_image' => $before_id === 0 ? $this->can_send_image($conv) : null,
             'ai_draft' => $before_id === 0 ? $this->latest_ai_draft($conv) : null,
             'labels' => isset($labels[$conv['id']]) ? $labels[$conv['id']] : array()));
+    }
+
+    // ------------------------------------------------------------------ realtime
+
+    /**
+     * POST (Pusher JS private-channel auth): socket_id, channel_name, csrf_token.
+     * Authorizes ONLY the logged-in tenant's own inbox channel (inbox_realtime_authorize());
+     * any other channel, a bad socket id, a missing CSRF token or realtime being off -> 403.
+     * The constructor already requires a session and entitlement module 411.
+     */
+    public function realtime_auth()
+    {
+        header('Content-Type: application/json');
+        $auth = $this->csrf_token_check(true) === false ? null : inbox_realtime_authorize($this->uid,
+            $this->input->post('channel_name', true), $this->input->post('socket_id', true), inbox_realtime_ci_settings($this));
+        if ($auth === null) { $this->output->set_status_header(403); echo json_encode(array('error' => 'forbidden')); return; }
+        echo json_encode($auth);
     }
 
     // ------------------------------------------------------------------ reply
@@ -334,7 +355,9 @@ class Inbox extends Home
             'delivery_status_updated_at' => $now,
             'from_business_suite' => '0',
         ));
-        return (int) $this->db->insert_id();
+        $message_id = (int) $this->db->insert_id();
+        inbox_realtime_notify($this, $message_id);
+        return $message_id;
     }
 
     /**

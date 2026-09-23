@@ -78,10 +78,11 @@
                 foreach ($module_names_array as $row)
                 {                              
                     $limit=0;
-                    $limit=$monthly_limit[$row["id"]];
+                    $has_limit = is_array($monthly_limit) && isset($monthly_limit[$row["id"]]); // none stored (e.g. 401..411): name only
+                    $limit = $has_limit ? $monthly_limit[$row["id"]] : "";
                     if($limit=="0") $limit2=$this->lang->line("unlimited");
                     else $limit2=$limit;
-                    $limit2=" : ".$limit2;
+                    $limit2 = $has_limit ? " : ".$limit2 : "";
                     echo '
                     <div class="pricing-item">
                       <div class="pricing-item-icon_x bg-light_x"><i class="fas fa-check"></i></div>

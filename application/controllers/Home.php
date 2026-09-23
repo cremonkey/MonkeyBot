@@ -281,6 +281,7 @@ class Home extends CI_Controller
         if (!empty($social_media)) $insert_data['platform'] = $social_media;
         if (!empty($user_id)) $insert_data['user_id'] = $user_id;
         $this->basic->insert_data("livechat_messages", $insert_data);
+        $this->load->helper('inbox_realtime'); inbox_realtime_notify($this, $this->db->insert_id());
     }
 
 
@@ -1116,9 +1117,11 @@ class Home extends CI_Controller
         if ($this->session->userdata('download_id_front') == "")
             $this->session->set_userdata('download_id_front', md5(time() . $this->_random_number_generator(10)));
 
+        // Always defined: admin/theme/header.php and usermenu.php iterate it on every page, and an
+        // account without module 65 used to log two "Undefined variable" + two foreach warnings per page.
+        if (!isset($data["fb_rx_account_switching_info"])) $data["fb_rx_account_switching_info"] = array();
         if ($this->session->userdata('user_type') == 'Admin' || in_array(65, $this->module_access)) {
             $fb_rx_account_switching_info = $this->basic->get_data("facebook_rx_fb_user_info", array("where" => array("user_id" => $this->user_id)));
-            $data["fb_rx_account_switching_info"] = array();
             foreach ($fb_rx_account_switching_info as $key => $value) {
                 $data["fb_rx_account_switching_info"][$value["id"]] =  ['name' => $value["name"], 'access_token' => $value['access_token']];
             }
@@ -7942,6 +7945,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             $insert_data['delivery_status_updated_at'] = $currtime;
             $this->basic->insert_data("livechat_messages",$insert_data);
             $message_id = $this->db->insert_id();
+            $this->load->helper('inbox_realtime'); inbox_realtime_notify($this, $message_id); // Unified Inbox realtime; no-op without Pusher, never throws
             $message_content = $insert_data['message_content'];
             $last_conversation_message = make_message_preview($message_content);
             $conversation_time = $insert_data['conversation_time'] ?? $currtime;

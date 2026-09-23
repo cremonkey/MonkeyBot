@@ -330,14 +330,51 @@ a fake Graph/Telegram provider behind a throwaway-CA TLS proxy that answers as
 - **No new model call.** This is what the AI already produced. In AI_ACTIVE the bot has usually
   sent that reply already, and the card makes it reusable after a takeover.
 
+## Realtime (Pusher) (follow-up)
+
+The v1 page did **not** actually poll: the list and thread only reloaded on an agent action.
+This follow-up adds live updates plus an auto-refresh fallback.
+
+- **Event.** After every `livechat_messages` insert (the BEFORE INSERT trigger has already set
+  `conversation_id`), `inbox_realtime_notify()` (`application/helpers/inbox_realtime_helper.php`)
+  publishes `{conversation_id, message_id, sender}` — ids only, never message content — as event
+  `message` on the tenant's PRIVATE channel `private-inbox-<ns>-<tenant user_id>`. `<ns>` is
+  derived from the install's `encryption_key`, so two installs sharing one Pusher app never share
+  a channel. One event per conversation per request (bursts coalesce).
+- **Where it is called.** All eight writers, one line each: `Home::insert_livechat_data` (fb/ig
+  in and out, Livechat), `Home::system_message_insert_into_conversation`, `Telegram_bot`,
+  `Openwa_bot`, `Whatsapp_bot` (Cloud) and `Webchat` `log_msg()`, `channel_log_message()`
+  (`channel_send_helper.php`, bot/sequence/automation sends) and `Inbox::write_agent_message`.
+  `tests/inbox/run.php` fails if a new `livechat_messages` insert appears without it.
+- **Never breaks message handling.** Web requests queue events and send them once at shutdown,
+  after the handler's own work; CLI (cron) sends immediately. The HTTP call is a signed Pusher
+  REST request made with curl (`inbox_realtime_batch_request()`, same body and signature as
+  `vendor/pusher`, which this app never autoloads) with a 1 s connect and 2 s total timeout
+  (`inbox_realtime_timeout`, max 5 s). Every error is caught and logged once
+  (`inbox_realtime: publish failed`); after one failure the request stops trying. The lookup query
+  runs with `db_debug` off and does not touch the caller's query builder.
+- **Channel auth.** `POST inbox/realtime_auth` (Pusher JS `authEndpoint`): needs a session,
+  module 411 (constructor) and the CSRF token, and signs **only** the caller's own tenant channel
+  (`inbox_realtime_authorize()`, exact match). Anything else is 403. Livechat's
+  `livechat_channel` is public and unauthenticated; it is not changed here.
+- **Browser.** The page subscribes when realtime is configured; an event for the open
+  conversation refreshes the thread, any event refreshes the list (only while no "Load more"
+  page is open). Auto-refresh runs every 20 s without realtime and every 90 s while subscribed,
+  only when the tab is visible, plus once when the tab becomes visible again.
+- **Enabling.** Fill App ID, Key, Secret and Cluster in Settings → Pusher (the existing
+  `application/config/pusher.php`). With any of the three empty the page gets `RT = null`, the
+  auth endpoint answers 403 and nothing is published.
+- **Flags** (config items, all optional): `inbox_realtime_enabled` (FALSE = off even with Pusher
+  configured), `inbox_realtime_timeout` (seconds, default 2), `pusher_host` / `pusher_port` /
+  `pusher_scheme` (self-hosted or test endpoint), `inbox_poll_seconds` (default 20),
+  `inbox_poll_seconds_realtime` (default 90), `inbox_poll_enabled` (FALSE = no auto-refresh).
+- **Tests.** `tests/inbox/run.php` (auth tenant isolation, signing vectors, payload has no
+  content, batch routing, failure containment, wiring) and
+  `docker/scripts/staging_inbox_realtime_tests.sh` on `docker-compose.rt-test.yml` (port 8107,
+  fake Pusher API `tests/inbox/fake_pusher.php`).
+
 ## Deferred (not built in this phase, and why)
 
-- **Realtime (Pusher).** Livechat.php's existing `livechat_channel`/`livechat_event` wiring is
-  fb/ig-shaped (keyed by `page_table_id`+`subscribe_id`). Extending it to a channel-agnostic
-  `conversation_id` event for wa/tg/web is real work with its own risk (double-delivery,
-  ordering). The brief explicitly allows polling as an acceptable v1. **v1 ships with polling**
-  (`conversations_data` / `conversation_thread` are cheap, indexed queries); a Pusher channel
-  keyed on `conversation_id` is the natural follow-up.
 - **Still not built after the follow-up** (see each section above):
   - video, audio and file replies, image captions, and image replies on web;
   - showing wa/tg/OpenWA incoming media, which needs a media-download-by-id step those webhooks

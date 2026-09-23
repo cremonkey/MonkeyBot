@@ -132,11 +132,11 @@ $unlimited_module_array=array();
             			}
             			else
             			{
-            				$bulk_limit_print=$bulk_limit[$row["module_id"]];
+            				$bulk_limit_print=$bulk_limit[$row["module_id"]] ?? 0;
             				if($bulk_limit_print==0) $bulk_limit_print=$this->lang->line("Unlimited");
 
             				echo "<td class='text-center'>";
-            				if($monthly_limit[$row["module_id"]]=="0") $monthly_limit[$row["module_id"]]=$this->lang->line("Unlimited");
+            				if(isset($monthly_limit[$row["module_id"]]) && $monthly_limit[$row["module_id"]]=="0") $monthly_limit[$row["module_id"]]=$this->lang->line("Unlimited");
             				if(isset($monthly_limit[$row["module_id"]])) 
             				{
             					echo $monthly_limit[$row["module_id"]];
