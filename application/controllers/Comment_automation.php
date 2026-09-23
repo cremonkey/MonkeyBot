@@ -4258,6 +4258,26 @@ class Comment_automation extends Home
     }
 
     
+    /** Unified Inbox: note every comment private reply sent through Home::send_reply() (templates). */
+    protected function send_reply($access_token = '', $reply = '')
+    {
+        $result = parent::send_reply($access_token, $reply);
+        try { $this->load->helper('comment_private_reply'); cpr_buffer_capture($reply, $result); } catch (\Throwable $e) {}
+        return $result;
+    }
+
+    /** Unified Inbox: writes this request's sent private replies to livechat_messages. Never throws.
+     *  See application/helpers/comment_private_reply_helper.php. */
+    private function cpr_log_private_replies($platform, $user_id, $page_table_id, $fb_page_id, $token, $report, $fallback_psid = '')
+    {
+        try {
+            $this->load->helper('comment_private_reply');
+            cpr_flush($this, array('platform' => $platform, 'user_id' => $user_id, 'page_table_id' => $page_table_id,
+                'fb_page_id' => $fb_page_id, 'token' => $token, 'report' => is_array($report) ? $report : array(),
+                'fallback_psid' => (string) $fallback_psid));
+        } catch (\Throwable $e) {}
+    }
+
     public function webhook_callback_main()
     {
         $this->load->helper('webhook_security');   // Phase 0 / 7.3: only central (or an internal forwarder) may call this
@@ -5177,6 +5197,7 @@ class Comment_automation extends Home
 
               }
 
+              $this->cpr_log_private_replies('fb', $user_id, $page_table_id, $page_id, $post_access_token, $comment_result_info ?? array(), $subscriber_id ?? '');
               exit();
               
           }
@@ -6156,6 +6177,7 @@ class Comment_automation extends Home
 
             }
 
+            $this->cpr_log_private_replies('fb', $user_id, $page_table_id, $page_id, $post_access_token, $comment_result_info ?? array(), $subscriber_id ?? '');
 
         }
 

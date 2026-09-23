@@ -315,3 +315,29 @@ default (same policy as 408/409/410). Gated by `entitlement_require('inbox')` in
 (labels, canned-response management, `reply_image`) are methods on the same controller, so the
 same constructor gate covers them. `staging_inbox_tests.sh` checks a member without 411 is
 redirected.
+
+## Comment auto-reply private messages
+
+When a Facebook (`Comment_automation`) or Instagram (`Instagram_reply`) comment campaign sends
+the commenter a private reply (Send API, `recipient.comment_id`), that message is now written
+to `livechat_messages` as a bot row (`sender='bot'`, `agent_name='Comment auto-reply'`,
+platform fb/ig, `page_table_id`, `fb_page_id`, Send API body as `message_content`,
+`fb_message_id` = Graph message id). The link trigger then creates or updates the conversation,
+so the inbox shows that the business already messaged this customer privately.
+
+- **Code:** `application/helpers/comment_private_reply_helper.php`. Sends are captured in
+  `Fb_rx_login::send_private_reply()` and in `send_reply()` overrides in both controllers; the
+  buffer is written after the campaign report row (`cpr_log_private_replies()`: two FB flows,
+  three IG flows: comments, offensive-comment delete, mentions).
+- **Customer id:** `recipient_id` from the Send API response; else the PSID the controller
+  already resolves via `get_private_reply_message_id_info()` (`to[0].id`, the same value it
+  stores in `messenger_bot_subscriber`); else that lookup done by the helper (max 3 per request).
+  No PSID → not logged (a thread keyed by the comment author id could never join later DMs).
+- **Marker:** the first new row for the reported comment gets an `internal_notes` entry with the
+  customer's public comment and the public reply (author `Comment auto-reply`, `author_id` 0).
+  Not a `system` row, because Livechat.php prints `system` rows as raw HTML.
+- **Safety:** never throws, `db_debug` off around the writes, runs after the reply is sent and
+  reported. Idempotent on `fb_message_id`. No migration.
+- **Not changed:** `messenger_bot_subscriber.last_conversation_message` / Livechat list order.
+- **Tests:** `tests/comment_private_reply/run.php` (unit), `tests/comment_private_reply/db_flush.php`
+  (real DB + trigger, stack `docker-compose.cmtinbox-test.yml`, port 8104).
