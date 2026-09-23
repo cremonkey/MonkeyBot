@@ -13,7 +13,8 @@ defined('BASEPATH') or exit('No direct script access allowed');
  * Deliberate limit: only `hotel` carries a pricing_config skeleton. The price calculator
  * (pricing_helper.php) understands accommodation nights and day-use tickets and nothing
  * else today, so the other verticals set pricing_supported=false and carry a
- * pricing_note explaining that prices belong in FAQ / Knowledge instead.
+ * pricing_note. Their step 5 offers the generic product catalog typed by the owner instead
+ * (industry_template_catalog_config), or skipping so prices stay in FAQ / Knowledge.
  */
 
 if (!function_exists('industry_template_dir')) {
@@ -355,5 +356,103 @@ if (!function_exists('industry_template_faq_plan')) {
             }
         }
         return $plan;
+    }
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Step 5 (Products / Pricing) follows the pages chosen in step 2. Pure functions, no DB,
+ * so the rules are testable on their own (tests/onboarding/run.php).
+ * ---------------------------------------------------------------------------
+ */
+if (!function_exists('industry_template_pricing_scope')) {
+    /**
+     * Map a Setup Guide target key onto a price-list scope (channel_type, target_id).
+     * The wizard and pricing name WhatsApp differently, and mixing them up would hand one
+     * number another number's prices:
+     *   wizard 'wa:<id>'     = WhatsApp Cloud (whatsapp_accounts.id) -> ('wa_cloud', id)
+     *   wizard 'openwa:<id>' = personal number (openwa_accounts.id)  -> ('openwa', id)
+     *   fb / tg / web map one to one (page row id, telegram id, widget_key).
+     * Anything else -> null (never the default scope: a bad key must not become "all pages").
+     */
+    function industry_template_pricing_scope($target_key)
+    {
+        $target_key = (string) $target_key;
+        if (strpos($target_key, ':') === false) return null;
+        list($kind, $t) = explode(':', $target_key, 2);
+        $map = array('fb' => 'fb', 'wa' => 'wa_cloud', 'openwa' => 'openwa', 'tg' => 'tg', 'web' => 'web');
+        if (!isset($map[$kind])) return null;
+        $t = trim($t);
+        if ($t === '' || strlen($t) > 64) return null;
+        if ($kind !== 'web' && !ctype_digit($t)) return null;
+        return array($map[$kind], $t);
+    }
+}
+
+if (!function_exists('industry_template_catalog_config')) {
+    /**
+     * Build a catalog-only price list from the few rows typed on step 5 (name, price,
+     * optional unit). Fully blank rows are dropped; nothing else is judged here — the result
+     * goes through the real pricing_validate_config(), so a bad price or unit is reported by
+     * the same rules as the Products & Pricing screen. Returns null when nothing was typed.
+     */
+    function industry_template_catalog_config($rows, $currency = '')
+    {
+        $items = array();
+        foreach ((is_array($rows) ? $rows : array()) as $r) {
+            if (!is_array($r)) continue;
+            $name = trim((string) ($r['name'] ?? ''));
+            $price = trim((string) ($r['price'] ?? ''));
+            $unit = trim((string) ($r['unit'] ?? ''));
+            if ($name === '' && $price === '') continue;
+            $it = array('name' => $name);
+            if ($price !== '') {
+                if (is_numeric($price)) {
+                    $p = round((float) $price, 2);
+                    $it['price'] = (floor($p) == $p) ? (int) $p : $p;
+                } else {
+                    $it['price'] = $price;   // left as typed so the validator names the row
+                }
+            }
+            if ($unit !== '' && $unit !== 'item') $it['unit'] = $unit;
+            $items[] = $it;
+            if (count($items) >= 50) break;
+        }
+        if (empty($items)) return null;
+        $currency = trim((string) $currency);
+        return array('currency' => $currency !== '' ? mb_substr($currency, 0, 20) : 'جنيه', 'catalog' => array('items' => $items));
+    }
+}
+
+if (!function_exists('industry_template_pricing_plan')) {
+    /**
+     * Where step 5 may write.
+     *  - default: one page-scoped list per chosen page that has NO list of its own yet;
+     *    a page that already has one (on or off) is kept, never overwritten.
+     *  - use_for_all: the account-wide default list, and ONLY when the account has zero
+     *    price lists of any kind — otherwise refused (it would change pages outside this
+     *    business that fall back to the default).
+     * @param array $scopes      target key => array(channel_type, target_id), chosen pages
+     * @param array $has_list    target key => true for pages that already have their own list
+     * @param bool  $use_for_all the owner ticked "use for all my pages"
+     * @param int   $lists_total how many pricing_config rows the account has (any scope)
+     * @return array {error: string|null, default: bool, write: key=>scope, kept: key[]}
+     */
+    function industry_template_pricing_plan($scopes, $has_list, $use_for_all, $lists_total)
+    {
+        $out = array('error' => null, 'default' => false, 'write' => array(), 'kept' => array());
+        if ($use_for_all) {
+            if ((int) $lists_total !== 0) {
+                $out['error'] = 'You already have a price list, so this one cannot become the list for all pages. Untick "use for all my pages" to save it on the pages of this business only.';
+                return $out;
+            }
+            $out['default'] = true;
+            return $out;
+        }
+        foreach ($scopes as $k => $scope) {
+            if (!empty($has_list[$k])) $out['kept'][] = $k;
+            else $out['write'][$k] = $scope;
+        }
+        return $out;
     }
 }

@@ -9,7 +9,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * Bearer token, 30s timeout, full TLS verification.
  *
  * Templates exist in Whatsapp_api::send_template() but are not exposed here yet,
- * so 'templates' is not declared.
+ * so 'templates' is not declared. send_image is the Cloud API image message by link
+ * ({type:image, image:{link, caption?}}) to the same endpoint with the same options.
  */
 final class WhatsAppCloudAdapter extends AbstractChannelAdapter
 {
@@ -22,7 +23,7 @@ final class WhatsAppCloudAdapter extends AbstractChannelAdapter
 
     public function capabilities(): array
     {
-        return array(Capability::SEND_TEXT, Capability::RECEIVE_WEBHOOK);
+        return array(Capability::SEND_TEXT, Capability::SEND_IMAGE, Capability::RECEIVE_WEBHOOK);
     }
 
     public function sendText(OutboundMessage $message): SendResult
@@ -33,14 +34,37 @@ final class WhatsAppCloudAdapter extends AbstractChannelAdapter
         if ($pnid === '') return $this->invalid('phone_number_id missing');
         if ((string) $message->recipient === '' || $message->text === '') return $this->invalid('empty message or recipient');
 
+        return $this->post($token, $pnid, array(
+            'messaging_product' => 'whatsapp', 'to' => $message->recipient, 'type' => 'text',
+            'text' => array('preview_url' => true, 'body' => $message->text),
+        ));
+    }
+
+    public function sendMedia(OutboundMessage $message): SendResult
+    {
+        $media = self::arr($message->media);
+        if (($media['type'] ?? '') !== 'image') return parent::sendMedia($message);
+        $token = $message->credential('access_token');
+        $pnid  = $message->credential('phone_number_id');
+        if ($token === '') return $this->invalid('access_token missing');
+        if ($pnid === '') return $this->invalid('phone_number_id missing');
+        $url = (string) ($media['url'] ?? '');
+        if ((string) $message->recipient === '' || $url === '') return $this->invalid('empty media url or recipient');
+        $image = array('link' => $url);
+        $caption = (string) ($media['caption'] ?? '');
+        if ($caption !== '') $image['caption'] = $caption;
+        return $this->post($token, $pnid, array(
+            'messaging_product' => 'whatsapp', 'to' => $message->recipient, 'type' => 'image', 'image' => $image,
+        ));
+    }
+
+    private function post($token, $pnid, array $payload)
+    {
         $res = $this->http->send(new HttpRequest(
             'POST',
             self::GRAPH_BASE . $pnid . '/messages',
             array('Content-Type: application/json', 'Authorization: Bearer ' . $token),
-            json_encode(array(
-                'messaging_product' => 'whatsapp', 'to' => $message->recipient, 'type' => 'text',
-                'text' => array('preview_url' => true, 'body' => $message->text),
-            )),
+            json_encode($payload),
             30,
             null,
             true,

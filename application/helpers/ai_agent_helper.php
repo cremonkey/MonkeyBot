@@ -110,6 +110,27 @@ if (!function_exists('ai_agent_connected_channels')) {
     }
 }
 
+if (!function_exists('ai_agent_preview_provider')) {
+    /**
+     * The provider, model and decrypted key a reply for this open_ai_config row uses.
+     * Mirrors Ai_provider::completion() exactly (anthropic only when ai_provider says so).
+     *
+     * @return array{provider:string, model:string, key:string}
+     */
+    function ai_agent_preview_provider($acc)
+    {
+        $acc = (array) $acc;
+        if (($acc['ai_provider'] ?? '') === 'anthropic') {
+            return array('provider' => 'anthropic',
+                'model' => !empty($acc['anthropic_model']) ? $acc['anthropic_model'] : 'claude-haiku-4-5',
+                'key' => trim((string) secret_decrypt((string) ($acc['anthropic_secret_key'] ?? ''))));
+        }
+        return array('provider' => 'openai',
+            'model' => !empty($acc['models']) ? $acc['models'] : 'gpt-4o-mini',
+            'key' => trim((string) secret_decrypt((string) ($acc['open_ai_secret_key'] ?? ''))));
+    }
+}
+
 if (!function_exists('ai_agent_preview_reply')) {
     /**
      * SPEC-26 preview, extracted from Ai_agents::preview (Phase 11) so the onboarding
@@ -134,9 +155,12 @@ if (!function_exists('ai_agent_preview_reply')) {
         $acc = $CI->db->from('open_ai_config')->where('user_id', $user_id)->limit(1)->get()->row_array();
         if (empty($acc)) return array('status' => '0', 'message' => 'No AI credentials configured');
 
-        $CI->load->helper('ai_knowledge');
-        $key = ai_openai_key($user_id);   // decrypted; the stored value is 'enc::...'
-        if ($key === '') return array('status' => '0', 'message' => 'No OpenAI key');
+        // Same provider + key the live reply path uses (Ai_provider: open_ai_config.ai_provider,
+        // decrypted open_ai_secret_key / anthropic_secret_key). Checked here so the owner gets a
+        // plain reason instead of a provider error, and no request is made without a key.
+        $CI->load->helper('secret');
+        $plan = ai_agent_preview_provider($acc);
+        if ($plan['key'] === '') return array('status' => '0', 'message' => $plan['provider'] === 'anthropic' ? 'No Anthropic key' : 'No OpenAI key');
 
         $agent_name  = trim((string) ($fields['agent_name'] ?? ''));
         $instruction = trim((string) ($fields['instruction_to_ai'] ?? ''));
@@ -153,24 +177,20 @@ if (!function_exists('ai_agent_preview_reply')) {
         // condensed guardrails so the preview behaves like production on scope/price/format
         $sp .= "\n\nSTRICT SCOPE RULES: Only use the identity, products, services and prices written above. Never invent a price or a fact. If a price is not written, say the team will confirm and ask for a WhatsApp number. Every reply is very short: one direct answer + one question, no lists, no markdown. Mirror the customer's language; Arabic -> Egyptian colloquial.";
 
-        $model = !empty($acc['models']) ? $acc['models'] : 'gpt-4o-mini';
-        $payload = json_encode(array(
-            'model' => $model, 'temperature' => 0.4,
-            'messages' => array(array('role' => 'system', 'content' => $sp), array('role' => 'user', 'content' => $message)),
-        ), JSON_UNESCAPED_UNICODE);
-
-        $ch = curl_init('https://api.openai.com/v1/chat/completions');
-        curl_setopt_array($ch, array(
-            CURLOPT_POST => 1, CURLOPT_POSTFIELDS => $payload, CURLOPT_RETURNTRANSFER => 1,
-            CURLOPT_SSL_VERIFYPEER => true, CURLOPT_TIMEOUT => 60,
-            CURLOPT_HTTPHEADER => array('Content-Type: application/json', 'Authorization: Bearer ' . $key),
-        ));
-        $raw = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
-        $d = json_decode($raw, true);
-        $CI->load->helper('ai_usage');
-        ai_usage_record_openai_response($user_id, $model, 'agent_preview', $d);
-        $reply = $d['choices'][0]['message']['content'] ?? '';
-        if ($reply === '') return array('status' => '0', 'message' => 'Preview failed (HTTP ' . $code . ')');
+        // One call through Ai_provider: provider selection, model default, usage accounting
+        // (purpose agent_preview) and error shape are exactly the live path's. No tools, no
+        // history, no KB - see Ai_agents::preview.
+        $CI->load->library('Ai_provider');
+        $raw = $CI->ai_provider->completion($acc, array(
+            array('role' => 'system', 'content' => $sp),
+            array('role' => 'user', 'content' => $message),
+        ), array('temperature' => 0.4, 'purpose' => 'agent_preview'));
+        $d = json_decode((string) $raw, true);
+        $reply = is_array($d) ? trim((string) ($d['choices'][0]['text'] ?? '')) : '';
+        if ($reply === '') {
+            $why = is_array($d) && isset($d['error']['message']) ? (string) $d['error']['message'] : 'empty reply';
+            return array('status' => '0', 'message' => 'Preview failed (' . $plan['provider'] . ': ' . mb_substr($why, 0, 200) . ')');
+        }
         return array('status' => '1', 'reply' => $reply, 'chars' => mb_strlen($sp));
     }
 }

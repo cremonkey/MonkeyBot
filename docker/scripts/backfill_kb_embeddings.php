@@ -27,6 +27,9 @@ if (!function_exists('log_message')) {
 
 $app_path = '/var/www/html/application';
 require $app_path . '/helpers/ai_knowledge_helper.php';
+// ai_embed_texts() records usage via ai_usage_helper (baseline item 17). Outside CodeIgniter
+// it would call get_instance() to load it; load it here and give it the tiny db shim below.
+require $app_path . '/helpers/ai_usage_helper.php';
 
 $dry_run = in_array('--dry-run', $argv, true);
 
@@ -50,6 +53,29 @@ if ($mysqli->connect_errno) {
     exit("DB connect failed: {$mysqli->connect_error}\n");
 }
 $mysqli->set_charset('utf8mb4');
+
+/** Just the query-builder calls ai_usage_record()/ai_usage_price() make, over mysqli. */
+final class BackfillUsageDb
+{
+    private $m; private $w = array(); private $t = '';
+    public function __construct($m) { $this->m = $m; }
+    public function table_exists($t) { $r = $this->m->query("SHOW TABLES LIKE '" . $this->m->real_escape_string($t) . "'"); return $r && $r->num_rows > 0; }
+    public function field_exists($f, $t) { $r = $this->m->query('SHOW COLUMNS FROM `' . str_replace('`', '', $t) . "` LIKE '" . $this->m->real_escape_string($f) . "'"); return $r && $r->num_rows > 0; }
+    public function from($t) { $this->t = $t; $this->w = array(); return $this; }
+    public function where($k, $v) { $this->w[] = '`' . str_replace('`', '', $k) . "` = '" . $this->m->real_escape_string((string) $v) . "'"; return $this; }
+    public function limit($n) { return $this; }
+    public function get() { $r = $this->m->query('SELECT * FROM `' . str_replace('`', '', $this->t) . '`' . ($this->w ? ' WHERE ' . implode(' AND ', $this->w) : '') . ' LIMIT 1'); $this->w = array(); return new BackfillUsageRow($r ? $r->fetch_assoc() : null); }
+    public function insert($t, $row) {
+        $cols = array(); $vals = array();
+        foreach ($row as $k => $v) { $cols[] = '`' . str_replace('`', '', $k) . '`'; $vals[] = "'" . $this->m->real_escape_string((string) $v) . "'"; }
+        return $this->m->query('INSERT INTO `' . str_replace('`', '', $t) . '` (' . implode(',', $cols) . ') VALUES (' . implode(',', $vals) . ')');
+    }
+}
+final class BackfillUsageRow { private $r; public function __construct($r) { $this->r = $r; } public function row_array() { return $this->r; } }
+if (!function_exists('get_instance')) {
+    $GLOBALS['__backfill_ci'] = (object) array('db' => new BackfillUsageDb($mysqli));
+    function &get_instance() { return $GLOBALS['__backfill_ci']; }
+}
 
 // --- Group un-embedded chunks by owning user (the API key is per user) -----
 $sql = "SELECT c.id, c.chunk_text, s.user_id
@@ -93,6 +119,14 @@ foreach ($by_user as $user_id => $rows) {
     $stmt->close();
 
     $api_key = isset($key_row['open_ai_secret_key']) ? trim($key_row['open_ai_secret_key']) : '';
+    if (strpos($api_key, 'enc::') === 0) {
+        // Stored encrypted (baseline S-04). Decrypting needs CodeIgniter's Encryption library and
+        // the live encryption_key, which this bootstrap-free script does not load; sending the
+        // ciphertext to OpenAI would only fail. Skip loudly instead.
+        echo "  user {$user_id}: OpenAI key is stored encrypted (enc::) - this script cannot decrypt it, skipping " . count($rows) . " chunks\n";
+        $failed += count($rows);
+        continue;
+    }
     if ($api_key === '') {
         echo "  user {$user_id}: no OpenAI key, skipping " . count($rows) . " chunks\n";
         $failed += count($rows);

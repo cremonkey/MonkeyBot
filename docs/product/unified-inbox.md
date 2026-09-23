@@ -7,8 +7,14 @@
   `application/views/admin/inbox/index.php`; AI summary (brief §13):
   `application/libraries/Conversation_summarizer.php`, `application/helpers/conversation_summary_helper.php`
 - **Migration:** `assets/backup_db/migrations/2026-09-25-unified-inbox.sql`,
-  `assets/backup_db/migrations/2026-09-28-conversation-summary.sql` (adds `conversations.last_summary`/`last_summary_at`)
-- **Tests:** `tests/inbox/run.php` (unit, no DB), `docker/scripts/staging_inbox_tests.sh` (HTTP+DB);
+  `assets/backup_db/migrations/2026-09-28-conversation-summary.sql` (adds `conversations.last_summary`/`last_summary_at`),
+  follow-up: `2026-09-30-inbox-labels.sql` (labels), `2026-09-30b-canned-response-channels.sql`
+  (`canned_response.channels`), `2026-09-30c-ai-history-conversation-id.sql`
+  (`ai_conversation_history.conversation_id`)
+- **Tests:** `tests/inbox/run.php` (unit, no DB), `docker/scripts/staging_inbox_tests.sh` (HTTP+DB),
+  `tests/inbox/ai_link_db.php` (real DB, run by the staging script), `tests/channels/AdapterContractTest.php`
+  (`send_image`, fake transport); isolated stack for the follow-up: `docker-compose.inbox2-test.yml`
+  (port 8102, with the fake OpenWA gateway `tests/inbox/fake_gateway.php`);
   AI summary: `tests/summary_billing/run.php` (unit, no DB), `docker/scripts/staging_summary_billing_tests.sh` (HTTP+DB)
 
 ## What this is
@@ -21,7 +27,9 @@ assignment, internal notes and a Customer 360 rail (name, phone, email, channel 
 It is a **read+reply surface only**. It does not touch how messages are received, how the AI
 decides to reply, or how `bot_paused_until` is honoured per channel — those stay exactly as
 implemented in `Messenger_bot`, `Openwa_bot`, `Whatsapp_bot`, `Telegram_bot`, `Webchat` and
-`Home.php`, none of which this phase modifies.
+`Home.php`, none of which this phase modifies. The follow-up changes one thing there: two lines
+in `Home::get_ai_reply_open_ai()` add `conversation_id` to new `ai_conversation_history` rows (see
+"AI suggested reply"). The reply the AI sends is unchanged.
 
 ## Coexistence with Livechat.php (module 82)
 
@@ -36,8 +44,9 @@ Why not redirect `Livechat::load_livechat` to the new inbox:
   buttons, and API-driven sends (`reply_to_conversation` also serves external API callers, not
   just the browser UI).
 - Verifying "no functionality is lost" for all of the above (brief's own bar for redirecting)
-  is a larger effort than Phase 9.5's scope. Attachments, buttons and realtime are explicitly
-  **deferred** here (see below) rather than half-built into the new surface.
+  is a larger effort than Phase 9.5's scope. Buttons and realtime are still **deferred** (see
+  below). Attachments are now partly covered: stored media is shown, and image replies work on
+  channels whose adapter supports them. Video, audio and file sends stay Livechat-only.
 - The brief itself (§35) requires classifying before removing, not redirecting speculatively:
   Livechat.php is classified **KEEP** for this phase, candidate **MODERNISE/REPLACE** once
   attachments + realtime + postbacks land on the unified inbox.
@@ -151,6 +160,126 @@ linked via the Phase 9.5 trigger, ADR-001), never from `ai_conversation_history`
   default `FALSE`, never set in production) — identical pattern to
   `prompt_to_flow_test_fixture` / `flow_prompt_test_fixture_helper.php`.
 
+## Labels (follow-up)
+
+Labels are keyed to **conversations**, not to `messenger_bot_subscriber`. One label therefore
+works on fb, ig, wa (Cloud and OpenWA), tg and web.
+
+- **Tables** (`2026-09-30-inbox-labels.sql`):
+  - `inbox_labels (id, user_id, name, color, created_at, updated_at)`, with a UNIQUE name per tenant.
+  - `conversation_labels (conversation_id, label_id, user_id, created_by, created_at)`, with
+    PK `(conversation_id, label_id)`. `user_id` is repeated on every row, the same rule as
+    `internal_notes`.
+  - No foreign keys, like the rest of the conversation core.
+- **Endpoints**: `labels_list`, `label_save` (create / rename / recolour), `label_delete`,
+  `label_attach`, `label_detach`.
+  - Every mutation checks CSRF.
+  - Every mutation resolves the conversation through `conversation_get($id, $uid)` and the label
+    through `inbox_scope_labels()` (tenant first) before it writes. Another tenant's id answers
+    "not found".
+  - `label_delete` removes the label and all of its `conversation_labels` rows in one transaction.
+  - Names go through `inbox_label_normalize_name()`: tags stripped, whitespace collapsed,
+    60 characters at most. Colours must be `#rrggbb`, otherwise NULL.
+  - A tenant can have at most 200 labels.
+- **Filter**: `conversations_data` takes `label_id`. `inbox_scope_conversations()` adds an `EXISTS`
+  on `conversation_labels`, after the tenant guard. The subquery is scoped to the same tenant and
+  both ids are cast to int, so another tenant's label id matches nothing. List rows and the
+  thread return the conversation's labels in one extra query per page.
+- **UI**:
+  - a label filter and a "Labels" manager (create, rename, recolour, delete) above the list;
+  - label badges on each row;
+  - a Labels card in the right rail, with add (dropdown) and remove (×).
+- **Not built:** labels on a *customer* (across all of a customer's conversations), and any sync
+  with the fb-only `messenger_bot_subscribers_label`.
+
+## Canned responses by channel (follow-up)
+
+`canned_response.media_type` is Livechat's fb/ig page category and is **not changed**. Livechat
+still filters on `page_id + media_type`, exactly as before.
+
+- A new nullable `canned_response.channels` column (`2026-09-30b-canned-response-channels.sql`)
+  lists the conversation platforms a response is offered on, for example `wa,tg`.
+- `NULL` means "every channel". Every existing row is NULL, so **existing responses keep showing
+  everywhere they showed**. Choosing all five platforms, or none, is also stored as NULL, so
+  "all" has one spelling (`inbox_canned_channels_normalize()`).
+- `canned_responses` takes an optional `conversation_id`. It is tenant-checked, and the
+  conversation's platform filters the rows through `inbox_scope_canned()`: tenant first, then
+  `channels IS NULL OR FIND_IN_SET(platform, channels)`. Without it, every row of the tenant
+  comes back, which is the old behaviour. Before the migration runs, the column is missing and
+  nothing is filtered.
+- `canned_save` / `canned_delete` (CSRF, tenant-scoped) let the inbox create, edit and delete
+  responses, including their channels.
+  - Rows created in the inbox get `page_id = 0`, so Livechat's per-page list never shows them.
+  - Editing a Livechat row leaves its `page_id` and `media_type` untouched.
+- The composer's "Canned" menu reloads for each conversation, and "Manage…" opens the editor.
+
+## Attachments (follow-up)
+
+**Incoming / stored media.** `inbox_message_render()` reads `livechat_messages.message_content`
+and never changes it.
+
+- fb/ig inbound rows are the raw Meta webhook body. fb/ig media sends (Livechat, and the image
+  replies below) are Send API bodies. The `http(s)` attachment URLs in both are shown as an
+  image, video, audio or file link. Any other scheme (`javascript:`, `data:`,
+  scheme-relative) is dropped, and the browser escapes the URL again.
+- WhatsApp Cloud, Telegram and OpenWA only ever log `[non-text message]` for media. Those
+  channels deliver a media *id*, never a URL (see `docs/channels/adapters.md`), so the bubble says
+  the file is not stored instead of inventing one.
+- The list preview uses the same parser, so it no longer shows raw webhook JSON.
+
+**Image replies.** `reply_image` (multipart, CSRF, module 411) runs these checks in order:
+
+1. The tenant guard, then the channel account (`resolve_send_account`).
+2. `channel_policy_decide(sender='human')`, the same as `reply()`. A denial writes nothing and
+   stores nothing.
+3. The adapter must declare `send_image` (`docs/channels/adapters.md`): fb, ig, wa_cloud,
+   wa_openwa and tg. Web answers "not supported". For fb/ig/wa_cloud/tg the adapter support was
+   added in this follow-up, each by its provider's documented API and pinned by the contract
+   suite with a fake transport.
+4. The upload is validated from its **bytes**:
+   - JPEG or PNG only, at most 5 MB, which is the lowest provider limit;
+   - `finfo` and `getimagesize` must agree;
+   - PHP or HTML markup is refused.
+5. The file is stored as `upload/inbox/YYYY/MM/inbox{uid}_{random}.{jpg|png}`. This is the
+   `app_upload` volume, where Livechat's files live too, and nginx never executes anything there.
+   The extension comes from the detected type.
+6. The provider fetches the image by its public URL.
+7. The `livechat_messages` row is written only after a successful send, in the Send API image
+   shape. Livechat already renders that shape for fb/ig. A failed send deletes the file and writes
+   nothing (brief §51).
+
+The attach button appears only when the thread says `can_send_image`. Captions, and video,
+audio and file sends, are not built.
+
+## AI suggested reply (follow-up)
+
+`ai_conversation_history` now carries a nullable, indexed `conversation_id`
+(`2026-09-30c-ai-history-conversation-id.sql`).
+
+- **Write.** `Home::get_ai_reply_open_ai()` adds it to **new** rows through
+  `conversation_ai_history_link()` (`conversation_helper.php`). The Home.php diff is two lines.
+  The helper returns `array()` when the column is missing or nothing resolves, so the insert is
+  then byte-for-byte what it was. Resolution follows what each channel's AI caller passes as
+  `page_id`:
+  - fb/ig: the Facebook page id (`conversation_resolve_account`);
+  - tg and WA Cloud: the account id;
+  - OpenWA: the session id (`openwa_accounts.session_id`);
+  - web: the widget key (web conversations are always account 0).
+
+  When the account cannot be resolved, the row is linked only if exactly **one** conversation of
+  that tenant and platform has that thread id, so an ambiguous match links nothing. The helper
+  never creates a conversation and never throws. An IG comment reply from someone who also DMs
+  the account links to that DM conversation, because it shares the AI memory keys already.
+- **No backfill.** The table prunes itself at the AI memory TTL (and Cron_hub keeps 60 days at
+  most), and only the latest turn is shown. Every existing reader keeps its
+  `(user_id, page_id, subscribe_id, social_media)` lookup.
+- **Read.** `conversation_thread` returns `ai_draft`: the latest row for
+  `user_id = tenant AND conversation_id = this conversation`. It is shown **read-only** in an
+  "AI suggested reply" card, with the question it answered and its time. "Use" copies it into
+  the composer and sends nothing. The composer is cleared when the agent switches conversation.
+- **No new model call.** This is what the AI already produced. In AI_ACTIVE the bot has usually
+  sent that reply already, and the card makes it reusable after a takeover.
+
 ## Deferred (not built in this phase, and why)
 
 - **Realtime (Pusher).** Livechat.php's existing `livechat_channel`/`livechat_event` wiring is
@@ -159,37 +288,22 @@ linked via the Phase 9.5 trigger, ADR-001), never from `ai_conversation_history`
   ordering). The brief explicitly allows polling as an acceptable v1. **v1 ships with polling**
   (`conversations_data` / `conversation_thread` are cheap, indexed queries); a Pusher channel
   keyed on `conversation_id` is the natural follow-up.
-- **AI-suggested-reply generation.** The brief asks for a read-only display of a recent AI
-  draft from `ai_conversation_history` if one exists — not new AI infrastructure. This is
-  **still** not wired: `ai_conversation_history` is not keyed to `conversation_id` (ADR-001,
-  "AI state... is not keyed to any conversation"), and retrofitting it with that column plus a
-  backfill is a bigger, separate ADR-001-scope change, left for the pass that keys AI state to
-  conversations.
-  The closest safe implementation shipped instead, as a **different, narrower feature**:
-  `Inbox::summarize()` (brief §13) generates a short, factual, on-demand **periodic summary**
-  of the thread — what the customer wants, key stated facts, status, open questions — straight
-  from `livechat_messages` (already linked via the Phase 9.5 trigger), cached on
-  `conversations.last_summary`/`last_summary_at` and only regenerated when a newer message has
-  arrived or the agent clicks "Regenerate". This is explicitly **not** a suggested-reply draft:
-  it never proposes what to say next, only summarizes what already happened, and is always
-  shown with a "AI-generated — verify before acting on it" caption (brief §51). See
-  `application/libraries/Conversation_summarizer.php` and
-  `application/helpers/conversation_summary_helper.php`.
-- **Labels.** The only existing label table, `messenger_bot_subscribers_label`, keys off
-  `messenger_bot_subscriber.id` — a row that doesn't exist for wa_cloud/tg/web customers
-  (ADR-001). Reusing it would only work for fb/ig and silently exclude the other three
-  channels from a channel-agnostic feature, which is worse than not having labels yet. Skipped
-  per the brief's own "else skip (note as TODO)" allowance. A real fix needs a label table keyed
-  to `conversations`/`customers`, not `messenger_bot_subscriber`.
-- **Attachments / media replies.** Text only. `Livechat.php`'s upload pipeline
-  (`livechat_upload_file`) is fb/ig-specific (`display_sent_message`-driven rendering) and
-  channel adapters currently implement `send_image` for OpenWA only (`docs/channels/adapters.md`
-  capability matrix) — a channel-agnostic attachment composer is follow-up work, not a
-  same-phase addition.
-- **Canned responses are shown unfiltered by channel.** `canned_response.media_type` is
-  `enum('fb','ig')` in the schema — there is no wa/tg/web category to filter by. Rather than
-  inventing one, `Inbox::canned_responses()` returns every canned response for the tenant
-  regardless of platform. Documented simplification, not a bug.
+- **Still not built after the follow-up** (see each section above):
+  - video, audio and file replies, image captions, and image replies on web;
+  - showing wa/tg/OpenWA incoming media, which needs a media-download-by-id step those webhooks
+    do not do today;
+  - a backfill of `ai_conversation_history.conversation_id`;
+  - customer-level labels;
+  - Livechat's postback buttons and API-driven sends.
+- **Earlier deferrals, now built** (kept here so the history is clear):
+  - AI suggested reply: needed `ai_conversation_history` keyed to conversations, which is done.
+  - Labels: needed a table keyed to conversations, which is done.
+  - Image attachments: needed adapter `send_image` beyond OpenWA, which is done for fb/ig/wa_cloud/tg.
+  - Canned responses by channel: needed a platform list outside the fb/ig `media_type` enum. The
+    `channels` column provides it.
+
+  The on-demand thread summary (`Inbox::summarize()`, above) is still a separate feature from the
+  suggested reply. It summarizes what happened and never proposes what to say.
 
 ## Entitlement
 
@@ -197,4 +311,7 @@ Module 411 ("Unified Inbox"), `feature_key = 'inbox'` in `entitlement_map()`
 (`application/helpers/entitlement_helper.php`). Every existing non-deleted package gets it by
 default (same policy as 408/409/410). Gated by `entitlement_require('inbox')` in
 `Inbox::__construct()`; Admin is never blocked; enforcement is the existing global
-`entitlement_enforce_custom_modules` switch, unchanged by this phase.
+`entitlement_enforce_custom_modules` switch, unchanged by this phase. The follow-up endpoints
+(labels, canned-response management, `reply_image`) are methods on the same controller, so the
+same constructor gate covers them. `staging_inbox_tests.sh` checks a member without 411 is
+redirected.

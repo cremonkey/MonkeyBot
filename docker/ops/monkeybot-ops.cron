@@ -1,0 +1,5 @@
+# MonkeyBot host ops (not the app scheduler, which is /etc/cron.d/monkeybot)
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+37 3 * * * root /usr/local/bin/monkeybot-backup.sh >> /var/log/monkeybot-backup.log 2>&1
+*/5 * * * * root /usr/local/bin/monkeybot-health-watch.sh >> /var/log/monkeybot-health.log 2>&1

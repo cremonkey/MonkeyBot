@@ -61,9 +61,24 @@ function adapter_specs()
         );
     };
 
+    $meta_image = function ($sender) {
+        return new HttpRequest(
+            'POST',
+            'https://graph.facebook.com/v20.0/me/messages?access_token=' . urlencode('EAAG+tok/en=='),
+            array('Content-Type: application/json'),
+            json_encode(array('recipient' => array('id' => $sender), 'messaging_type' => 'RESPONSE',
+                'message' => array('attachment' => array('type' => 'image', 'payload' => array('url' => 'https://cdn.example.com/menu.jpg', 'is_reusable' => false))))),
+            20, null, true, null
+        );
+    };
+
     $specs['fb'] = $meta('fb', '104857600000001', '7101234567890123', 'm_AbCdEf123-fb-text', 'm_AbCdEf456-fb-image', 'fb_text', 'fb_image');
+    $specs['fb']['image_request'] = $meta_image('7101234567890123');
+    $specs['fb']['image_caption'] = false; // Send API image attachments have no caption
     $specs['fb']['inbound']['fb_text']['reply_to'] = 'm_prev-fb-1';
     $specs['ig'] = $meta('ig', '17841400000000001', '1234567890123456', 'aWdfZAG1faXRlbToxOklHTWVzc2FnZAUlEOjE3ODQxNDAw', 'aWdfZAG1faXRlbToxOklHTWVzc2FnZAUlEOjIMAGE', 'ig_text', 'ig_image');
+    $specs['ig']['image_request'] = $meta_image('1234567890123456');
+    $specs['ig']['image_caption'] = false;
 
     $owa_headers = array('Content-Type: application/json', 'Accept: application/json', 'X-API-Key: owa-key-1');
     $specs['wa_openwa'] = array(
@@ -99,6 +114,11 @@ function adapter_specs()
                                   'text' => array('preview_url' => true, 'body' => $text))),
                 30, null, true, 2);
         },
+        'image_request' => new HttpRequest('POST', 'https://graph.facebook.com/v21.0/106540352242922/messages',
+                array('Content-Type: application/json', 'Authorization: Bearer EAAW-cloud-token'),
+                json_encode(array('messaging_product' => 'whatsapp', 'to' => '201001234567', 'type' => 'image',
+                                  'image' => array('link' => 'https://cdn.example.com/menu.jpg', 'caption' => 'المنيو'))),
+                30, null, true, 2),
         'text_of' => function (HttpRequest $r) { return json_decode($r->body, true)['text']['body']; },
         'ok_response' => array(200, array('messaging_product' => 'whatsapp', 'contacts' => array(array('input' => '201001234567', 'wa_id' => '201001234567')),
                                           'messages' => array(array('id' => 'wamid.SENT1')))),
@@ -121,6 +141,8 @@ function adapter_specs()
             return new HttpRequest('POST', 'https://api.telegram.org/bot123456:AAH-bot-token/sendMessage', null,
                 http_build_query(array('chat_id' => '55501234', 'text' => $text)), 30, null, true, 2);
         },
+        'image_request' => new HttpRequest('POST', 'https://api.telegram.org/bot123456:AAH-bot-token/sendPhoto', null,
+                http_build_query(array('chat_id' => '55501234', 'photo' => 'https://cdn.example.com/menu.jpg', 'caption' => 'المنيو')), 30, null, true, 2),
         'text_of' => function (HttpRequest $r) { parse_str($r->body, $p); return $p['text']; },
         'ok_response' => array(200, array('ok' => true, 'result' => array('message_id' => 4300, 'chat' => array('id' => 55501234), 'text' => 'x'))),
         'ok_id' => '4300',
@@ -484,6 +506,92 @@ t('registry: unknown key throws, channel_adapter() returns null', function () {
     assert_same(array('fb', 'ig', 'wa_openwa', 'wa_cloud', 'tg', 'web', 'tiktok'), ChannelRegistry::keys());
 });
 
+// ---- send_image: every adapter that declares it (brief §44: never fake support) ----------------
+
+foreach (adapter_specs() as $key => $spec) {
+    t("$key: send_image declared <=> an image request is specified and tested", function () use ($key, $spec) {
+        $declares = ChannelRegistry::for($key, new FakeTransport())->supports(Capability::SEND_IMAGE);
+        assert_same($declares, isset($spec['image_request']), 'capability and contract spec must agree');
+    });
+
+    if (!isset($spec['image_request'])) continue;
+    $caption = (isset($spec['image_caption']) && $spec['image_caption'] === false) ? '' : 'المنيو';
+
+    t("$key: send image -> exact provider request, message id", function () use ($key, $spec, $caption) {
+        $t = FakeTransport::replying($spec['ok_response'][0], $spec['ok_response'][1]);
+        $r = ChannelRegistry::for($key, $t)->sendMedia(OutboundMessage::media($spec['recipient'], 'image', 'https://cdn.example.com/menu.jpg', $caption, $spec['account'], 7));
+        assert_true($r->ok, 'send failed: ' . $r->error);
+        assert_false($r->unsupported);
+        assert_request_equals($spec['image_request'], $t->only());
+        assert_same($spec['ok_id'], $r->external_message_id);
+    });
+
+    t("$key: send image without credentials / url / recipient -> no request, not ok, not retryable", function () use ($key, $spec) {
+        foreach (array(
+            array($spec['recipient'], 'https://cdn.example.com/menu.jpg', array()),
+            array($spec['recipient'], '', $spec['account']),
+            array('', 'https://cdn.example.com/menu.jpg', $spec['account']),
+        ) as $i => $case) {
+            $t = new FakeTransport();
+            $r = ChannelRegistry::for($key, $t)->sendMedia(OutboundMessage::media($case[0], 'image', $case[1], '', $case[2]));
+            assert_false($r->ok, "case $i");
+            assert_false($r->retryable, "case $i");
+            assert_false($r->unsupported, "case $i: a bad request is not 'unsupported'");
+            assert_count(0, $t->requests, "case $i: no HTTP");
+        }
+    });
+
+    t("$key: send image channel rejection -> exact legacy error wording", function () use ($key, $spec) {
+        list($status, $body, $legacy, $retry) = $spec['channel_error'];
+        $r = ChannelRegistry::for($key, FakeTransport::replying($status, $body))
+            ->sendMedia(OutboundMessage::media($spec['recipient'], 'image', 'https://cdn.example.com/menu.jpg', '', $spec['account']));
+        assert_false($r->ok);
+        assert_same($legacy, $r->error);
+        assert_same($retry, $r->retryable);
+    });
+
+    t("$key: send image transport failure / rate limit -> retryable", function () use ($key, $spec) {
+        $r = ChannelRegistry::for($key, FakeTransport::failing())
+            ->sendMedia(OutboundMessage::media($spec['recipient'], 'image', 'https://cdn.example.com/menu.jpg', '', $spec['account']));
+        assert_false($r->ok);
+        assert_true($r->retryable);
+        list($status, $body) = $spec['rate_error'];
+        $r = ChannelRegistry::for($key, FakeTransport::replying($status, $body))
+            ->sendMedia(OutboundMessage::media($spec['recipient'], 'image', 'https://cdn.example.com/menu.jpg', '', $spec['account']));
+        assert_false($r->ok);
+        assert_true($r->retryable);
+    });
+
+    t("$key: video / audio / file stay unsupported (only images were added)", function () use ($key, $spec) {
+        $t = new FakeTransport();
+        foreach (array('video', 'audio', 'file') as $type) {
+            $r = ChannelRegistry::for($key, $t)->sendMedia(OutboundMessage::media($spec['recipient'], $type, 'https://cdn.example.com/x', '', $spec['account']));
+            assert_true($r->unsupported, $type);
+        }
+        assert_count(0, $t->requests);
+    });
+}
+
+t('fb/ig: an image caption is refused, never silently dropped', function () {
+    $specs = adapter_specs();
+    foreach (array('fb', 'ig') as $key) {
+        $t = new FakeTransport();
+        $r = ChannelRegistry::for($key, $t)->sendMedia(OutboundMessage::media($specs[$key]['recipient'], 'image', 'https://cdn.example.com/menu.jpg', 'caption', $specs[$key]['account']));
+        assert_false($r->ok);
+        assert_count(0, $t->requests);
+    }
+});
+
+t('wa_cloud / tg: no caption key when the caption is empty', function () {
+    $specs = adapter_specs();
+    $t = FakeTransport::replying(200, $specs['wa_cloud']['ok_response'][1]);
+    ChannelRegistry::for('wa_cloud', $t)->sendMedia(OutboundMessage::media('201001234567', 'image', 'https://cdn.example.com/menu.jpg', '', $specs['wa_cloud']['account']));
+    assert_same(array('link' => 'https://cdn.example.com/menu.jpg'), json_decode($t->only()->body, true)['image']);
+    $t = FakeTransport::replying(200, $specs['tg']['ok_response'][1]);
+    ChannelRegistry::for('tg', $t)->sendMedia(OutboundMessage::media('55501234', 'image', 'https://cdn.example.com/menu.jpg', '', $specs['tg']['account']));
+    assert_same('chat_id=55501234&photo=https%3A%2F%2Fcdn.example.com%2Fmenu.jpg', $t->only()->body);
+});
+
 t('adapters never throw from send even on garbage responses', function () {
     $specs = adapter_specs();
     foreach (array('fb', 'ig', 'wa_openwa', 'wa_cloud', 'tg') as $key) {
@@ -491,5 +599,34 @@ t('adapters never throw from send even on garbage responses', function () {
             $r = ChannelRegistry::for($key, FakeTransport::replying(200, $body))->sendText(OutboundMessage::text($specs[$key]['recipient'], 'x', $specs[$key]['account']));
             assert_true($r instanceof SendResult, "$key / $body");
         }
+    }
+});
+
+t('fb/ig: HUMAN_AGENT tag from the policy reaches the payload; no metadata = legacy RESPONSE body', function () {
+    $specs = adapter_specs();
+    foreach (array('fb', 'ig') as $key) {
+        $t = FakeTransport::replying(200, $specs[$key]['ok_response'][1] ?? '{"message_id":"m1"}');
+        ChannelRegistry::for($key, $t)->sendText(OutboundMessage::text($specs[$key]['recipient'], 'x', $specs[$key]['account'])
+            ->withMetadata(array('messaging_type' => 'MESSAGE_TAG', 'tag' => 'HUMAN_AGENT')));
+        $b = json_decode($t->only()->body, true);
+        assert_same('MESSAGE_TAG', $b['messaging_type'], "$key text type");
+        assert_same('HUMAN_AGENT', $b['tag'], "$key text tag");
+
+        $t = FakeTransport::replying(200, $specs[$key]['ok_response'][1] ?? '{"message_id":"m1"}');
+        ChannelRegistry::for($key, $t)->sendMedia(OutboundMessage::media($specs[$key]['recipient'], 'image', 'https://cdn.example.com/a.jpg', '', $specs[$key]['account'])
+            ->withMetadata(array('messaging_type' => 'MESSAGE_TAG', 'tag' => 'HUMAN_AGENT')));
+        $b = json_decode($t->only()->body, true);
+        assert_same('HUMAN_AGENT', $b['tag'], "$key image tag");
+
+        // inside 24h the policy returns RESPONSE / no tag: body must be the exact legacy one
+        $t = FakeTransport::replying(200, $specs[$key]['ok_response'][1] ?? '{"message_id":"m1"}');
+        ChannelRegistry::for($key, $t)->sendText(OutboundMessage::text($specs[$key]['recipient'], 'hello there', $specs[$key]['account'])
+            ->withMetadata(array('messaging_type' => 'RESPONSE', 'tag' => null)));
+        assert_request_equals($specs[$key]['request']('hello there'), $t->only());
+        // an unknown tag is never forwarded
+        $t = FakeTransport::replying(200, $specs[$key]['ok_response'][1] ?? '{"message_id":"m1"}');
+        ChannelRegistry::for($key, $t)->sendText(OutboundMessage::text($specs[$key]['recipient'], 'hello there', $specs[$key]['account'])
+            ->withMetadata(array('messaging_type' => 'MESSAGE_TAG', 'tag' => 'CONFIRMED_EVENT_UPDATE')));
+        assert_request_equals($specs[$key]['request']('hello there'), $t->only());
     }
 });

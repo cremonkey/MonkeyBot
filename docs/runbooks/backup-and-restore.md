@@ -1,12 +1,26 @@
 # Runbook: Backup and Restore
 
-**Status: there is no automated backup yet.** The only backup is a manual one, taken on 2026-09-22 before the scheduler was enabled:
+**Status: automated nightly since 2026-09-23.**
 
-```
-/root/backups/monkeybot-cron-20260922-145956/
-  db.sql.gz              (~8.9 MB, full DB dump)
-  config-volume.tar.gz   (application/config volume)
-```
+| What | Where | When |
+|---|---|---|
+| Full DB dump + `application/config` volume | `/root/backups/monkeybot-nightly/<YYYYMMDD-HHMMSS>/` (`db.sql.gz`, `config-volume.tar.gz`) | 03:37 daily, kept 14 days |
+| Restore test (fresh dump into a throwaway `mariadb:10.11` container on tmpfs, table count must equal live) | marker file `restore-test-ok` in that night's directory | Sundays (force any time with `FORCE_RESTORE_TEST=1`) |
+| Log | `/var/log/monkeybot-backup.log` — every run ends in `backup ok:` or `BACKUP FAILED:` | |
+
+The script runs from **`/usr/local/bin/monkeybot-backup.sh`**, scheduled by **`/etc/cron.d/monkeybot-ops`**.
+The copies in `docker/ops/` are for review only — editing them changes nothing until they are copied
+to those paths. The script fails (exit 1, directory removed) on a non-zero dump, a corrupt gzip, a
+missing `-- Dump completed` marker, a dump under 1 MB, or a config archive without `config.php`,
+so a bad night cannot look like a good one.
+
+Uptime: `/usr/local/bin/monkeybot-health-watch.sh` probes `https://bot.cremonkey.com/health`
+every 5 minutes through Traefik and logs each state change (and each failed probe) to
+`/var/log/monkeybot-health.log`. It is on the same host, so it does not replace an
+off-host monitor (it cannot report the host itself being down).
+
+Older one-off backups (before migrations and deploys) sit next to it under `/root/backups/`,
+named `monkeybot-<reason>-<YYYYMMDD-HHMMSS>`.
 
 Backups live under `/root/backups/`, one directory per backup, named `monkeybot-<reason>-<YYYYMMDD-HHMMSS>`. That directory is on the same host as production. This is not an off-site copy.
 

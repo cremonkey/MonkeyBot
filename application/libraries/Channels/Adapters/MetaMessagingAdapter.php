@@ -18,7 +18,10 @@ abstract class MetaMessagingAdapter extends AbstractChannelAdapter
 
     public function capabilities(): array
     {
-        return array(Capability::SEND_TEXT, Capability::RECEIVE_WEBHOOK);
+        // send_image: Messenger Platform Send API, image attachment by public URL (the payload
+        // Livechat::reply_to_conversation already sends for media, with messaging_type RESPONSE
+        // like sendText). Video / audio / file attachments are not implemented here.
+        return array(Capability::SEND_TEXT, Capability::SEND_IMAGE, Capability::RECEIVE_WEBHOOK);
     }
 
     public function sendText(OutboundMessage $message): SendResult
@@ -30,11 +33,11 @@ abstract class MetaMessagingAdapter extends AbstractChannelAdapter
         // Byte-for-byte the legacy request: the legacy-tier "me/messages" endpoint
         // (same path Home::send_reply uses for all webhook replies), token in the
         // query string, JSON body, 20s timeout, peer verification on.
-        $payload = json_encode(array(
+        $payload = json_encode(self::withSendType(array(
             'recipient'      => array('id' => $message->recipient),
             'messaging_type' => 'RESPONSE',
             'message'        => array('text' => $message->text),
-        ));
+        ), $message));
         $res = $this->http->send(new HttpRequest(
             'POST',
             graph_url_group('send', 'me/messages?access_token=') . urlencode($token),
@@ -46,6 +49,57 @@ abstract class MetaMessagingAdapter extends AbstractChannelAdapter
             null
         ));
         return $this->interpretGraph($res);
+    }
+
+    /**
+     * Image by public URL: {recipient:{id}, messaging_type:RESPONSE,
+     * message:{attachment:{type:image, payload:{url, is_reusable:false}}}}, sent to the same
+     * endpoint with the same options as sendText. The Send API has no image caption, so a
+     * caption is refused instead of being silently dropped.
+     */
+    public function sendMedia(OutboundMessage $message): SendResult
+    {
+        $media = self::arr($message->media);
+        if (($media['type'] ?? '') !== 'image') return parent::sendMedia($message);
+        $token = $message->credential('page_access_token');
+        if ($token === '') return $this->invalid('page_access_token missing');
+        $url = (string) ($media['url'] ?? '');
+        if ((string) $message->recipient === '' || $url === '') return $this->invalid('empty media url or recipient');
+        if ((string) ($media['caption'] ?? '') !== '') return $this->invalid('image captions are not supported on this channel');
+
+        $payload = json_encode(self::withSendType(array(
+            'recipient'      => array('id' => $message->recipient),
+            'messaging_type' => 'RESPONSE',
+            'message'        => array('attachment' => array('type' => 'image', 'payload' => array('url' => $url, 'is_reusable' => false))),
+        ), $message));
+        $res = $this->http->send(new HttpRequest(
+            'POST',
+            graph_url_group('send', 'me/messages?access_token=') . urlencode($token),
+            array('Content-Type: application/json'),
+            $payload,
+            20,
+            null,
+            true,
+            null
+        ));
+        return $this->interpretGraph($res);
+    }
+
+    /**
+     * Outside the 24h window the policy engine allows a human reply only as
+     * messaging_type MESSAGE_TAG + tag HUMAN_AGENT (up to 7 days). The caller passes that
+     * decision in the message metadata; without it the payload is exactly the legacy
+     * RESPONSE body (key order included), so every existing caller is byte-identical.
+     */
+    protected static function withSendType(array $payload, OutboundMessage $message)
+    {
+        $type = (string) ($message->metadata['messaging_type'] ?? '');
+        $tag  = (string) ($message->metadata['tag'] ?? '');
+        if ($type === 'MESSAGE_TAG' && $tag === 'HUMAN_AGENT') {
+            $payload['messaging_type'] = 'MESSAGE_TAG';
+            $payload['tag'] = 'HUMAN_AGENT';
+        }
+        return $payload;
     }
 
     protected function interpretGraph(HttpResponse $res)
