@@ -31,7 +31,7 @@
     </a>
     <div class="collapse" id="collapseExampleFBA">
       <?php 
-      foreach ($fb_rx_account_switching_info as $key => $value) 
+      foreach (($fb_rx_account_switching_info ?? array()) as $key => $value) 
       {
         $selected='';
         if($key==$this->session->userdata("facebook_rx_fb_user_info")) $selected='d-none';

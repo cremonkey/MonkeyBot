@@ -297,11 +297,58 @@ if (!function_exists('inbox_message_render')) {
      *  - a Send API body for fb/ig media or template sends (Livechat, and Inbox::reply_image),
      *    whose message.attachment.payload.url is the media URL
      *  - '[non-text message]' / '[non-text]', which Whatsapp_bot, Telegram_bot and Openwa_bot log
-     *    for media: those channels send a media id, never a URL, so there is nothing to show
+     *    for media they could not store (and for every media message before the 2026-10-01
+     *    inbound-media migration)
+     *
+     * $media_json is livechat_messages.media_json (wa/tg inbound media, inbound_media_helper): a
+     * stored file under upload/inbox_in/ becomes an attachment (URL = $base_url + path), and a
+     * {"path":null} marker means "media message, file not stored". A placeholder text such as
+     * "[image]" is then not repeated as text.
      *
      * @return array{text:string, attachments:array<int,array{type:string,url:?string}>, media_unavailable:bool}
      */
-    function inbox_message_render($content)
+    function inbox_message_render($content, $media_json = null, $base_url = '')
+    {
+        $out = inbox_message_render_content($content);
+        if ($media_json === null || $media_json === '') return $out;
+        $a = inbox_media_column_attachment($media_json, $base_url);
+        if ($a === null) return $out;
+        if (inbox_text_is_media_placeholder($out['text'])) $out['text'] = '';
+        if ($a['url'] !== null) { $out['attachments'][] = $a; $out['media_unavailable'] = false; }
+        else $out['media_unavailable'] = true;
+        return $out;
+    }
+}
+
+if (!function_exists('inbox_text_is_media_placeholder')) {
+    function inbox_text_is_media_placeholder($text)
+    {
+        $t = trim((string) $text);
+        return in_array($t, array('[non-text message]', '[non-text]', '[media]', '[image]', '[sticker]', '[voice note]', '[audio]', '[video]', '[document]'), true);
+    }
+}
+
+if (!function_exists('inbox_media_column_attachment')) {
+    /**
+     * livechat_messages.media_json -> array{type, url} (url NULL = not stored), or NULL when the
+     * value is not a recognised reference. Only a path the inbound-media helper itself builds
+     * (upload/inbox_in/YYYY/MM/{uid}_{hex}.{allowed ext}) is ever turned into a URL.
+     */
+    function inbox_media_column_attachment($media_json, $base_url)
+    {
+        $j = is_string($media_json) ? json_decode($media_json, true) : null;
+        if (!is_array($j) || !isset($j['type']) || !in_array($j['type'], array('image', 'audio', 'video', 'file'), true)) return null;
+        if (!array_key_exists('path', $j) || $j['path'] === null) return array('type' => $j['type'], 'url' => null);
+        $path = is_string($j['path']) ? $j['path'] : '';
+        if (!preg_match('#^upload/inbox_in/[0-9]{4}/[0-9]{2}/[0-9]+_[a-f0-9]{16,64}\.(jpg|png|webp|gif|ogg|mp3|m4a|aac|amr|wav|mp4|3gp|mov|webm|pdf|docx?|xlsx?|pptx?)$#', $path)) return null;
+        $url = inbox_safe_media_url(rtrim((string) $base_url, '/') . '/' . $path);
+        return $url === null ? null : array('type' => $j['type'], 'url' => $url);
+    }
+}
+
+if (!function_exists('inbox_message_render_content')) {
+    /** inbox_message_render() for message_content alone (the shapes listed there). */
+    function inbox_message_render_content($content)
     {
         $out = array('text' => '', 'attachments' => array(), 'media_unavailable' => false);
         $content = (string) $content;

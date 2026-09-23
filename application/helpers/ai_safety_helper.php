@@ -5,7 +5,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  | AI safety follow-ups (baseline item 17, S-04): the price guard's fail-closed mode.
  |
  | The SPEC-21 judge (ai_verify_price_grounding) returns 'unknown' whenever it cannot
- | decide: no OpenAI key (every Anthropic-only tenant), HTTP error, timeout, empty
+ | decide: no key for the tenant's provider, HTTP error, timeout, empty
  | source, an unreadable verdict. Until now 'unknown' meant "send the reply unchanged",
  | so a broken judge let an invented price reach the customer.
  |
@@ -16,9 +16,10 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  | conversation is flagged for a human. Unset or FALSE (the default) keeps today's
  | behaviour byte for byte and only logs "price_guard: would block ..." at 'error' level.
  |
- | Why not block every 'unknown': the judge always uses OpenAI, so a tenant on Anthropic
- | with no OpenAI key gets 'unknown' on every priced reply. Blocking them all would
- | silence every price answer that is correct and written in the owner's own source.
+ | Why not block every 'unknown': the judge fails open on any outage (either provider,
+ | a missing key, a timeout). Blocking them all would silence every price answer that is
+ | correct and written in the owner's own source. (Until 2026-09-23 the judge always used
+ | OpenAI, so every Anthropic tenant got 'unknown'; it now follows the tenant's provider.)
  */
 
 if (!function_exists('ai_price_guard_fail_closed_enabled')) {

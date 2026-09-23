@@ -193,5 +193,7 @@ if (!function_exists('channel_log_message')) {
             'message_content' => $text, 'conversation_time' => date('Y-m-d H:i:s'),
             'fb_message_id' => '', 'message_status' => 'sent', 'from_business_suite' => '0',
         ));
+        $ci->load->helper('inbox_realtime'); // Unified Inbox realtime; no-op without Pusher, never throws
+        if (function_exists('inbox_realtime_notify')) inbox_realtime_notify($ci, $ci->db->insert_id());
     }
 }

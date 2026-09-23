@@ -408,10 +408,14 @@ if (!function_exists('ai_embed_texts')) {
      * @param int    $user_id Owner user ID (supplies the API key).
      * @param string $api_key Optional key override, for CLI/backfill callers
      *                        that run outside a CodeIgniter request context.
+     * @param int    $status  Out: the HTTP status of the call (0 = no call made or a
+     *                        transport failure). Lets the backfill tell a rate limit
+     *                        (429) or outage (5xx) from a bad key (401) and back off.
      * @return array|false Vectors in input order, or false.
      */
-    function ai_embed_texts($texts = array(), $user_id = 0, $api_key = '')
+    function ai_embed_texts($texts = array(), $user_id = 0, $api_key = '', &$status = null)
     {
+        $status = 0;
         if (empty($texts) || !is_array($texts)) {
             return false;
         }
@@ -461,6 +465,7 @@ if (!function_exists('ai_embed_texts')) {
         $http_code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curl_error = curl_error($ch);
         curl_close($ch);
+        $status = $http_code;
 
         if ($http_code !== 200 || $response === false) {
             log_message('error', 'ai_embed_texts failed: http=' . $http_code . ' curl=' . $curl_error);
@@ -909,6 +914,137 @@ if (!function_exists('ai_embed_source_chunks')) {
     }
 }
 
+if (!function_exists('ai_embedding_backfill')) {
+    /**
+     * Embed every knowledge chunk that has no vector for the current model (SPEC-20 backfill).
+     * Driven by `php index.php cron_hub backfill_embeddings` (CLI only).
+     *
+     * - Keys: ai_openai_key(), so a key stored encrypted ('enc::') is decrypted like every
+     *   other OpenAI call. Embeddings are OpenAI-only; a tenant with no usable OpenAI key is
+     *   skipped and reported (its chunks stay reachable through lexical search).
+     * - Idempotent: selects only chunks lacking a current-model vector; re-run any time.
+     * - Batching: at most 96 texts per embeddings call (the request-path limit), walked by
+     *   chunk id so a batch that fails is not retried forever inside one run.
+     * - Rate limits: 429 / 5xx / transport failure -> exponential back-off and retry (up to
+     *   max_retries); 401/403 -> the tenant's key is bad, skip the rest of that tenant.
+     *   A pause of pause_ms between batches keeps a large backfill under the RPM limit.
+     * - Usage: ai_embed_texts() records every successful call (purpose 'embedding').
+     *
+     * @param array    $opts  dry_run (bool), user_id (int, 0 = all), batch (1..96, default 96),
+     *                        pause_ms (default 250), max_retries (default 4), backoff_s (default 2),
+     *                        embed (callable($texts, $uid, $key, &$status), tests only),
+     *                        sleep (callable($seconds_float), tests only)
+     * @param callable $emit  receives one progress line at a time (never chunk text or keys)
+     * @return array totals: users, pending, embedded, failed, skipped_no_key, retries, calls
+     */
+    function ai_embedding_backfill($opts = array(), $emit = null)
+    {
+        $ci = &get_instance();
+        $emit = is_callable($emit) ? $emit : function ($line) {};
+        $dry = !empty($opts['dry_run']);
+        $only = isset($opts['user_id']) ? (int) $opts['user_id'] : 0;
+        $batch = isset($opts['batch']) ? max(1, min(96, (int) $opts['batch'])) : 96;
+        $pause_ms = isset($opts['pause_ms']) ? max(0, (int) $opts['pause_ms']) : 250;
+        $max_retries = isset($opts['max_retries']) ? max(0, (int) $opts['max_retries']) : 4;
+        $backoff_s = isset($opts['backoff_s']) ? max(0, (float) $opts['backoff_s']) : 2.0;
+        $embed = isset($opts['embed']) && is_callable($opts['embed']) ? $opts['embed']
+            : function ($texts, $uid, $key, &$status) { return ai_embed_texts($texts, $uid, $key, $status); };
+        $sleep = isset($opts['sleep']) && is_callable($opts['sleep']) ? $opts['sleep']
+            : function ($seconds) { if ($seconds > 0) usleep((int) round($seconds * 1000000)); };
+
+        $t = array('users' => 0, 'pending' => 0, 'embedded' => 0, 'failed' => 0, 'skipped_no_key' => 0, 'retries' => 0, 'calls' => 0);
+        if (!is_object($ci) || !$ci->db->table_exists('ai_knowledge_chunks') || !$ci->db->table_exists('ai_knowledge_sources')
+            || !$ci->db->field_exists('embedding', 'ai_knowledge_chunks')) {
+            $emit('KB embedding columns are missing: run php index.php cron_hub migrate first');
+            $t['failed'] = -1;
+            return $t;
+        }
+
+        $pending_sql = "(c.embedding IS NULL OR c.embedding_model IS NULL OR c.embedding_model <> ?)";
+        $sql = "SELECT s.user_id, COUNT(*) AS n FROM ai_knowledge_chunks c
+                INNER JOIN ai_knowledge_sources s ON s.id = c.source_id
+                WHERE {$pending_sql}" . ($only > 0 ? " AND s.user_id = ?" : "") . "
+                GROUP BY s.user_id ORDER BY s.user_id";
+        $binds = array(AI_EMBEDDING_MODEL);
+        if ($only > 0) $binds[] = $only;
+        $users = $ci->db->query($sql, $binds)->result_array();
+
+        foreach ($users as $u) {
+            $uid = (int) $u['user_id'];
+            $n = (int) $u['n'];
+            $t['users']++;
+            $t['pending'] += $n;
+            if ($dry) { $emit("user {$uid}: {$n} chunk(s) need embedding"); continue; }
+
+            $key = ai_openai_key($uid);
+            if ($key === '') {
+                $row = $ci->db->select('open_ai_secret_key')->from('open_ai_config')->where('user_id', $uid)->limit(1)->get()->row_array();
+                $stored = isset($row['open_ai_secret_key']) ? (string) $row['open_ai_secret_key'] : '';
+                $why = strpos($stored, 'enc::') === 0 ? 'OpenAI key is stored encrypted and could not be decrypted (check encryption_key)' : 'no OpenAI key';
+                $emit("user {$uid}: {$why}, skipping {$n} chunk(s)");
+                $t['skipped_no_key'] += $n;
+                continue;
+            }
+
+            $last_id = 0; $done = 0; $bad = 0; $abandon = false;
+            while (!$abandon) {
+                $rows = $ci->db->query(
+                    "SELECT c.id, c.chunk_text FROM ai_knowledge_chunks c
+                      INNER JOIN ai_knowledge_sources s ON s.id = c.source_id
+                      WHERE s.user_id = ? AND c.id > ? AND {$pending_sql}
+                      ORDER BY c.id LIMIT " . (int) $batch,
+                    array($uid, $last_id, AI_EMBEDDING_MODEL)
+                )->result_array();
+                if (empty($rows)) break;
+                $last_id = (int) $rows[count($rows) - 1]['id'];
+
+                $vectors = false;
+                for ($attempt = 0; ; $attempt++) {
+                    $status = 0;
+                    $t['calls']++;
+                    $vectors = $embed(array_column($rows, 'chunk_text'), $uid, $key, $status);
+                    if (is_array($vectors)) break;
+                    $status = (int) $status;
+                    if ($status === 401 || $status === 403) {
+                        $emit("user {$uid}: OpenAI rejected the key (HTTP {$status}), skipping the rest of this tenant");
+                        $abandon = true;
+                        break;
+                    }
+                    $retryable = $status === 0 || $status === 429 || $status >= 500;
+                    if (!$retryable || $attempt >= $max_retries) {
+                        $emit("user {$uid}: batch of " . count($rows) . " failed (HTTP {$status})");
+                        break;
+                    }
+                    $wait = $backoff_s * pow(2, $attempt);
+                    $t['retries']++;
+                    $emit("user {$uid}: HTTP {$status}, retrying in {$wait}s");
+                    $sleep($wait);
+                }
+
+                if (is_array($vectors)) {
+                    foreach ($rows as $i => $r) {
+                        if (!isset($vectors[$i]) || !is_array($vectors[$i]) || empty($vectors[$i])) { $bad++; continue; }
+                        $ci->db->where('id', (int) $r['id'])->update('ai_knowledge_chunks', array(
+                            'embedding' => ai_pack_vector($vectors[$i]),
+                            'embedding_model' => AI_EMBEDDING_MODEL,
+                        ));
+                        $done++;
+                    }
+                } else {
+                    $bad += count($rows);
+                }
+                // Pace full batches only: a short page means this tenant is finished.
+                if (!$abandon && $pause_ms > 0 && count($rows) === $batch) $sleep($pause_ms / 1000);
+            }
+            if ($abandon) $bad = $n - $done;
+            $t['embedded'] += $done;
+            $t['failed'] += $bad;
+            $emit("user {$uid}: embedded {$done}, failed {$bad}");
+        }
+        return $t;
+    }
+}
+
 if (!function_exists('ai_build_knowledge_context')) {
     /**
      * Build a concatenated context string from chunk rows.
@@ -952,6 +1088,15 @@ if (!function_exists('ai_build_knowledge_context')) {
 
 if (!defined('AI_GUARD_MODEL')) {
     define('AI_GUARD_MODEL', 'gpt-4o-mini');
+}
+if (!defined('AI_GUARD_ANTHROPIC_MODEL')) {
+    // The judge for tenants on Anthropic. Same role as AI_GUARD_MODEL: a cheap, fast
+    // classifier, deliberately NOT the tenant's (possibly Sonnet/Opus) reply model.
+    define('AI_GUARD_ANTHROPIC_MODEL', 'claude-haiku-4-5');
+}
+if (!defined('AI_GUARD_TIMEOUT')) {
+    // Seconds. A ~60-token GROUNDED/UNGROUNDED classification that fails open.
+    define('AI_GUARD_TIMEOUT', 8);
 }
 if (!defined('AI_GUARD_MAX_SOURCE_CHARS')) {
     // The judge needs the whole price list, not the retrieved excerpts: when it
@@ -1140,9 +1285,17 @@ if (!function_exists('ai_verify_price_grounding')) {
             return 'ungrounded';
         }
 
-        $api_key = ai_openai_key($user_id);
-        if ($api_key === '') {
-            return 'unknown';
+        // The judge follows the tenant's provider, decided exactly as Ai_provider decides it
+        // (open_ai_config.ai_provider === 'anthropic', anything else is OpenAI). Before this,
+        // the judge always called OpenAI, so every Anthropic tenant got 'unknown'.
+        $judge_cfg = ai_price_judge_config_row($user_id);
+        $provider = ai_price_judge_provider($judge_cfg);
+        $api_key = '';
+        if ($provider === 'openai') {
+            $api_key = ai_openai_key($user_id);
+            if ($api_key === '') {
+                return 'unknown';
+            }
         }
 
         $system = "You audit a sales bot's reply for price grounding. The SOURCE below is the complete, authoritative price list.\n"
@@ -1174,6 +1327,15 @@ if (!function_exists('ai_verify_price_grounding')) {
         if ($context !== '') $user .= "\n\nCONVERSATION SO FAR:\n" . $context;
         $user .= "\n\nCUSTOMER ASKED: " . $question . "\n\nBOT REPLY: " . $reply;
 
+        if ($provider === 'anthropic') {
+            // Same system prompt and user turn as the OpenAI judge, through Ai_provider: it
+            // decrypts the tenant's Anthropic key and logs usage (purpose 'price_judge').
+            return ai_price_judge_verdict(ai_price_judge_anthropic($user_id, $judge_cfg, $system, $user));
+        }
+
+        // OpenAI: this request is unchanged (model, prompt, params, 8s timeout). It does not
+        // go through Ai_provider/Openai_api because that driver adds top_p/penalties, a 30s
+        // timeout and a different JSON encoding.
         $payload = json_encode(array(
             'model' => AI_GUARD_MODEL,
             'temperature' => 0,
@@ -1212,8 +1374,21 @@ if (!function_exists('ai_verify_price_grounding')) {
         if (!function_exists('ai_usage_record')) get_instance()->load->helper('ai_usage');
         ai_usage_record_openai_response($user_id, AI_GUARD_MODEL, 'price_judge', $decoded);
         $verdict = isset($decoded['choices'][0]['message']['content'])
-            ? trim($decoded['choices'][0]['message']['content'])
+            ? $decoded['choices'][0]['message']['content']
             : '';
+        return ai_price_judge_verdict($verdict);
+    }
+}
+
+if (!function_exists('ai_price_judge_verdict')) {
+    /**
+     * The judge's verdict contract, shared by both providers: the model's raw text in,
+     * 'grounded' | 'ungrounded' | 'unknown' out. Strict: the text must START with
+     * GROUNDED or UNGROUNDED (after trimming), anything else is 'unknown' (fail open).
+     */
+    function ai_price_judge_verdict($text)
+    {
+        $verdict = is_string($text) ? trim($text) : '';
         if ($verdict === '') {
             return 'unknown';
         }
@@ -1250,6 +1425,62 @@ if (!function_exists('ai_verify_price_grounding')) {
             return 'grounded';
         }
         return 'unknown';
+    }
+}
+
+if (!function_exists('ai_price_judge_provider')) {
+    /** 'anthropic' when the tenant's open_ai_config row says so, else 'openai' (as Ai_provider). */
+    function ai_price_judge_provider($row)
+    {
+        $row = (array) $row;
+        return (isset($row['ai_provider']) && $row['ai_provider'] === 'anthropic') ? 'anthropic' : 'openai';
+    }
+}
+
+if (!function_exists('ai_price_judge_config_row')) {
+    /** The tenant's open_ai_config row, or array() when there is none. */
+    function ai_price_judge_config_row($user_id)
+    {
+        $ci = &get_instance();
+        $user_id = (int) $user_id;
+        if ($user_id <= 0 || !is_object($ci) || !isset($ci->db)) return array();
+        $row = $ci->db->select('*')->from('open_ai_config')->where('user_id', $user_id)->limit(1)->get()->row_array();
+        return is_array($row) ? $row : array();
+    }
+}
+
+if (!function_exists('ai_price_judge_anthropic')) {
+    /**
+     * Run the judge on Anthropic through Ai_provider. Returns the model's raw text, or ''
+     * on any failure (no key, HTTP/transport error, empty answer) so the caller fails open.
+     */
+    function ai_price_judge_anthropic($user_id, $row, $system, $user)
+    {
+        $ci = &get_instance();
+        $row = (array) $row;
+        if (empty($row)) return '';
+        $row['user_id'] = (int) $user_id;          // usage is billed to this tenant
+        $row['ai_tools_enabled'] = '0';            // a classifier never calls tools
+        try {
+            $ci->load->library('Ai_provider');
+            $raw = $ci->ai_provider->completion($row, array(array('role' => 'user', 'content' => $user)), array(
+                'model' => AI_GUARD_ANTHROPIC_MODEL,
+                'system' => $system,
+                'temperature' => 0,
+                'max_tokens' => 60,
+                'timeout' => AI_GUARD_TIMEOUT,
+                'purpose' => 'price_judge',
+            ));
+        } catch (Throwable $e) {
+            log_message('error', 'ai_verify_price_grounding: anthropic threw: ' . $e->getMessage());
+            return '';
+        }
+        $dec = json_decode((string) $raw, true);
+        if (!is_array($dec) || isset($dec['error'])) {
+            log_message('error', 'ai_verify_price_grounding: anthropic error: ' . (is_array($dec) && isset($dec['error']['message']) ? $dec['error']['message'] : 'unreadable response'));
+            return '';
+        }
+        return isset($dec['choices'][0]['text']) && is_string($dec['choices'][0]['text']) ? $dec['choices'][0]['text'] : '';
     }
 }
 

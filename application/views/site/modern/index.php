@@ -589,6 +589,9 @@ Description: monkey bot front-end theme — professional AI sales assistant land
 										        <li>
 										            <i class="fas fa-circle"></i>&nbsp;
 										            <?php 
+										                if(!is_array($monthly_limit) || !isset($monthly_limit[$row["id"]])) { // no limit stored for this module (e.g. 401..411): name only
+										                    echo $this->lang->line($row["module_name"])."<br>";
+										                } else {
 										                $limit=0;
 										                $limit=$monthly_limit[$row["id"]];
 										                if($limit=="0") $limit2="<b>".$this->lang->line("unlimited")."</b>";
@@ -598,6 +601,7 @@ Description: monkey bot front-end theme — professional AI sales assistant land
 										                echo $this->lang->line($row["module_name"]);
 
 										                echo " : <b>". $limit2."</b>"."<br>";
+										                }
 										            ?>
 										        </li>
 										    <?php endforeach; ?>

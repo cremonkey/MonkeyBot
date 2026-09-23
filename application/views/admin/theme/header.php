@@ -89,7 +89,7 @@ $selected_global_media_type = $this->using_media_type;
           <div class="dropdown-menu dropdown-menu-right acount-switch-lists">
             <div class="dropdown-title"><?php echo $this->lang->line("Interact as"); ?></div>               
             <?php 
-              foreach ($fb_rx_account_switching_info as $key => $value) 
+              foreach (($fb_rx_account_switching_info ?? array()) as $key => $value) 
               {              
                 echo '<a href="" data-id="'.$key.'" class="dropdown-item account_switch"><i class="fas fa-check-circle text-primary"></i> '.$value['name'].'</a>';
               } 

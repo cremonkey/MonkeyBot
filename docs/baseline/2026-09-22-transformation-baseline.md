@@ -801,7 +801,10 @@ traffic, not a development task.
 | 17c cost | `Ai_provider` tool loops (every tool-enabled reply) were not logged at all: every round is now logged. Integration health check logged as `health_check`, not `chat_reply`. Preview accounted via `Ai_provider`. `backfill_kb_embeddings.php` no longer dies on `get_instance()` after the first batch and records its embeddings. | Implemented, unit-tested |
 | 18 KB ownership | Every by-id statement in the KB module, Missed_questions, Ai_improvement and Onboarding is tenant-scoped (static sweep in `tests/ai_safety`). `toggle_status_action` now refuses a foreign id instead of answering "Status updated". | Audited, one fix |
 
-Still open: `backfill_kb_embeddings.php` reads the stored `open_ai_secret_key` without `secret_decrypt` (S-04), so it cannot embed for tenants whose key is `enc::`.
+Closed on `feat/price-judge-provider` (2026-09-23):
+
+- The price judge follows the tenant's provider. `ai_verify_price_grounding()` sends Anthropic tenants to `claude-haiku-4-5` through `Ai_provider` (decrypted Anthropic key, 8s timeout, temperature 0, usage purpose `price_judge`) with the same prompt and the same verdict parsing (`ai_price_judge_verdict()`). The OpenAI request is unchanged. Anthropic tenants no longer get `unknown` on every priced reply.
+- The embedding backfill is a CodeIgniter CLI command, `php index.php cron_hub backfill_embeddings [--dry-run] [--user N]`, which decrypts `enc::` keys, backs off on 429/5xx and records usage. `backfill_kb_embeddings.php` is deprecated and says so. See `docs/runbooks/kb-embeddings-backfill.md`.
 
 ### Deferred-items round (2026-09-23)
 Built, merged into `release/9.x-integration` and verified together:
@@ -825,3 +828,27 @@ Open, needs the owner: Facebook/Instagram inbound stopped on 2026-09-19 (app-lev
 subscriptions are enabled; page-level `subscribed_apps` or page tokens need checking); webhook
 signature enforcement cannot be evaluated until Meta traffic arrives (no counters yet); S-14
 charset; GitHub push.
+
+### Follow-up round (2026-09-23, later)
+| Item | Status |
+|---|---|
+| Comment auto-reply private messages recorded in livechat_messages → visible in the Unified Inbox (+ internal note with the public comment/reply) | Verified |
+| Inbound media stored for WhatsApp Cloud + Telegram (`livechat_messages.media_json`, migration 2026-10-01); OpenWA gateway sends no file (needs a gateway route) | Verified |
+| Price-grounding judge follows the tenant's provider (Anthropic → claude-haiku-4-5; OpenAI byte-identical) | Verified |
+| `cron_hub backfill_embeddings` CLI (decrypts enc:: keys) | Verified |
+| Realtime Unified Inbox (private per-tenant Pusher channel, ids only) + 20s visible-tab polling fallback | Verified; Pusher is not configured in production, so production gets the polling |
+| Log noise: account-switcher and package-module warnings | Verified |
+| Telegram voice transcription only when the bot's AI is on | Verified |
+
+Regression: unit 1,358; shared staging 571; isolated stacks (media 53, inbox 105, realtime 30) 188.
+**2,117 passed, 0 failed.**
+
+Open findings:
+- **Livechat's Pusher channel is public and install-wide and carries message content** (pre-existing).
+  Harmless today (Pusher unconfigured); must be fixed before anyone configures Pusher.
+- **S-14 charset:** switching only the connection to utf8mb4 is unsafe — 105 tables are still utf8mb3
+  and a utf8mb4 literal with a 4-byte char against a utf8mb3 column raises "Illegal mix of
+  collations". Converting only mb3→mb4_general_ci then collides mb4_general vs mb4_unicode column
+  comparisons (reproduced: cron_hub run, backfill_conversations). The safe fix is converting every
+  mb3/mb4_general text column to utf8mb4_unicode_ci (per column, latin1 untouched), rehearsed on a
+  restored production backup, then switching the connection. Awaiting owner approval.

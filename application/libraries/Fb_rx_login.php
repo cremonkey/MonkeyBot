@@ -1055,6 +1055,9 @@ class Fb_rx_login
 		$result = json_decode($st, TRUE);
 		if (!is_array($result)) return array("error" => array("message" => "Unreadable Graph response: " . substr((string) $st, 0, 200)));
 		if (isset($result['message_id']) && !isset($result['id'])) $result['id'] = $result['message_id'];
+		// Unified Inbox: remember the sent private reply; the caller logs it after its report row
+		// (application/helpers/comment_private_reply_helper.php). Never affects the send result.
+		try { $CI =& get_instance(); $CI->load->helper('comment_private_reply'); cpr_buffer_capture($payload, $result); } catch (\Throwable $e) {}
 		return $result;
 	}
 

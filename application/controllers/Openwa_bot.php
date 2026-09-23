@@ -450,7 +450,18 @@ class Openwa_bot extends Messenger_bot
             echo json_encode(array('ok'=>true));
             if (function_exists('fastcgi_finish_request')) @fastcgi_finish_request();
 
-            $this->log_msg($acc['user_id'], $subscribe_id, (int)$acc['id'], 'user', $text !== '' ? $text : '[non-text]');
+            // media: the gateway forwards the message type and caption but no file and no download
+            // route, so the row only records that the file is not stored (inbound_media_helper).
+            $media_json = null; $ext_id = '';
+            $this->load->helper('inbound_media');
+            $mi = inbound_media_extract_openwa($data);
+            if ($mi !== null && inbound_media_ready()) {
+                $ext_id = isset($data['id']) && is_scalar($data['id']) ? (string)$data['id'] : '';
+                if (inbound_media_seen('wa', $acc['user_id'], (int)$acc['id'], $subscribe_id, $ext_id)) return; // redelivery
+                $media_json = inbound_media_json($mi['kind'], null);
+            }
+
+            $this->log_msg($acc['user_id'], $subscribe_id, (int)$acc['id'], 'user', $text !== '' ? $text : '[non-text]', $ext_id, $media_json);
 
             if ($acc['bot_enabled'] !== '1') return;
 
@@ -783,9 +794,9 @@ class Openwa_bot extends Messenger_bot
         return $fallback;
     }
 
-    private function log_msg($user_id, $wa_id, $account_id, $sender, $content)
+    private function log_msg($user_id, $wa_id, $account_id, $sender, $content, $ext_id = '', $media_json = null)
     {
-        $this->basic->insert_data('livechat_messages', array(
+        $row = array(
             'user_id' => $user_id,
             'subscriber_id' => $wa_id,
             'page_table_id' => $account_id,
@@ -795,9 +806,12 @@ class Openwa_bot extends Messenger_bot
             'agent_name' => ($sender === 'bot' ? 'Bot' : ''),
             'message_content' => $content,
             'conversation_time' => date('Y-m-d H:i:s'),
-            'fb_message_id' => '',
+            'fb_message_id' => (string)$ext_id,
             'message_status' => 'sent',
             'from_business_suite' => '0',
-        ));
+        );
+        if ($media_json !== null) $row['media_json'] = $media_json; // only set once the column exists
+        $this->basic->insert_data('livechat_messages', $row);
+        $this->load->helper('inbox_realtime'); inbox_realtime_notify($this, $this->db->insert_id());
     }
 }

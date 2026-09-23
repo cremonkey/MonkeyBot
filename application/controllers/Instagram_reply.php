@@ -2574,6 +2574,26 @@ class Instagram_reply extends Home
     }
 
     
+    /** Unified Inbox: note every comment private reply sent through Home::send_reply(). */
+    protected function send_reply($access_token = '', $reply = '')
+    {
+        $result = parent::send_reply($access_token, $reply);
+        try { $this->load->helper('comment_private_reply'); cpr_buffer_capture($reply, $result); } catch (\Throwable $e) {}
+        return $result;
+    }
+
+    /** Unified Inbox: writes this request's sent private replies to livechat_messages. Never throws.
+     *  See application/helpers/comment_private_reply_helper.php. */
+    private function cpr_log_private_replies($user_id, $page_table_id, $fb_page_id, $token, $report, $fallback_psid = '')
+    {
+        try {
+            $this->load->helper('comment_private_reply');
+            cpr_flush($this, array('platform' => 'ig', 'user_id' => $user_id, 'page_table_id' => $page_table_id,
+                'fb_page_id' => $fb_page_id, 'token' => $token, 'report' => is_array($report) ? $report : array(),
+                'fallback_psid' => (string) $fallback_psid));
+        } catch (\Throwable $e) {}
+    }
+
     public function webhook_callback()
     {  
       $instagram_reply_enable_disable = $this->config->item('instagram_reply_enable_disable');
@@ -2950,6 +2970,7 @@ class Instagram_reply extends Home
                     catch (Exception $e) {
                     }
                 }
+                $this->cpr_log_private_replies($mentions_autoreply_info[0]['user_id'], $mentions_autoreply_info[0]['page_info_table_id'], $mentions_autoreply_info[0]['page_id'], $page_access_token, $insert_data);
              }
           }
         } // end of if exist condition
@@ -3329,6 +3350,7 @@ class Instagram_reply extends Home
                                     catch (Exception $e) {
                                     }
 
+                                    $this->cpr_log_private_replies($user_id, $page_table_id, $fb_page_id, $page_access_token, $insert_data);
                                     $is_delete = 1;
                                     break;
                                 } catch (Exception $e) {
@@ -3652,6 +3674,7 @@ class Instagram_reply extends Home
 
                       }
                     }
+                    $this->cpr_log_private_replies($user_id, $page_table_id, $fb_page_id, $page_access_token, $insert_data_comment, $message_id != '' ? ($subscriber_id ?? '') : '');
 
 
                }

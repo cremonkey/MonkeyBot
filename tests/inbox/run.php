@@ -18,6 +18,7 @@ require __DIR__ . '/../../application/helpers/reengage_helper.php';
 require __DIR__ . '/../../application/helpers/channel_policy_helper.php';
 require __DIR__ . '/../../application/helpers/inbox_helper.php';
 require __DIR__ . '/../../application/helpers/conversation_helper.php';
+require __DIR__ . '/../../application/helpers/inbox_realtime_helper.php';
 
 $pass = 0; $fail = 0;
 function ok($name) { global $pass; $pass++; echo "PASS  $name\n"; }
@@ -384,6 +385,118 @@ check('wa: Cloud account id OR OpenWA session id (both writers use social_media=
 check('web: every web conversation has channel_account_id 0, whatever the widget key', conversation_ai_history_lookup('web', 'wk_3f9a'), array('platform' => 'web', 'mode' => 'fixed', 'value' => '0'));
 check('empty page_id (comment replies without a page) resolves nothing', conversation_ai_history_lookup('fb', ''), null);
 check('unknown channel resolves nothing', conversation_ai_history_lookup('tiktok', '1'), null);
+
+
+// ============================================================================================
+echo "\n== realtime (Pusher): settings, channel auth tenant isolation, payload, publish safety ==\n";
+
+$cfg_on = array('pusher_app_id' => '1', 'pusher_app_key' => 'k3y', 'pusher_app_secret' => 's3cret', 'pusher_cluster' => 'eu', 'encryption_key' => 'install-A');
+check('realtime off when Pusher is not configured (stock config/pusher.php: empty strings)',
+    inbox_realtime_settings(array('pusher_app_id' => '', 'pusher_app_key' => '', 'pusher_app_secret' => '', 'pusher_cluster' => '')), null);
+check('realtime off when only the key is set (publishing would fail; the page must not try)', inbox_realtime_settings(array('pusher_app_key' => 'k')), null);
+check('realtime off with the kill switch inbox_realtime_enabled === FALSE', inbox_realtime_settings($cfg_on + array('inbox_realtime_enabled' => false)), null);
+$S = inbox_realtime_settings($cfg_on);
+check('realtime on when app id + key + secret are set', is_array($S) && $S['key'] === 'k3y' && $S['cluster'] === 'eu', true);
+check('publish timeout defaults to 2s', $S['timeout'], 2.0);
+check('publish timeout is clamped (a 30s setting cannot stall a webhook)', inbox_realtime_settings($cfg_on + array('inbox_realtime_timeout' => 30))['timeout'], 2.0);
+check('publish timeout honours a short setting', inbox_realtime_settings($cfg_on + array('inbox_realtime_timeout' => '0.8'))['timeout'], 0.8);
+check('namespace differs per install (two installs sharing one Pusher app never share channels)',
+    inbox_realtime_settings(array('encryption_key' => 'install-B') + $cfg_on)['ns'] !== $S['ns'], true);
+
+$chA = inbox_realtime_channel_name(7, $S['ns']); $chB = inbox_realtime_channel_name(8, $S['ns']);
+check('channel is private and per tenant', strpos($chA, 'private-inbox-') === 0 && $chA !== $chB, true);
+check('channel name only carries Pusher-safe characters', preg_match('/^[A-Za-z0-9_\-=@,.;]+$/', inbox_realtime_channel_name(7, "a b/<x>")) === 1, true);
+
+// signature: the Pusher documentation's own worked example (pusher.com/docs/channels/library_auth_reference/auth-signatures)
+check('signature matches the Pusher auth-signature reference vector',
+    inbox_realtime_sign('278d425bdf160c739803', '7ad3773142a6692b25b8', '1234.1234', 'private-foobar'),
+    '278d425bdf160c739803:58df8b0c36d6982b82c3ecf6b4662e34fe8c25bba48f5369f135bf843651c3a4');
+
+$a = inbox_realtime_authorize(7, $chA, '123.456', $S);
+check('tenant 7 may subscribe to its own channel', is_array($a) && $a['auth'] === inbox_realtime_sign('k3y', 's3cret', '123.456', $chA), true);
+check('tenant 7 may NOT subscribe to tenant 8\'s channel', inbox_realtime_authorize(7, $chB, '123.456', $S), null);
+check('tenant 8 may NOT subscribe to tenant 7\'s channel', inbox_realtime_authorize(8, $chA, '123.456', $S), null);
+check('another install\'s channel for the same user id is refused', inbox_realtime_authorize(7, inbox_realtime_channel_name(7, 'otherns'), '123.456', $S), null);
+check('the public Livechat channel is refused', inbox_realtime_authorize(7, 'livechat_channel', '123.456', $S), null);
+check('a presence- twin of the own channel is refused', inbox_realtime_authorize(7, str_replace('private-', 'presence-', $chA), '123.456', $S), null);
+check('own channel with a suffix is refused (no prefix match)', inbox_realtime_authorize(7, $chA . '0', '123.456', $S), null);
+check('tenant 70 cannot use tenant 7\'s channel and vice versa', inbox_realtime_authorize(70, $chA, '123.456', $S), null);
+check('no tenant (0) is refused', inbox_realtime_authorize(0, inbox_realtime_channel_name(0, $S['ns']), '123.456', $S), null);
+check('malformed socket id is refused (no signing of attacker-shaped strings)', inbox_realtime_authorize(7, $chA, '123.456:' . $chB, $S), null);
+check('empty socket id is refused', inbox_realtime_authorize(7, $chA, '', $S), null);
+check('realtime off -> nothing is authorized', inbox_realtime_authorize(7, $chA, '123.456', null), null);
+check('array input cannot confuse the check', inbox_realtime_authorize(7, array($chA), '123.456', $S), null);
+
+// REST publish request: vector cross-checked once against vendor/pusher 7.2.6
+// (Pusher::build_auth_query_params + make_trigger_batch_body give the identical body and signature).
+$req = inbox_realtime_batch_request(array('app_id' => '42', 'key' => 'k3y', 'secret' => 's3cret', 'cluster' => 'eu', 'host' => '', 'port' => 0, 'scheme' => ''),
+    array(array('channel' => 'private-inbox-abc-7', 'name' => 'message', 'data' => array('conversation_id' => 41, 'message_id' => 101, 'sender' => 'bot'))), 1700000000);
+check('publish body is the Pusher batch_events shape', $req['body'],
+    '{"batch":[{"name":"message","data":"{\\"conversation_id\\":41,\\"message_id\\":101,\\"sender\\":\\"bot\\"}","channel":"private-inbox-abc-7"}]}');
+check('publish URL: cluster host, signed exactly like the Pusher library', $req['url'],
+    'https://api-eu.pusher.com:443/apps/42/batch_events?auth_key=k3y&auth_timestamp=1700000000&auth_version=1.0&body_md5=07fe1c97738a1fdf5affb49bfc0db1de&auth_signature=1752e6428a701b2e8922b06f9ecd3e9f70fd80d966596139b33597b2ab0a2ae0');
+$req2 = inbox_realtime_batch_request(array('app_id' => '1', 'key' => 'k', 'secret' => 's', 'cluster' => '', 'host' => 'fakepusher', 'port' => 8080, 'scheme' => 'http'), array(), 1);
+check('publish URL honours pusher_host/port/scheme (self-hosted or test endpoint)', strpos($req2['url'], 'http://fakepusher:8080/apps/1/batch_events?'), 0);
+
+$p = inbox_realtime_event_payload('41', '9001', 'user');
+check('event payload is ids + direction only (no message content)', array_keys($p), array('conversation_id', 'message_id', 'sender'));
+check('unknown sender normalized', inbox_realtime_event_payload(1, 2, '<b>')['sender'], 'user');
+
+$queue = array(
+    array('user_id' => 7, 'conversation_id' => 41, 'message_id' => 100, 'sender' => 'user', 'message_content' => 'secret text'),
+    array('user_id' => 7, 'conversation_id' => 41, 'message_id' => 101, 'sender' => 'bot'),
+    array('user_id' => 8, 'conversation_id' => 55, 'message_id' => 102, 'sender' => 'user'),
+    array('user_id' => 8, 'conversation_id' => 0, 'message_id' => 103, 'sender' => 'user'),
+);
+$batches = inbox_realtime_batch($queue, $S['ns']);
+check('one event per conversation; unlinked rows (conversation 0) skipped', count($batches[0]), 2);
+check('conversation 41 goes to tenant 7\'s channel only, newest message wins', $batches[0][0], array('channel' => $chA, 'name' => 'message',
+    'data' => array('conversation_id' => 41, 'message_id' => 101, 'sender' => 'bot')));
+check('conversation 55 goes to tenant 8\'s channel only', $batches[0][1]['channel'], $chB);
+check('no event anywhere carries message content', strpos(json_encode($batches), 'secret text'), false);
+$many = array(); for ($i = 1; $i <= 23; $i++) $many[] = array('user_id' => 7, 'conversation_id' => $i, 'message_id' => $i, 'sender' => 'user');
+check('batches are chunked at 10 (Pusher batch limit)', array_map('count', inbox_realtime_batch($many, $S['ns'])), array(10, 10, 3));
+
+// publish safety: flush never throws, and after one failure stops trying for the request
+$st = &inbox_realtime_queue();
+$sent = array();
+$st['transport'] = function ($b) use (&$sent) { $sent[] = $b; };
+$st['queue'] = $queue;
+inbox_realtime_flush($S);
+check('flush sends the batch through the transport and empties the queue', count($sent) === 1 && $st['queue'] === array(), true);
+$st['transport'] = function ($b) { throw new RuntimeException('pusher timed out'); };
+$st['queue'] = $queue;
+$threw = false; try { inbox_realtime_flush($S); } catch (\Throwable $e) { $threw = true; }
+check('a Pusher failure/timeout never reaches the caller', $threw, false);
+check('...and marks realtime broken for the rest of the request', $st['broken'], true);
+$calls = 0; $st['transport'] = function ($b) use (&$calls) { $calls++; };
+$st['queue'] = $queue; inbox_realtime_flush($S);
+check('...so later messages in the same request do not wait on Pusher again', $calls, 0);
+$st['broken'] = false; $st['transport'] = null; $st['queue'] = array();
+$st['queue'] = $queue; inbox_realtime_flush(null);
+check('flush with realtime off is a no-op', $st['queue'], array());
+
+check('poll intervals default to 20s (no realtime) / 90s (realtime connected)', inbox_realtime_poll_intervals(null, null), array(20, 90));
+check('poll intervals have floors (5s / 15s)', inbox_realtime_poll_intervals(1, 2), array(5, 15));
+
+// wiring (static): every place that writes livechat_messages publishes right after the insert,
+// so no channel (fb, ig, wa cloud, openwa, tg, web, inbox replies, system rows) is left polling-only.
+$root = dirname(__DIR__, 2);
+$sites = 0; $unwired = array();
+foreach (array_merge(glob($root . '/application/controllers/*.php'), glob($root . '/application/helpers/*.php')) as $f) {
+    $lines = file($f);
+    foreach ($lines as $n => $line) {
+        if (!preg_match('/insert(_data)?\(\s*[\'"]livechat_messages[\'"]/', $line)) continue;
+        $sites++;
+        $window = implode("", array_slice($lines, $n, 20));
+        if (strpos($window, 'inbox_realtime_notify(') === false) $unwired[] = basename($f) . ':' . ($n + 1);
+    }
+}
+check('found every livechat_messages writer (9 today)', $sites, 9);
+check('every livechat_messages insert is followed by inbox_realtime_notify()', $unwired, array());
+$inbox = file_get_contents($root . '/application/controllers/Inbox.php');
+check('Inbox::realtime_auth checks CSRF and authorizes only $this->uid', strpos($inbox, 'csrf_token_check(true)') !== false
+    && strpos($inbox, 'inbox_realtime_authorize($this->uid,') !== false, true);
 
 echo "\n== $pass passed, $fail failed ==\n";
 exit($fail === 0 ? 0 : 1);

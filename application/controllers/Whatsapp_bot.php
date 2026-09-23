@@ -21,6 +21,7 @@ class Whatsapp_bot extends Home
         }
         $this->load->library('Whatsapp_api');
         $this->load->helper('secret');
+        $this->load->helper('inbound_media');
     }
 
     public function index()
@@ -107,17 +108,30 @@ class Whatsapp_bot extends Home
                         if ($from === '') continue;
                         $text = isset($m['text']['body']) ? $m['text']['body'] : '';
 
+                        // media: store the file for the inbox (inbound_media_helper). Skipped, as
+                        // before, until the 2026-10-01-inbound-media migration has run.
+                        $media = null; $media_json = null; $ext_id = '';
+                        $mi = inbound_media_extract_wa_cloud($m);
+                        if ($mi !== null && inbound_media_ready()) {
+                            $ext_id = isset($m['id']) && is_scalar($m['id']) ? (string) $m['id'] : '';
+                            if (inbound_media_seen('wa', $acc['user_id'], $account_id, $from, $ext_id)) continue; // webhook retry
+                            $media = inbound_media_capture_wa_cloud($acc['user_id'], $mi, $token);
+                            $media_json = inbound_media_json($mi['kind'], $media['media']);
+                        }
+
                         // voice notes: transcribe so the AI answers them like text
                         if ($text === '' && isset($m['type']) && in_array($m['type'], array('audio', 'voice')) && !empty($m['audio']['id'])) {
                             $this->load->helper('ai_voice');
-                            $media_url = wa_media_url($m['audio']['id'], $token);
+                            $media_url = !empty($media['source_url']) ? $media['source_url'] : wa_media_url($m['audio']['id'], $token);
                             if ($media_url !== '') {
                                 $voice_text = ai_transcribe_audio($acc['user_id'], $media_url, $token);
                                 if ($voice_text !== false && $voice_text !== '') $text = $voice_text;
                             }
                         }
 
-                        $this->log_msg($acc['user_id'], $from, $account_id, 'user', $text !== '' ? $text : '[non-text message]');
+                        if ($text === '' && $mi !== null && $media !== null) $text = $mi['caption']; // the AI answers a caption like text
+                        $content = $text !== '' ? $text : (!empty($media['ok']) ? inbound_media_placeholder($mi['label']) : '[non-text message]');
+                        $this->log_msg($acc['user_id'], $from, $account_id, 'user', $content, $ext_id, $media_json);
 
                         $paused = $this->basic->get_data('messenger_bot_subscriber', ['where'=>['subscribe_id'=>$from,'social_media'=>'wa']], ['bot_paused_until'], '', 1);
                         $is_paused = isset($paused[0]['bot_paused_until']) && $paused[0]['bot_paused_until'] !== null && $paused[0]['bot_paused_until'] > date('Y-m-d H:i:s');
@@ -140,13 +154,16 @@ class Whatsapp_bot extends Home
         }
     }
 
-    private function log_msg($user_id, $wa_id, $account_id, $sender, $content)
+    private function log_msg($user_id, $wa_id, $account_id, $sender, $content, $ext_id = '', $media_json = null)
     {
-        $this->basic->insert_data('livechat_messages', array(
+        $row = array(
             'user_id'=>$user_id, 'subscriber_id'=>$wa_id, 'page_table_id'=>$account_id, 'fb_page_id'=>'',
             'sender'=>$sender, 'platform'=>'wa', 'agent_name'=>($sender=='bot'?'Bot':''),
             'message_content'=>$content, 'conversation_time'=>date('Y-m-d H:i:s'),
-            'fb_message_id'=>'', 'message_status'=>'sent', 'from_business_suite'=>'0',
-        ));
+            'fb_message_id'=>(string) $ext_id, 'message_status'=>'sent', 'from_business_suite'=>'0',
+        );
+        if ($media_json !== null) $row['media_json'] = $media_json; // only set once the column exists
+        $this->basic->insert_data('livechat_messages', $row);
+        $this->load->helper('inbox_realtime'); inbox_realtime_notify($this, $this->db->insert_id());
     }
 }

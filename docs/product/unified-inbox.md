@@ -222,9 +222,10 @@ and never changes it.
   replies below) are Send API bodies. The `http(s)` attachment URLs in both are shown as an
   image, video, audio or file link. Any other scheme (`javascript:`, `data:`,
   scheme-relative) is dropped, and the browser escapes the URL again.
-- WhatsApp Cloud, Telegram and OpenWA only ever log `[non-text message]` for media. Those
-  channels deliver a media *id*, never a URL (see `docs/channels/adapters.md`), so the bubble says
-  the file is not stored instead of inventing one.
+- WhatsApp Cloud, Telegram and OpenWA deliver a media *id*, never a URL (see
+  `docs/channels/adapters.md`). Since the inbound-media follow-up (below), WhatsApp Cloud and
+  Telegram download and store the file, and the thread shows it from `livechat_messages.media_json`.
+  When no file is stored, the bubble says so instead of inventing a URL.
 - The list preview uses the same parser, so it no longer shows raw webhook JSON.
 
 **Image replies.** `reply_image` (multipart, CSRF, module 411) runs these checks in order:
@@ -250,6 +251,55 @@ and never changes it.
 
 The attach button appears only when the thread says `can_send_image`. Captions, and video,
 audio and file sends, are not built.
+
+## Inbound media (follow-up)
+
+Webhooks: `Whatsapp_bot`, `Telegram_bot` and `Openwa_bot`. Helper: `application/helpers/inbound_media_helper.php`.
+Migration: `2026-10-01-inbound-media.sql` adds the nullable `livechat_messages.media_json`.
+
+| Channel | What happens to an inbound image / voice note / audio / video / document / sticker |
+|---|---|
+| WhatsApp Cloud | `GET graph_url_group('reads')/{media-id}` with the account token returns the short-lived URL. That URL is downloaded with the same token. |
+| Telegram | `getFile`, then `/file/bot{token}/{file_path}`. The photo is the largest size under the cap. Animated `.tgs` stickers are not stored. |
+| OpenWA | The gateway (`/opt/evolution/extensions`, `openwaCompat`) forwards only the message type and the caption. It has no file and no download route, so the row records "media, file not stored". Storing these files needs a gateway route, for example over Evolution's `getBase64FromMediaMessage`. |
+
+- **Storage.** Files go to `upload/inbox_in/YYYY/MM/{user_id}_{24 hex}.{ext}`. The extension comes
+  from the type detected from the bytes (`finfo`). The provider's MIME type only tells apart
+  containers `finfo` cannot: m4a vs mp4, OOXML vs zip, and old Office files. The sender's file name
+  is never used.
+- **Allowed types.** JPEG, PNG, WebP and GIF images; ogg/opus, mp3, m4a, aac, amr and wav audio;
+  mp4, 3gp, mov and webm video; pdf, doc(x), xls(x) and ppt(x). Anything else, and any file
+  carrying `<?php` (or, for images, HTML or script), is refused.
+- **Limits.** The cap is the config item `inbound_media_max_bytes` (default 16 MB, clamped to
+  1 KB to 64 MB). It is checked against the declared size, during the download and on the result.
+  Each request uses the config item `inbound_media_timeout` (default 8 s, at most 30 s) and a 3 s
+  connect timeout. Only HTTPS is used.
+- **Row.** `message_content` stays readable: the caption, the Whisper transcript (WhatsApp Cloud
+  as before, and now Telegram voice or audio when the tenant has an OpenAI key), or `[image]`,
+  `[voice note]`, `[audio]`, `[video]`, `[document]` or `[sticker]`. `media_json` holds
+  `{"type","path","mime","size"}`. `fb_message_id` holds the provider id: the wamid,
+  `{chat_id}:{message_id}` (edits add `:e{edit_date}`), or the OpenWA id.
+- **Failure.** Any failure (provider error, timeout, too large, type refused) logs one line at
+  `error` level, without the token. It stores `[non-text message]` (or the caption) and
+  `{"type":…,"path":null}`. The webhook still answers 200.
+- **Retries.** A media message whose provider id is already logged for that
+  tenant/channel/account/sender is skipped: no second row, no second download and no second AI
+  reply. Text messages are unchanged.
+- **AI.** An image-only message is not sent to the AI, as before. A caption is now answered like
+  text, which is what OpenWA already did because the gateway puts the caption in `body`.
+- **Before the migration.** The webhooks check `field_exists` and behave exactly as before:
+  nothing is downloaded and the row is `[non-text message]`. `Inbox::conversation_thread` does
+  not select the column.
+- **Rendering.** `inbox_message_render($content, $media_json, base_url())` turns only a path of
+  exactly the shape above into an http(s) URL. The URL is then escaped in the browser as before.
+  An image is shown inline, audio and video get players, and other files get a download link.
+- **Visibility.** Files live on the `app_upload` volume like Livechat's and the image replies. Like
+  those, they are served statically at an unguessable URL, not behind the login.
+
+Tests: `tests/inbound_media/run.php` (fake transports) and
+`docker/scripts/staging_inbound_media_tests.sh` on `docker-compose.media-test.yml`. That stack runs
+a fake Graph/Telegram provider behind a throwaway-CA TLS proxy that answers as
+`graph.facebook.com` and `api.telegram.org` inside the project network only.
 
 ## AI suggested reply (follow-up)
 
@@ -280,14 +330,51 @@ audio and file sends, are not built.
 - **No new model call.** This is what the AI already produced. In AI_ACTIVE the bot has usually
   sent that reply already, and the card makes it reusable after a takeover.
 
+## Realtime (Pusher) (follow-up)
+
+The v1 page did **not** actually poll: the list and thread only reloaded on an agent action.
+This follow-up adds live updates plus an auto-refresh fallback.
+
+- **Event.** After every `livechat_messages` insert (the BEFORE INSERT trigger has already set
+  `conversation_id`), `inbox_realtime_notify()` (`application/helpers/inbox_realtime_helper.php`)
+  publishes `{conversation_id, message_id, sender}` — ids only, never message content — as event
+  `message` on the tenant's PRIVATE channel `private-inbox-<ns>-<tenant user_id>`. `<ns>` is
+  derived from the install's `encryption_key`, so two installs sharing one Pusher app never share
+  a channel. One event per conversation per request (bursts coalesce).
+- **Where it is called.** All eight writers, one line each: `Home::insert_livechat_data` (fb/ig
+  in and out, Livechat), `Home::system_message_insert_into_conversation`, `Telegram_bot`,
+  `Openwa_bot`, `Whatsapp_bot` (Cloud) and `Webchat` `log_msg()`, `channel_log_message()`
+  (`channel_send_helper.php`, bot/sequence/automation sends) and `Inbox::write_agent_message`.
+  `tests/inbox/run.php` fails if a new `livechat_messages` insert appears without it.
+- **Never breaks message handling.** Web requests queue events and send them once at shutdown,
+  after the handler's own work; CLI (cron) sends immediately. The HTTP call is a signed Pusher
+  REST request made with curl (`inbox_realtime_batch_request()`, same body and signature as
+  `vendor/pusher`, which this app never autoloads) with a 1 s connect and 2 s total timeout
+  (`inbox_realtime_timeout`, max 5 s). Every error is caught and logged once
+  (`inbox_realtime: publish failed`); after one failure the request stops trying. The lookup query
+  runs with `db_debug` off and does not touch the caller's query builder.
+- **Channel auth.** `POST inbox/realtime_auth` (Pusher JS `authEndpoint`): needs a session,
+  module 411 (constructor) and the CSRF token, and signs **only** the caller's own tenant channel
+  (`inbox_realtime_authorize()`, exact match). Anything else is 403. Livechat's
+  `livechat_channel` is public and unauthenticated; it is not changed here.
+- **Browser.** The page subscribes when realtime is configured; an event for the open
+  conversation refreshes the thread, any event refreshes the list (only while no "Load more"
+  page is open). Auto-refresh runs every 20 s without realtime and every 90 s while subscribed,
+  only when the tab is visible, plus once when the tab becomes visible again.
+- **Enabling.** Fill App ID, Key, Secret and Cluster in Settings → Pusher (the existing
+  `application/config/pusher.php`). With any of the three empty the page gets `RT = null`, the
+  auth endpoint answers 403 and nothing is published.
+- **Flags** (config items, all optional): `inbox_realtime_enabled` (FALSE = off even with Pusher
+  configured), `inbox_realtime_timeout` (seconds, default 2), `pusher_host` / `pusher_port` /
+  `pusher_scheme` (self-hosted or test endpoint), `inbox_poll_seconds` (default 20),
+  `inbox_poll_seconds_realtime` (default 90), `inbox_poll_enabled` (FALSE = no auto-refresh).
+- **Tests.** `tests/inbox/run.php` (auth tenant isolation, signing vectors, payload has no
+  content, batch routing, failure containment, wiring) and
+  `docker/scripts/staging_inbox_realtime_tests.sh` on `docker-compose.rt-test.yml` (port 8107,
+  fake Pusher API `tests/inbox/fake_pusher.php`).
+
 ## Deferred (not built in this phase, and why)
 
-- **Realtime (Pusher).** Livechat.php's existing `livechat_channel`/`livechat_event` wiring is
-  fb/ig-shaped (keyed by `page_table_id`+`subscribe_id`). Extending it to a channel-agnostic
-  `conversation_id` event for wa/tg/web is real work with its own risk (double-delivery,
-  ordering). The brief explicitly allows polling as an acceptable v1. **v1 ships with polling**
-  (`conversations_data` / `conversation_thread` are cheap, indexed queries); a Pusher channel
-  keyed on `conversation_id` is the natural follow-up.
 - **Still not built after the follow-up** (see each section above):
   - video, audio and file replies, image captions, and image replies on web;
   - showing wa/tg/OpenWA incoming media, which needs a media-download-by-id step those webhooks
@@ -315,3 +402,29 @@ default (same policy as 408/409/410). Gated by `entitlement_require('inbox')` in
 (labels, canned-response management, `reply_image`) are methods on the same controller, so the
 same constructor gate covers them. `staging_inbox_tests.sh` checks a member without 411 is
 redirected.
+
+## Comment auto-reply private messages
+
+When a Facebook (`Comment_automation`) or Instagram (`Instagram_reply`) comment campaign sends
+the commenter a private reply (Send API, `recipient.comment_id`), that message is now written
+to `livechat_messages` as a bot row (`sender='bot'`, `agent_name='Comment auto-reply'`,
+platform fb/ig, `page_table_id`, `fb_page_id`, Send API body as `message_content`,
+`fb_message_id` = Graph message id). The link trigger then creates or updates the conversation,
+so the inbox shows that the business already messaged this customer privately.
+
+- **Code:** `application/helpers/comment_private_reply_helper.php`. Sends are captured in
+  `Fb_rx_login::send_private_reply()` and in `send_reply()` overrides in both controllers; the
+  buffer is written after the campaign report row (`cpr_log_private_replies()`: two FB flows,
+  three IG flows: comments, offensive-comment delete, mentions).
+- **Customer id:** `recipient_id` from the Send API response; else the PSID the controller
+  already resolves via `get_private_reply_message_id_info()` (`to[0].id`, the same value it
+  stores in `messenger_bot_subscriber`); else that lookup done by the helper (max 3 per request).
+  No PSID → not logged (a thread keyed by the comment author id could never join later DMs).
+- **Marker:** the first new row for the reported comment gets an `internal_notes` entry with the
+  customer's public comment and the public reply (author `Comment auto-reply`, `author_id` 0).
+  Not a `system` row, because Livechat.php prints `system` rows as raw HTML.
+- **Safety:** never throws, `db_debug` off around the writes, runs after the reply is sent and
+  reported. Idempotent on `fb_message_id`. No migration.
+- **Not changed:** `messenger_bot_subscriber.last_conversation_message` / Livechat list order.
+- **Tests:** `tests/comment_private_reply/run.php` (unit), `tests/comment_private_reply/db_flush.php`
+  (real DB + trigger, stack `docker-compose.cmtinbox-test.yml`, port 8104).
