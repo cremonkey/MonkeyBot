@@ -10,7 +10,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       <!-- LEFT: conversation list -->
       <div class="col-lg-4 col-xl-3 mb-3">
         <div class="card" style="height:78vh;display:flex;flex-direction:column">
-          <div class="card-header p-2">
+          <div class="card-header p-2" style="display:block">
             <input id="ib_search" class="form-control form-control-sm mb-2" placeholder="Search name, phone or message…">
             <div class="d-flex flex-wrap" style="gap:4px">
               <select id="ib_platform" class="form-control form-control-sm" style="width:auto">
@@ -293,6 +293,8 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
     threadBeforeId = 0;
     post('conversation_thread', {conversation_id: id, mark_read: 1}, function (r) {
       if (r.status !== '1') return note(r.message, false);
+      // a draft (typed, canned or the AI suggestion) never follows the agent into another conversation
+      if (!current || String(current.id) !== String(r.conversation.id)) $('#ib_composer').val('');
       current = r.conversation;
       $('#ib_thread_header').html('<b><i class="' + (PLAT_ICON[current.platform] || '') + ' mr-1"></i>' +
         esc(current.external_thread_id) + '</b> <span class="badge badge-light">' + esc(r.handoff_label) + '</span>');
