@@ -108,8 +108,8 @@
                  
                     if(in_array($module["id"],$current_modules))
                     {
-                      $xmonthly_val=$monthly_limit[$module["id"]];
-                      $xbulk_val=$bulk_limit[$module["id"]];
+                      $xmonthly_val=$monthly_limit[$module["id"]] ?? 0;
+                      $xbulk_val=$bulk_limit[$module["id"]] ?? 0;
                     }  
 
                     if($module["limit_enabled"]=='0')
