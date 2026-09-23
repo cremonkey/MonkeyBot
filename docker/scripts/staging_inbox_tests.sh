@@ -299,6 +299,8 @@ check "attach button: OpenWA can" "$(post "$A" conversation_thread --data-urlenc
 before_files=$(ncount)
 r=$(up "$A" -F "csrf_token=$K" -F conversation_id="$WEB_A" -F "image=@$T/ok.png;type=image/png")
 check "image reply on web: refused as unsupported" "$(echo "$r" | jget unsupported)" "true"
+# the media-display section above added a fresh inbound row to this thread; put it back outside 24h
+sql "UPDATE conversations SET last_inbound_at=$NOW_OLD WHERE id=$WACLOUD_A" >/dev/null
 r=$(up "$A" -F "csrf_token=$K" -F conversation_id="$WACLOUD_A" -F "image=@$T/ok.png;type=image/png")
 check "image reply on wa_cloud 30h after last inbound: policy denied" "$(echo "$r" | jget reason)" "'template_required_outside_24h'"
 r=$(up "$A" -F "csrf_token=bogus" -F conversation_id="$WAOPEN_A" -F "image=@$T/ok.png;type=image/png")
