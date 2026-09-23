@@ -828,3 +828,27 @@ Open, needs the owner: Facebook/Instagram inbound stopped on 2026-09-19 (app-lev
 subscriptions are enabled; page-level `subscribed_apps` or page tokens need checking); webhook
 signature enforcement cannot be evaluated until Meta traffic arrives (no counters yet); S-14
 charset; GitHub push.
+
+### Follow-up round (2026-09-23, later)
+| Item | Status |
+|---|---|
+| Comment auto-reply private messages recorded in livechat_messages → visible in the Unified Inbox (+ internal note with the public comment/reply) | Verified |
+| Inbound media stored for WhatsApp Cloud + Telegram (`livechat_messages.media_json`, migration 2026-10-01); OpenWA gateway sends no file (needs a gateway route) | Verified |
+| Price-grounding judge follows the tenant's provider (Anthropic → claude-haiku-4-5; OpenAI byte-identical) | Verified |
+| `cron_hub backfill_embeddings` CLI (decrypts enc:: keys) | Verified |
+| Realtime Unified Inbox (private per-tenant Pusher channel, ids only) + 20s visible-tab polling fallback | Verified; Pusher is not configured in production, so production gets the polling |
+| Log noise: account-switcher and package-module warnings | Verified |
+| Telegram voice transcription only when the bot's AI is on | Verified |
+
+Regression: unit 1,358; shared staging 571; isolated stacks (media 53, inbox 105, realtime 30) 188.
+**2,117 passed, 0 failed.**
+
+Open findings:
+- **Livechat's Pusher channel is public and install-wide and carries message content** (pre-existing).
+  Harmless today (Pusher unconfigured); must be fixed before anyone configures Pusher.
+- **S-14 charset:** switching only the connection to utf8mb4 is unsafe — 105 tables are still utf8mb3
+  and a utf8mb4 literal with a 4-byte char against a utf8mb3 column raises "Illegal mix of
+  collations". Converting only mb3→mb4_general_ci then collides mb4_general vs mb4_unicode column
+  comparisons (reproduced: cron_hub run, backfill_conversations). The safe fix is converting every
+  mb3/mb4_general text column to utf8mb4_unicode_ci (per column, latin1 untouched), rehearsed on a
+  restored production backup, then switching the connection. Awaiting owner approval.
