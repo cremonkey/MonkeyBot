@@ -7,6 +7,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * Telegram Bot API. Requests are the ones Telegram_api::call() builds:
  * POST api.telegram.org/bot{token}/{method}, form-encoded body (http_build_query,
  * no explicit Content-Type header), 30s timeout, full TLS verification.
+ * send_image is sendPhoto with the photo given as a public URL (Bot API: "pass an HTTP URL
+ * as a String for Telegram to get a photo from the Internet"), same options as sendMessage.
  */
 final class TelegramAdapter extends AbstractChannelAdapter
 {
@@ -14,7 +16,7 @@ final class TelegramAdapter extends AbstractChannelAdapter
 
     public function capabilities(): array
     {
-        return array(Capability::SEND_TEXT, Capability::RECEIVE_WEBHOOK);
+        return array(Capability::SEND_TEXT, Capability::SEND_IMAGE, Capability::RECEIVE_WEBHOOK);
     }
 
     public function sendText(OutboundMessage $message): SendResult
@@ -23,11 +25,30 @@ final class TelegramAdapter extends AbstractChannelAdapter
         if ($token === '') return $this->invalid('bot_token missing');
         if ((string) $message->recipient === '' || $message->text === '') return $this->invalid('empty message or recipient');
 
+        return $this->call($token, 'sendMessage', array('chat_id' => $message->recipient, 'text' => $message->text));
+    }
+
+    public function sendMedia(OutboundMessage $message): SendResult
+    {
+        $media = self::arr($message->media);
+        if (($media['type'] ?? '') !== 'image') return parent::sendMedia($message);
+        $token = $message->credential('bot_token');
+        if ($token === '') return $this->invalid('bot_token missing');
+        $url = (string) ($media['url'] ?? '');
+        if ((string) $message->recipient === '' || $url === '') return $this->invalid('empty media url or recipient');
+        $params = array('chat_id' => $message->recipient, 'photo' => $url);
+        $caption = (string) ($media['caption'] ?? '');
+        if ($caption !== '') $params['caption'] = $caption;
+        return $this->call($token, 'sendPhoto', $params);
+    }
+
+    private function call($token, $method, array $params)
+    {
         $res = $this->http->send(new HttpRequest(
             'POST',
-            'https://api.telegram.org/bot' . $token . '/sendMessage',
+            'https://api.telegram.org/bot' . $token . '/' . $method,
             null,
-            http_build_query(array('chat_id' => $message->recipient, 'text' => $message->text)),
+            http_build_query($params),
             30,
             null,
             true,

@@ -7693,6 +7693,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
         if (!$guard_blocked && !empty($page_id) && !empty($subscribe_id) && !empty($user_id)) {
             $ai_reply_text = isset($response['choices'][0]['text']) ? $response['choices'][0]['text'] : '';
             if (!empty($ai_reply_text)) {
+                $this->load->helper('conversation'); // conversation_id on new rows when resolvable (ADR-001)
                 $this->basic->insert_data("ai_conversation_history", [
                     'user_id' => $user_id,
                     'page_id' => $page_id,
@@ -7702,7 +7703,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                     'ai_reply' => $ai_reply_text,
                     'sentiment' => $detected_sentiment,
                     'created_at' => date("Y-m-d H:i:s")
-                ]);
+                ] + conversation_ai_history_link($user_id, $social_media, $page_id, $subscribe_id));
 
                 // Prune old history beyond TTL
                 if ($memory_ttl_hours > 0) {

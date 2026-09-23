@@ -9,6 +9,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  *  - conversation_transition()       the section 14 handoff state machine, audited in
  *                                    conversation_events, mirrored to bot_paused_until
  *  - conversation_is_bot_allowed()   today's bot_paused_until answer, in one place
+ *  - conversation_ai_history_link()  conversation_id for a new ai_conversation_history row
  *
  * New livechat_messages rows are linked by the trigger trg_livechat_messages_link_conversation
  * (migration 2026-09-23b). History is linked by: php index.php cron_hub backfill_conversations
@@ -195,6 +196,89 @@ if (!function_exists('conversation_customer_for_identity')) {
             $db->trans_rollback();
             log_message('error', 'conversation_customer_for_identity: ' . $e->getMessage());
             try { return $find(); } catch (Throwable $e2) { return 0; }
+        }
+    }
+}
+
+if (!function_exists('conversation_ai_history_lookup')) {
+    /**
+     * How an ai_conversation_history (page_id, social_media) pair maps to a conversation's
+     * channel account (ADR-001). page_id holds a different thing per channel (see
+     * channel_send_helper.php and the get_ai_reply_open_ai() callers):
+     *   fb / ig  the Facebook page id          -> facebook_rx_fb_page_info.id (conversation_resolve_account)
+     *   tg       telegram_accounts.id          -> used as is
+     *   wa       whatsapp_accounts.id (Cloud, Whatsapp_bot) or openwa_accounts.session_id (Openwa_bot)
+     *   web      the widget key                -> web conversations always have channel_account_id 0
+     * Pure: no database access. NULL for anything else.
+     *
+     * @return array{platform:string, mode:string, value:string}|null
+     */
+    function conversation_ai_history_lookup($social_media, $page_id)
+    {
+        $social_media = (string) $social_media;
+        $page_id = trim((string) $page_id);
+        if ($social_media === 'web') return array('platform' => 'web', 'mode' => 'fixed', 'value' => '0');
+        if ($page_id === '') return null;
+        if ($social_media === 'fb' || $social_media === 'ig') return array('platform' => $social_media, 'mode' => 'fb_page', 'value' => $page_id);
+        if ($social_media === 'tg') return ctype_digit($page_id) ? array('platform' => 'tg', 'mode' => 'account_id', 'value' => $page_id) : null;
+        if ($social_media === 'wa') return array('platform' => 'wa', 'mode' => 'wa_account_or_session', 'value' => $page_id);
+        return null;
+    }
+}
+
+if (!function_exists('conversation_ai_history_link')) {
+    /**
+     * The extra column for a NEW ai_conversation_history row: array('conversation_id' => id)
+     * when the migration has added the column AND the turn's conversation already exists,
+     * array() otherwise (the insert is then exactly what it was before). Never creates a
+     * conversation, never throws: the AI reply path must not break over bookkeeping.
+     *
+     * Resolution: (tenant, platform, resolved account, subscribe_id) first. If the account
+     * cannot be resolved, a conversation of that tenant and platform with that thread id is used
+     * only when there is exactly ONE, so an ambiguous match links nothing.
+     */
+    function conversation_ai_history_link($user_id, $social_media, $page_id, $subscribe_id)
+    {
+        static $has_column = null;
+        try {
+            $db = conversation_db();
+            if ($has_column === null) {
+                $has_column = $db->table_exists('ai_conversation_history') && $db->field_exists('conversation_id', 'ai_conversation_history');
+            }
+            if (!$has_column) return array();
+            $user_id = (int) $user_id;
+            $subscribe_id = (string) $subscribe_id;
+            $plan = conversation_ai_history_lookup($social_media, $page_id);
+            if ($user_id <= 0 || $subscribe_id === '' || $plan === null) return array();
+
+            $acct = 0;
+            if ($plan['mode'] === 'fb_page') {
+                $acct = conversation_resolve_account($user_id, $plan['platform'], 0, $plan['value']);
+            } elseif ($plan['mode'] === 'account_id') {
+                $acct = (int) $plan['value'];
+            } elseif ($plan['mode'] === 'wa_account_or_session') {
+                if ($db->table_exists('openwa_accounts')) {
+                    $q = $db->query('SELECT id FROM openwa_accounts WHERE user_id = ? AND session_id = ? ORDER BY id LIMIT 1',
+                        array($user_id, $plan['value']));
+                    $r = $q ? $q->row_array() : null;
+                    if (!empty($r['id'])) $acct = (int) $r['id'];
+                }
+                if ($acct === 0 && ctype_digit($plan['value'])) $acct = (int) $plan['value'];
+            }
+
+            if ($acct > 0 || $plan['mode'] === 'fixed') {
+                $conv = conversation_find($user_id, $plan['platform'], $acct, $subscribe_id);
+                if ($conv) return array('conversation_id' => (int) $conv['id']);
+                if ($plan['mode'] === 'fixed') return array();
+            }
+
+            $q = $db->query('SELECT id FROM conversations WHERE user_id = ? AND platform = ? AND external_thread_id = ? LIMIT 2',
+                array($user_id, $plan['platform'], $subscribe_id));
+            $rows = $q ? $q->result_array() : array();
+            return count($rows) === 1 ? array('conversation_id' => (int) $rows[0]['id']) : array();
+        } catch (Throwable $e) {
+            log_message('error', 'conversation_ai_history_link: ' . $e->getMessage());
+            return array();
         }
     }
 }
