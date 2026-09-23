@@ -89,8 +89,10 @@ class Telegram_bot extends Home
                 if (inbound_media_seen('tg', $acc['user_id'], $account_id, $chat_id, $ext_id)) { echo json_encode(['ok'=>true]); return; } // webhook retry
                 $media = inbound_media_capture_telegram($acc['user_id'], $mi, $token);
                 $media_json = inbound_media_json($mi['kind'], $media['media']);
-                // voice notes: transcribe like WhatsApp Cloud does, so the AI answers them like text
-                if ($mi['kind'] === 'audio' && !empty($media['source_url'])) {
+                // voice notes: transcribe like WhatsApp Cloud does, so the AI answers them like text.
+                // Only when this bot's AI replies are on: a transcript nobody answers is paid-for
+                // OpenAI usage the tenant never asked for.
+                if ($mi['kind'] === 'audio' && !empty($media['source_url']) && $acc['ai_enabled'] == '1') {
                     $this->load->helper('ai_voice');
                     $voice_text = ai_transcribe_audio($acc['user_id'], $media['source_url']);
                     if ($voice_text !== false && $voice_text !== '') $text = $voice_text;
