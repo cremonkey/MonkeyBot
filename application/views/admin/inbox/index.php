@@ -367,7 +367,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       var body = '';
       if (r.text) body += '<div style="white-space:pre-wrap">' + esc(r.text) + '</div>';
       (r.attachments || []).forEach(function (a) { body += '<div class="mt-1">' + renderAttachment(a) + '</div>'; });
-      if (r.media_unavailable) body += '<em class="small">Media message — this channel does not store the file, so it cannot be shown here.</em>';
+      if (r.media_unavailable) body += '<em class="small">Media message — the file was not stored, so it cannot be shown here.</em>';
       return '<div class="mb-2 text-' + (mine ? 'right' : 'left') + '">' +
         '<div class="d-inline-block p-2 rounded text-left" style="max-width:80%;background:' + (mine ? '#4b7bec;color:#fff' : '#fff') + ';border:1px solid #e3e3e3">' +
         body + '</div><br><small class="text-muted">' + esc(who) + ' · ' + esc(m.conversation_time) + '</small></div>';

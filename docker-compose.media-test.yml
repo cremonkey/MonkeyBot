@@ -1,0 +1,61 @@
+# Inbound media (WhatsApp Cloud, Telegram, OpenWA webhooks) isolated TEST stack. Never the shared
+# staging stack (monkeybot-staging), never production. Copy of docker-compose.inbox2-test.yml
+# with its own project/port/volume, plus a fake Graph/Telegram provider:
+#  - run with (MEDIA_TLS_DIR = a directory made by docker/scripts/staging_inbound_media_tests.sh --tls):
+#      MEDIA_TLS_DIR=... docker compose -p mb-media-test -f docker-compose.media-test.yml up -d
+#  - own DB volume with a FRESH schema (initial_db.sql + migrations), never production data
+#  - no Traefik labels, not on dokploy-network; web bound to 127.0.0.1:8105 only
+#  - "tlsprov" answers as graph.facebook.com and api.telegram.org INSIDE this project's network
+#    only (network aliases), with a throwaway CA that only this app container trusts
+#    (curl.cainfo via a mounted conf.d ini). The webhooks therefore run their real URLs unchanged.
+#  - reuses the production image tag so the test runs the same PHP runtime
+# Credentials come from .env.staging (gitignored, chmod 600), generated on the host.
+# Tear down with: docker compose -p mb-media-test -f docker-compose.media-test.yml down -v
+services:
+  app:
+    image: monkeybot-app-ojzrhf-app:latest
+    env_file: [.env.staging]
+    networks:
+      default:
+        aliases: [monkeybot-php-app]
+    volumes:
+      - ./:/var/www/html:rw
+      - ${MEDIA_TLS_DIR}:/srv/tls:ro
+      - ${MEDIA_TLS_DIR}/zz-test-ca.ini:/usr/local/etc/php/conf.d/zz-test-ca.ini:ro
+    depends_on:
+      db:
+        condition: service_healthy
+  web:
+    image: nginx:1.27-alpine
+    depends_on: [app]
+    ports: ["127.0.0.1:8105:80"]
+    volumes:
+      - ./:/var/www/html:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+  fakeprov:
+    image: monkeybot-app-ojzrhf-app:latest
+    entrypoint: ["php", "-S", "0.0.0.0:8080", "/srv/fake_provider.php"]
+    environment: [PHP_CLI_SERVER_WORKERS=4] # a SLOW* request must not block the next test
+    volumes:
+      - ./tests/inbound_media/fake_provider.php:/srv/fake_provider.php:ro
+  tlsprov:
+    image: nginx:1.27-alpine
+    depends_on: [fakeprov]
+    networks:
+      default:
+        aliases: [graph.facebook.com, api.telegram.org]
+    volumes:
+      - ./tests/inbound_media/tls_proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${MEDIA_TLS_DIR}:/tls:ro
+  db:
+    image: mariadb:10.11
+    env_file: [.env.staging]
+    command: ["--character-set-server=utf8", "--collation-server=utf8_general_ci", "--sql-mode=", "--innodb-file-per-table=1"]
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      retries: 30
+    volumes:
+      - media_test_db:/var/lib/mysql
+volumes:
+  media_test_db:

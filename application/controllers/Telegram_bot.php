@@ -78,8 +78,29 @@ class Telegram_bot extends Home
             $this->load->helper('secret');
             $token = secret_decrypt($acc['bot_token']);
 
+            // media: store the file for the inbox (inbound_media_helper). Skipped, as before,
+            // until the 2026-10-01-inbound-media migration has run.
+            $media = null; $media_json = null; $ext_id = '';
+            $this->load->helper('inbound_media');
+            $mi = $text === '' ? inbound_media_extract_telegram($msg, inbound_media_limits()[0]) : null;
+            if ($mi !== null && inbound_media_ready()) {
+                // same id as the tg normaliser: {chat_id}:{message_id}, edits add :e{edit_date}
+                $ext_id = $chat_id . ':' . (int) ($msg['message_id'] ?? 0) . (isset($update['edited_message']) ? ':e' . (int) ($msg['edit_date'] ?? 0) : '');
+                if (inbound_media_seen('tg', $acc['user_id'], $account_id, $chat_id, $ext_id)) { echo json_encode(['ok'=>true]); return; } // webhook retry
+                $media = inbound_media_capture_telegram($acc['user_id'], $mi, $token);
+                $media_json = inbound_media_json($mi['kind'], $media['media']);
+                // voice notes: transcribe like WhatsApp Cloud does, so the AI answers them like text
+                if ($mi['kind'] === 'audio' && !empty($media['source_url'])) {
+                    $this->load->helper('ai_voice');
+                    $voice_text = ai_transcribe_audio($acc['user_id'], $media['source_url']);
+                    if ($voice_text !== false && $voice_text !== '') $text = $voice_text;
+                }
+                if ($text === '') $text = $mi['caption']; // the AI answers a caption like text
+            }
+
             // log inbound
-            $this->log_msg($acc['user_id'], $chat_id, $account_id, 'user', $text !== '' ? $text : '[non-text message]');
+            $content = $text !== '' ? $text : (!empty($media['ok']) ? inbound_media_placeholder($mi['label']) : '[non-text message]');
+            $this->log_msg($acc['user_id'], $chat_id, $account_id, 'user', $content, $ext_id, $media_json);
 
             // bot pause check (SPEC-09) — telegram subscribers keyed by chat id in messenger_bot_subscriber if present
             $paused = $this->basic->get_data('messenger_bot_subscriber', ['where'=>['subscribe_id'=>$chat_id,'social_media'=>'tg']], ['bot_paused_until'], '', 1);
@@ -100,13 +121,15 @@ class Telegram_bot extends Home
         }
     }
 
-    private function log_msg($user_id, $chat_id, $account_id, $sender, $content)
+    private function log_msg($user_id, $chat_id, $account_id, $sender, $content, $ext_id = '', $media_json = null)
     {
-        $this->basic->insert_data('livechat_messages', array(
+        $row = array(
             'user_id'=>$user_id, 'subscriber_id'=>$chat_id, 'page_table_id'=>$account_id, 'fb_page_id'=>'',
             'sender'=>$sender, 'platform'=>'tg', 'agent_name'=>($sender=='bot'?'Bot':''),
             'message_content'=>$content, 'conversation_time'=>date('Y-m-d H:i:s'),
-            'fb_message_id'=>'', 'message_status'=>'sent', 'from_business_suite'=>'0',
-        ));
+            'fb_message_id'=>(string) $ext_id, 'message_status'=>'sent', 'from_business_suite'=>'0',
+        );
+        if ($media_json !== null) $row['media_json'] = $media_json; // only set once the column exists
+        $this->basic->insert_data('livechat_messages', $row);
     }
 }
