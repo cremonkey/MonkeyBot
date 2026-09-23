@@ -222,9 +222,10 @@ and never changes it.
   replies below) are Send API bodies. The `http(s)` attachment URLs in both are shown as an
   image, video, audio or file link. Any other scheme (`javascript:`, `data:`,
   scheme-relative) is dropped, and the browser escapes the URL again.
-- WhatsApp Cloud, Telegram and OpenWA only ever log `[non-text message]` for media. Those
-  channels deliver a media *id*, never a URL (see `docs/channels/adapters.md`), so the bubble says
-  the file is not stored instead of inventing one.
+- WhatsApp Cloud, Telegram and OpenWA deliver a media *id*, never a URL (see
+  `docs/channels/adapters.md`). Since the inbound-media follow-up (below), WhatsApp Cloud and
+  Telegram download and store the file, and the thread shows it from `livechat_messages.media_json`.
+  When no file is stored, the bubble says so instead of inventing a URL.
 - The list preview uses the same parser, so it no longer shows raw webhook JSON.
 
 **Image replies.** `reply_image` (multipart, CSRF, module 411) runs these checks in order:
@@ -250,6 +251,55 @@ and never changes it.
 
 The attach button appears only when the thread says `can_send_image`. Captions, and video,
 audio and file sends, are not built.
+
+## Inbound media (follow-up)
+
+Webhooks: `Whatsapp_bot`, `Telegram_bot` and `Openwa_bot`. Helper: `application/helpers/inbound_media_helper.php`.
+Migration: `2026-10-01-inbound-media.sql` adds the nullable `livechat_messages.media_json`.
+
+| Channel | What happens to an inbound image / voice note / audio / video / document / sticker |
+|---|---|
+| WhatsApp Cloud | `GET graph_url_group('reads')/{media-id}` with the account token returns the short-lived URL. That URL is downloaded with the same token. |
+| Telegram | `getFile`, then `/file/bot{token}/{file_path}`. The photo is the largest size under the cap. Animated `.tgs` stickers are not stored. |
+| OpenWA | The gateway (`/opt/evolution/extensions`, `openwaCompat`) forwards only the message type and the caption. It has no file and no download route, so the row records "media, file not stored". Storing these files needs a gateway route, for example over Evolution's `getBase64FromMediaMessage`. |
+
+- **Storage.** Files go to `upload/inbox_in/YYYY/MM/{user_id}_{24 hex}.{ext}`. The extension comes
+  from the type detected from the bytes (`finfo`). The provider's MIME type only tells apart
+  containers `finfo` cannot: m4a vs mp4, OOXML vs zip, and old Office files. The sender's file name
+  is never used.
+- **Allowed types.** JPEG, PNG, WebP and GIF images; ogg/opus, mp3, m4a, aac, amr and wav audio;
+  mp4, 3gp, mov and webm video; pdf, doc(x), xls(x) and ppt(x). Anything else, and any file
+  carrying `<?php` (or, for images, HTML or script), is refused.
+- **Limits.** The cap is the config item `inbound_media_max_bytes` (default 16 MB, clamped to
+  1 KB to 64 MB). It is checked against the declared size, during the download and on the result.
+  Each request uses the config item `inbound_media_timeout` (default 8 s, at most 30 s) and a 3 s
+  connect timeout. Only HTTPS is used.
+- **Row.** `message_content` stays readable: the caption, the Whisper transcript (WhatsApp Cloud
+  as before, and now Telegram voice or audio when the tenant has an OpenAI key), or `[image]`,
+  `[voice note]`, `[audio]`, `[video]`, `[document]` or `[sticker]`. `media_json` holds
+  `{"type","path","mime","size"}`. `fb_message_id` holds the provider id: the wamid,
+  `{chat_id}:{message_id}` (edits add `:e{edit_date}`), or the OpenWA id.
+- **Failure.** Any failure (provider error, timeout, too large, type refused) logs one line at
+  `error` level, without the token. It stores `[non-text message]` (or the caption) and
+  `{"type":…,"path":null}`. The webhook still answers 200.
+- **Retries.** A media message whose provider id is already logged for that
+  tenant/channel/account/sender is skipped: no second row, no second download and no second AI
+  reply. Text messages are unchanged.
+- **AI.** An image-only message is not sent to the AI, as before. A caption is now answered like
+  text, which is what OpenWA already did because the gateway puts the caption in `body`.
+- **Before the migration.** The webhooks check `field_exists` and behave exactly as before:
+  nothing is downloaded and the row is `[non-text message]`. `Inbox::conversation_thread` does
+  not select the column.
+- **Rendering.** `inbox_message_render($content, $media_json, base_url())` turns only a path of
+  exactly the shape above into an http(s) URL. The URL is then escaped in the browser as before.
+  An image is shown inline, audio and video get players, and other files get a download link.
+- **Visibility.** Files live on the `app_upload` volume like Livechat's and the image replies. Like
+  those, they are served statically at an unguessable URL, not behind the login.
+
+Tests: `tests/inbound_media/run.php` (fake transports) and
+`docker/scripts/staging_inbound_media_tests.sh` on `docker-compose.media-test.yml`. That stack runs
+a fake Graph/Telegram provider behind a throwaway-CA TLS proxy that answers as
+`graph.facebook.com` and `api.telegram.org` inside the project network only.
 
 ## AI suggested reply (follow-up)
 

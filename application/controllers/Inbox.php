@@ -116,7 +116,8 @@ class Inbox extends Home
         $conv = conversation_get($conversation_id, $this->uid); // tenant guard: NULL for another tenant's id
         if (empty($conv)) { echo json_encode(array('status' => '0', 'message' => 'Conversation not found')); return; }
 
-        $this->db->select('id, sender, platform, agent_name, message_content, conversation_time, message_status, fb_message_id');
+        $has_media = $this->media_column_ready();
+        $this->db->select('id, sender, platform, agent_name, message_content, conversation_time, message_status, fb_message_id' . ($has_media ? ', media_json' : ''));
         $this->db->from('livechat_messages');
         $this->db->where('conversation_id', $conv['id']); // scoped to THIS conversation only (IDOR guard)
         if ($before_id > 0) $this->db->where('id <', $before_id);
@@ -125,7 +126,11 @@ class Inbox extends Home
         $messages = array_reverse($this->db->get()->result_array());
         // What the thread shows: text plus any media URL already in the stored row (fb/ig
         // webhook bodies, Send API bodies). The stored row is never changed.
-        foreach ($messages as &$m) $m['render'] = inbox_message_render($m['message_content']);
+        // wa/tg inbound media stored by the webhooks (media_json, migration 2026-10-01) is added.
+        foreach ($messages as &$m) {
+            $m['render'] = inbox_message_render($m['message_content'], $has_media ? $m['media_json'] : null, base_url());
+            unset($m['media_json']);
+        }
         unset($m);
 
         if ($mark_read && $conv['unread_count'] > 0) {
@@ -202,6 +207,14 @@ class Inbox extends Home
             : $this->write_agent_message($conv, $text, (string) ($result->external_message_id ?: ''), $account['fb_page_id']);
 
         echo json_encode(array('status' => '1', 'message' => 'Sent', 'message_id' => $message_id));
+    }
+
+    /** livechat_messages.media_json exists (migration 2026-10-01-inbound-media.sql). */
+    private function media_column_ready()
+    {
+        static $has = null;
+        if ($has === null) $has = $this->db->field_exists('media_json', 'livechat_messages');
+        return $has;
     }
 
     /**

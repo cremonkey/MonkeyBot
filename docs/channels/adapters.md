@@ -103,6 +103,7 @@ The following all return `NULL`: echoes, read and delivery receipts, WhatsApp Cl
 For attachments, the adapter never invents URLs:
 
 - **OpenWA:** the gateway does not forward a media URL.
+- The legacy webhooks (`Whatsapp_bot`, `Telegram_bot`) now download and store inbound media themselves (`inbound_media_helper.php`, see `docs/product/unified-inbox.md` "Inbound media"). The normalisers are unchanged and still never invent URLs.
 - **WhatsApp Cloud and Telegram:** they send media ids. `url` is `NULL` and `id` carries the media or file id.
 - **Captions:** a caption becomes `text` when there is no body.
 
