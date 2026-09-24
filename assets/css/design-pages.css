@@ -82,3 +82,72 @@
 .ag-page .ag-usage-bar { height: var(--ag-usage-bar-height); }
 .ag-page .ag-col-nowrap { white-space: nowrap; }
 .ag-page .ag-password-code { font-size: var(--text-lg); }
+
+/* ------------------------------------------------------------------ */
+/* Dashboard (application/views/dashboard/dashboard.php)              */
+/* ------------------------------------------------------------------ */
+/* Stat-card: value/label/trend/icon, layered on the vendor
+   card-statistic-1/2 markup and Task 3's global .card overlay — no
+   structural change, just consistent typography on top of it. */
+.dash-page .stat-card .card-body {
+  font-size: var(--dash-stat-value-size);
+  font-weight: var(--dash-stat-value-weight);
+}
+.dash-page .stat-card .card-header h4 {
+  font-size: var(--dash-stat-label-size);
+  color: var(--dash-stat-label-color);
+}
+.dash-page .stat-card .card-stats-item-label {
+  font-size: var(--dash-stat-label-size);
+  color: var(--dash-stat-label-color);
+}
+.dash-page .stat-card .card-stats-item-count {
+  font-weight: var(--dash-stat-value-weight);
+}
+/* Optional trend slot for a stat-card — not currently bound to data in
+   this view (no delta/period-over-period metric is computed), styled so
+   any future value in this pattern picks up the right token colors. */
+.dash-page .stat-card .stat-card-trend.up { color: var(--dash-stat-trend-up); }
+.dash-page .stat-card .stat-card-trend.down { color: var(--dash-stat-trend-down); }
+
+/* Chart container: consistent title-bar gap + canvas padding on top of
+   Task 3's .card/.card-header overlay. The charting library's own JS
+   config (Chart.js, loaded via assets/modules/chart.min.js and inline
+   <script> blocks) is untouched — this only affects the wrapper. */
+.dash-page .chart-card .card-header h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--dash-chart-card-title-gap);
+}
+.dash-page .chart-card .card-body {
+  padding: var(--card-padding);
+}
+.dash-page .chart-card canvas {
+  max-width: 100%;
+}
+
+/* ------------------------------------------------------------------ */
+/* Analytics Hub (application/views/admin/analytics_hub/index.php)    */
+/* ------------------------------------------------------------------ */
+.an-page .stat-card .card-body {
+  font-size: var(--an-stat-value-size);
+  font-weight: var(--an-stat-value-weight);
+}
+.an-page .stat-card .card-header h4 {
+  font-size: var(--an-stat-label-size);
+  color: var(--an-stat-label-color);
+}
+.an-page .stat-card .stat-card-trend.up { color: var(--an-stat-trend-up); }
+.an-page .stat-card .stat-card-trend.down { color: var(--an-stat-trend-down); }
+
+.an-page .chart-card .card-header h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--an-chart-card-title-gap);
+}
+.an-page .chart-card .card-body {
+  padding: var(--card-padding);
+}
+.an-page .chart-card canvas {
+  max-width: 100%;
+}

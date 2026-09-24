@@ -20,7 +20,7 @@ $month_name_array = array(
 ?>
 
 
-<section class="section">
+<section class="section dash-page">
     <?php 
     if($other_dashboard=='1')
     { ?>
@@ -37,7 +37,7 @@ $month_name_array = array(
 
     <div class="row statistics-box justify-content-md-center">
       <div class="col-lg-4 col-md-6 col-sm-12 pr-md-1">
-        <div class="card card-statistic-2 border">
+        <div class="card card-statistic-2 border stat-card">
           <div class="card-chart">
             <canvas id="subscribers_chart_1" height="72"></canvas>
           </div>
@@ -92,7 +92,7 @@ $month_name_array = array(
       </div>
 
       <div class="col-lg-4 col-md-6 col-sm-12 pl-md-1 pr-md-1">
-        <div class="card card-statistic-2 border">
+        <div class="card card-statistic-2 border stat-card">
           <div class="card-stats">
             <div class="statistic-details mt-0">
               <div class="statistic-details-item" title="<?php echo $this->lang->line('Comment Reply Campaign Enabled'); ?>" data-toggle="tooltip">
@@ -152,7 +152,7 @@ $month_name_array = array(
       </div>
 
       <div class="col-lg-4 col-md-6 col-sm-12 pl-md-1">
-        <div class="card card-statistic-2 border">
+        <div class="card card-statistic-2 border stat-card">
           <div class="card-chart">
             <canvas id="ecommerce_chart_1" height="72"></canvas>
           </div>
@@ -223,7 +223,7 @@ $month_name_array = array(
 
     <div class="row">
       <div class="col-12">
-        <div class="card  mb-2">
+        <div class="card  mb-2 chart-card">
           <div class="card-header">
             <h4><i class="fas fa-users"></i> <?php echo $this->lang->line("Messenger Subscriber Gain - 12 Months") ?> </h4>
           </div>
@@ -310,7 +310,7 @@ $month_name_array = array(
 
     <div class="row">
       <div class="col-12 col-md-12">
-        <div class="card mb-2">
+        <div class="card mb-2 chart-card">
           <div class="card-header border-bottom-0">
             <h4><i class="fas fa-user-circle"></i> <?php echo $this->lang->line('Subscribers from Different Sources - 12 Months'); ?></h4>
           </div>
@@ -435,7 +435,7 @@ $month_name_array = array(
     <!-- Ecommerce earning statistics -->
     <div class="row mt-3 <?php if(empty(array_values($fb_earning_chart_values))) echo 'd-none';?>">
       <div class="col-12">
-        <div class="card mb-0">
+        <div class="card mb-0 chart-card">
           <div class="card-header border-bottom-0">
             <h4><i class="fas fa-shopping-cart"></i> <?php echo $this->lang->line("Ecommerce Earnings")." (".$selected_curr.") - ".$this->lang->line("30 days"); ?></h4>
           </div>

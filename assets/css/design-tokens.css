@@ -321,6 +321,25 @@
 
   --ag-col-usage-min-width: var(--mb-size-110);
   --ag-usage-bar-height: var(--space-4);
+
+  /* Page-component tokens — Task 5 (Dashboard, Analytics Hub). Stat-card
+     value/label/trend + chart-container title bar, built on Task 3's card
+     tokens; no new raw values, only semantic references. */
+  --dash-stat-value-size: var(--text-2xl);
+  --dash-stat-value-weight: var(--font-weight-semibold);
+  --dash-stat-label-color: var(--color-text-muted);
+  --dash-stat-label-size: var(--text-sm);
+  --dash-stat-trend-up: var(--color-success);
+  --dash-stat-trend-down: var(--color-danger);
+  --dash-chart-card-title-gap: var(--space-2);
+
+  --an-stat-value-size: var(--text-2xl);
+  --an-stat-value-weight: var(--font-weight-semibold);
+  --an-stat-label-color: var(--color-text-muted);
+  --an-stat-label-size: var(--text-sm);
+  --an-stat-trend-up: var(--color-success);
+  --an-stat-trend-down: var(--color-danger);
+  --an-chart-card-title-gap: var(--space-2);
 }
 
 /*
