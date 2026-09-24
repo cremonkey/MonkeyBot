@@ -23,6 +23,7 @@ $lang['Could not extract text from the source.'] = "Could not extract text from 
 $lang['Database error. Please try again.'] = "Database error. Please try again.";
 $lang['Knowledge source added successfully.'] = "Knowledge source added successfully.";
 $lang['chunks created.'] = "chunks created.";
+$lang['Chunks will appear shortly.'] = "Chunks will appear shortly.";
 $lang['Knowledge source deleted.'] = "Knowledge source deleted.";
 $lang['Source not found.'] = "Source not found.";
 $lang['Invalid source ID.'] = "Invalid source ID.";

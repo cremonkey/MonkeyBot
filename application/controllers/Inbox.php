@@ -599,6 +599,43 @@ class Inbox extends Home
             $this->load->library('Conversation_summarizer');
         }
 
+        // Remaining-work Task 11 (B3, brief §42): behind config flag 'jobs_enabled' (default
+        // OFF), regeneration moves to the async job queue instead of calling the summarizer
+        // inline in this request. Flag OFF (today's behaviour, byte-for-byte) falls through
+        // to the inline call below.
+        //
+        // Note the fixture-vs-flag interaction: when 'conversation_summary_test_fixture' is
+        // set (staging tests only, never on production — see the docblock above), this block
+        // is skipped entirely regardless of 'jobs_enabled', so the fixture always resolves
+        // inline and synchronously, exactly like flag-off. The job queue only ever sees real
+        // (non-fixture) summary regeneration.
+        if (empty($fixture_name) && $this->config->item('jobs_enabled') === true) {
+            $this->load->helper('job');
+
+            // Dedupe: a user hammering "regenerate summary" must not pile up N jobs for the
+            // same conversation. If one is already queued/running, just report the (possibly
+            // stale) cached summary again — the in-flight job will refresh it shortly.
+            $already_pending = job_pending_exists($this->uid, 'conversation_summary', array('conversation_id' => $conv['id']));
+            $job_id = $already_pending ? -1 : job_enqueue($this->uid, 'conversation_summary', array(
+                'conversation_id' => $conv['id'],
+                'user_id' => $this->uid,
+            ));
+
+            if ($already_pending || $job_id > 0) {
+                echo json_encode(array(
+                    'status' => '1',
+                    'summary' => isset($conv['last_summary']) ? $conv['last_summary'] : null,
+                    'generated_at' => isset($conv['last_summary_at']) ? $conv['last_summary_at'] : null,
+                    'cached' => true,
+                    'queued' => true,
+                ));
+                return;
+            }
+            // $job_id === 0: enqueue failed (table missing pre-migration, DB hiccup) — fall
+            // through to the inline path below, same as flag-off, so summarize() never just
+            // silently does nothing.
+        }
+
         $result = $this->conversation_summarizer->summarize($ai_cfg, $messages, $conv['id']);
         if (empty($result['ok'])) {
             echo json_encode(array('status' => '0', 'message' => $result['message']));

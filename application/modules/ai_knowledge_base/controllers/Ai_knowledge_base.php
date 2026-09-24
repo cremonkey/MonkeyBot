@@ -247,6 +247,55 @@ class Ai_knowledge_base extends Home
         $this->basic->insert_data('ai_knowledge_sources', $insert_data);
         $source_id = $this->db->insert_id();
 
+        // Remaining-work Task 11 (B3, brief §42): behind config flag 'jobs_enabled' (default
+        // OFF), chunking + embedding move to the async job queue instead of running inline in
+        // this request. Flag OFF (today's behaviour, byte-for-byte) falls through below.
+        //
+        // job_enqueue() writes into the SAME open transaction as the ai_knowledge_sources
+        // insert above (it uses $this->db too), so trans_complete() below commits both
+        // together or rolls both back — a job never outlives the source row it depends on.
+        //
+        // If enqueue fails (returns 0 — table missing pre-migration, DB hiccup), this does
+        // NOT return an error to the browser: it falls straight through into the exact same
+        // inline chunk+embed code the flag-off path uses, so upload never breaks just because
+        // the queue is unavailable.
+        //
+        // UI honesty: there is no `status`/`processing` column on ai_knowledge_sources (no
+        // migration for one), so total_chunks simply stays 0 until the worker runs. The
+        // success message says "will appear shortly" instead of "N chunks created" so the
+        // count isn't misread as "zero, upload failed".
+        $jobs_enabled = $this->config->item('jobs_enabled') === true;
+        $queued = false;
+
+        if ($jobs_enabled) {
+            $this->load->helper('job');
+            $job_id = job_enqueue($this->user_id, 'kb_chunk_embed', array(
+                'source_id' => $source_id,
+                'user_id' => $this->user_id,
+                'text' => $text,
+            ));
+
+            if ($job_id > 0) {
+                $this->db->trans_complete();
+
+                if ($this->db->trans_status() === false) {
+                    $this->basic->delete_data('ai_knowledge_sources', array('id' => $source_id, 'user_id' => $this->user_id));
+                    if ($file_path && file_exists($file_path)) {
+                        @unlink($file_path);
+                    }
+                    echo json_encode(array('status' => '0', 'message' => $this->lang->line('Database error. Please try again.')));
+                    exit();
+                }
+
+                echo json_encode(array(
+                    'status' => '1',
+                    'message' => $this->lang->line('Knowledge source added successfully.') . ' ' . $this->lang->line('Chunks will appear shortly.')
+                ));
+                return;
+            }
+            // $job_id === 0: fall through to the inline path below, same as flag-off.
+        }
+
         // SPEC-29: semantic chunking via the model (strips nav boilerplate, keeps topics
         // whole). Falls back to length-based chunking on any error, so upload never breaks.
         $chunks = function_exists('ai_chunk_text_ai') ? ai_chunk_text_ai($text, $this->user_id) : ai_chunk_text($text, 1000, 200);
