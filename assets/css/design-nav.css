@@ -1,0 +1,193 @@
+/**
+ * Nav visual refresh — sidebar, topbar, user menu (Task 2 of the design-system
+ * plan). Token-only overrides on top of assets/css/style.css / components.css.
+ *
+ * Scope discipline:
+ *  - No selector here is renamed/removed from sidebar.php, header.php or
+ *    usermenu.php; every class/id that assets/js/scripts.js selects on
+ *    (.main-sidebar, #sidebar-wrapper, .sidebar-menu, li a.has-dropdown,
+ *    li.active, [data-toggle="sidebar"], body.sidebar-mini/.sidebar-gone/
+ *    .sidebar-show) is left completely alone structurally.
+ *  - Only non-directional properties are touched (background-color, color,
+ *    border-radius, box-shadow, font-weight, padding-top/bottom, gap) so
+ *    assets/css/rtl.css — which flips the *directional* rules already in
+ *    style.css for these same selectors (margin/padding-left/right, icon
+ *    offsets) — keeps working exactly as before; this file loads before it
+ *    and never competes with its physical-direction overrides.
+ *  - No hardcoded hex/px: everything below reads var(--nav-*), var(--topbar-*),
+ *    var(--usermenu-*) (assets/css/design-tokens.css), which resolve to the
+ *    semantic/primitive layers.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Sidebar                                                             */
+/* ------------------------------------------------------------------ */
+
+.main-sidebar {
+  background-color: var(--nav-bg);
+}
+
+.main-sidebar .sidebar-menu {
+  margin-top: var(--nav-section-gap);
+}
+
+.main-sidebar .sidebar-menu li.menu-header {
+  color: var(--nav-header-color);
+  font-weight: var(--font-weight-semibold);
+}
+
+.main-sidebar .sidebar-menu li.menu-header:not(:first-child) {
+  margin-top: var(--nav-section-gap);
+}
+
+/* Base link: keep style.css's box model (height/flex/padding-left rhythm,
+   flipped by rtl.css) and only add color/radius/motion via tokens. */
+.main-sidebar .sidebar-menu li a {
+  color: var(--nav-item-color);
+  border-radius: var(--nav-item-radius);
+  margin: var(--nav-item-gap-y) 0;
+  transition: background-color .15s ease, color .15s ease;
+}
+
+.main-sidebar .sidebar-menu li a:hover,
+.main-sidebar .sidebar-menu li a:focus-visible {
+  background-color: var(--nav-item-hover-bg);
+}
+
+/* Task 6: visible keyboard-focus indicator. style.css does not suppress
+   outline on these links (that suppression only targets .btn/.form-control),
+   so a plain outline is enough here - no !important fight needed. */
+.main-sidebar .sidebar-menu li a:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-offset-tight));
+}
+
+.main-sidebar .sidebar-menu li a span:hover {
+  color: var(--nav-item-hover-color);
+}
+
+/* Icon alignment: center the icon glyph inside its reserved column without
+   touching style.css's width/margin (which rtl.css flips). */
+.main-sidebar .sidebar-menu li a i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Active state (default, non sidebar-mini, non sidebar-style-1/2 variants —
+   those keep their own existing behavior untouched). */
+.main-sidebar .sidebar-menu li.active > a {
+  background-color: var(--nav-item-active-bg);
+  border-radius: var(--nav-item-radius);
+}
+
+.main-sidebar .sidebar-menu li.active a span {
+  color: var(--nav-item-active-color);
+}
+
+.main-sidebar .sidebar-menu li ul.dropdown-menu li a:hover {
+  color: var(--nav-item-hover-color);
+}
+
+.main-sidebar .sidebar-menu li ul.dropdown-menu li.active > a {
+  color: var(--nav-item-active-color);
+}
+
+/* Badge counts on nav links (e.g. unread Inbox count rendered by
+   application/views/admin/theme/notification.php inside header.php, and any
+   sidebar menu item badge) — style through tokens, markup untouched. */
+.main-sidebar .sidebar-menu li a .badge,
+.navbar .nav-link .badge {
+  border-radius: var(--nav-badge-radius);
+  background-color: var(--nav-badge-bg);
+  color: var(--nav-badge-color);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Collapsed (sidebar-mini) state: cosmetic only — background instead of the
+   heavier drop shadow on the active item, same token as the expanded state,
+   so collapse/expand looks like one consistent system. Layout (width,
+   position, JS-driven show/hide) is untouched. */
+body.sidebar-mini .main-sidebar .sidebar-menu > li.active > a {
+  background-color: var(--nav-item-active-bg);
+  box-shadow: none;
+}
+
+body.sidebar-mini .main-sidebar .sidebar-menu > li > a:hover {
+  background-color: var(--nav-item-hover-bg);
+}
+
+body.sidebar-mini .main-sidebar .sidebar-menu > li ul.dropdown-menu {
+  border-radius: var(--nav-item-radius);
+  box-shadow: var(--shadow-md);
+}
+
+/* ------------------------------------------------------------------ */
+/* Topbar (header.php's <nav class="main-navbar">)                     */
+/* ------------------------------------------------------------------ */
+
+.main-navbar {
+  background-color: var(--topbar-bg);
+  box-shadow: var(--topbar-shadow);
+}
+
+.navbar .nav-link.notification-toggle,
+#collapse_me_plz {
+  color: var(--topbar-icon-color);
+  border-radius: var(--nav-item-radius);
+  transition: background-color .15s ease;
+}
+
+.navbar .nav-link.notification-toggle:hover,
+#collapse_me_plz:hover {
+  background-color: var(--topbar-icon-hover-bg);
+}
+
+.navbar .nav-link.notification-toggle:focus-visible,
+#collapse_me_plz:focus-visible,
+.navbar .nav-link.nav-link-user:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-offset-tight));
+}
+
+.navbar .nav-link.nav-link-user {
+  border-radius: var(--nav-item-radius);
+  transition: background-color .15s ease;
+}
+
+.navbar .nav-link.nav-link-user:hover {
+  background-color: var(--topbar-icon-hover-bg);
+}
+
+/* ------------------------------------------------------------------ */
+/* User menu / account-switch dropdowns (usermenu.php + the facebook    */
+/* account-switch dropdown in header.php share the same dropdown markup)*/
+/* ------------------------------------------------------------------ */
+
+.navbar .dropdown-menu {
+  border-radius: var(--usermenu-radius);
+  box-shadow: var(--usermenu-shadow);
+  border-color: var(--color-border);
+}
+
+.navbar .dropdown-menu .dropdown-item.has-icon,
+.navbar .dropdown-menu .dropdown-item.account_switch {
+  border-radius: var(--nav-item-radius);
+  transition: background-color .15s ease;
+}
+
+.navbar .dropdown-menu .dropdown-item.has-icon:hover,
+.navbar .dropdown-menu .dropdown-item.account_switch:hover {
+  background-color: var(--usermenu-item-hover-bg);
+}
+
+.navbar .dropdown-menu .dropdown-item.has-icon:focus-visible,
+.navbar .dropdown-menu .dropdown-item.account_switch:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-offset-tight));
+  background-color: var(--usermenu-item-hover-bg);
+}
+
+.navbar .dropdown-menu .dropdown-divider {
+  border-color: var(--usermenu-divider);
+}

@@ -64,7 +64,7 @@ $h = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
     </div>
     <h6>Products &amp; services <small class="text-muted" dir="rtl">المنتجات والخدمات</small></h6>
     <table class="table table-sm">
-      <thead><tr><th>Name</th><th style="width:140px">Price</th><th style="width:150px">Per <small class="text-muted">(optional)</small></th></tr></thead>
+      <thead><tr><th>Name</th><th class="ob-col-price">Price</th><th class="ob-col-per">Per <small class="text-muted">(optional)</small></th></tr></thead>
       <tbody id="pr_items"></tbody>
     </table>
     <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_item"><i class="fas fa-plus"></i> Add item</button>
@@ -94,14 +94,14 @@ $h = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
     </div>
     <h6>Rooms <small class="text-muted" dir="rtl">الغرف</small></h6>
     <table class="table table-sm">
-      <thead><tr><th>Room name</th><th style="width:110px">Guests</th><th style="width:140px">Per night</th></tr></thead>
+      <thead><tr><th>Room name</th><th class="ob-col-guests">Guests</th><th class="ob-col-price">Per night</th></tr></thead>
       <tbody id="pr_rooms"></tbody>
     </table>
     <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_room"><i class="fas fa-plus"></i> Add room</button>
 
     <h6 class="mt-4">Day visit <small class="text-muted" dir="rtl">اليوم الواحد</small></h6>
     <table class="table table-sm">
-      <thead><tr><th>Package name</th><th style="width:170px">Price per person</th></tr></thead>
+      <thead><tr><th>Package name</th><th class="ob-col-pp">Price per person</th></tr></thead>
       <tbody id="pr_pkgs"></tbody>
     </table>
     <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_pkg"><i class="fas fa-plus"></i> Add package</button>

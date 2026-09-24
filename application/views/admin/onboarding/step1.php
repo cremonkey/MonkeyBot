@@ -20,7 +20,7 @@
 <div class="row">
   <?php foreach ($templates as $k => $t): $sel = ($state['template_key'] ?? '') === $k; ?>
     <div class="col-md-6 col-lg-3">
-      <div class="card ob-card h-100 <?php echo $sel ? 'border-primary' : ''; ?>" data-key="<?php echo htmlspecialchars($k); ?>" style="cursor:pointer">
+      <div class="card ob-card ob-clickable h-100 <?php echo $sel ? 'border-primary' : ''; ?>" data-key="<?php echo htmlspecialchars($k); ?>">
         <div class="card-body">
           <h4 class="mb-0"><?php echo htmlspecialchars($t['display_name']['en']); ?></h4>
           <p class="mb-2" dir="rtl"><strong><?php echo htmlspecialchars($t['display_name']['ar']); ?></strong></p>

@@ -2,41 +2,41 @@
 $plat_icon = array('fb' => 'fab fa-facebook-messenger', 'ig' => 'fab fa-instagram', 'wa' => 'fab fa-whatsapp', 'tg' => 'fab fa-telegram', 'web' => 'fas fa-globe');
 $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp', 'tg' => 'Telegram', 'web' => 'Website');
 ?>
-<section class="section">
+<section class="section ib-page">
   <div class="section-header"><h1><i class="fas fa-inbox"></i> <?php echo $page_title; ?></h1></div>
   <div class="section-body">
-    <div class="row" style="min-height:70vh">
+    <div class="row ib-row-wrap">
 
       <!-- LEFT: conversation list -->
       <div class="col-lg-4 col-xl-3 mb-3">
-        <div class="card" style="height:78vh;display:flex;flex-direction:column">
-          <div class="card-header p-2" style="display:block">
+        <div class="card ib-panel">
+          <div class="card-header p-2 ib-panel-header">
             <input id="ib_search" class="form-control form-control-sm mb-2" placeholder="Search name, phone or message…">
-            <div class="d-flex flex-wrap" style="gap:4px">
-              <select id="ib_platform" class="form-control form-control-sm" style="width:auto">
+            <div class="d-flex flex-wrap ib-filter-bar">
+              <select id="ib_platform" class="form-control form-control-sm ib-filter-select">
                 <option value="">All channels</option>
                 <?php foreach ($platforms as $p): ?><option value="<?php echo $p; ?>"><?php echo htmlspecialchars($plat_name[$p] ?? $p); ?></option><?php endforeach; ?>
               </select>
-              <select id="ib_status" class="form-control form-control-sm" style="width:auto">
+              <select id="ib_status" class="form-control form-control-sm ib-filter-select">
                 <option value="">Open &amp; closed</option><option value="open">Open</option><option value="resolved">Closed</option>
               </select>
-              <select id="ib_label" class="form-control form-control-sm" style="width:auto">
+              <select id="ib_label" class="form-control form-control-sm ib-filter-select">
                 <option value="">All labels</option>
               </select>
               <label class="form-check form-check-sm ml-1 mt-1"><input type="checkbox" id="ib_unread" class="form-check-input"> <span class="form-check-label">Unread only</span></label>
               <button type="button" id="ib_labels_manage" class="btn btn-sm btn-link p-0 ml-1" title="Create, rename or delete labels"><i class="fas fa-tags"></i> Labels</button>
             </div>
           </div>
-          <div id="ib_list" class="card-body p-0" style="overflow-y:auto;flex:1"></div>
+          <div id="ib_list" class="card-body p-0 ib-scroll-list"></div>
           <div class="card-footer p-1 text-center"><button id="ib_more" class="btn btn-sm btn-link" style="display:none">Load more</button></div>
         </div>
       </div>
 
       <!-- MIDDLE: thread -->
       <div class="col-lg-5 col-xl-6 mb-3">
-        <div class="card" style="height:78vh;display:flex;flex-direction:column">
+        <div class="card ib-panel">
           <div id="ib_thread_header" class="card-header p-2"><span class="text-muted">Select a conversation</span></div>
-          <div id="ib_thread" class="card-body" style="overflow-y:auto;flex:1;background:#f5f6fa"></div>
+          <div id="ib_thread" class="card-body ib-thread-body"></div>
           <div class="card-footer p-2">
             <div id="ib_deny" class="alert alert-warning py-2 px-2 mb-2" style="display:none">
               <span id="ib_deny_text"></span>
@@ -72,7 +72,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
 
           <div class="card mb-2"><div class="card-body">
             <p class="mb-1"><b id="ib_handoff_badge" class="badge badge-secondary">—</b></p>
-            <div class="btn-group-vertical btn-block" style="gap:2px">
+            <div class="btn-group-vertical btn-block ib-actions-vertical">
               <button class="btn btn-sm btn-outline-primary" id="ib_takeover">Take over from AI</button>
               <button class="btn btn-sm btn-outline-secondary" id="ib_return_bot">Return to AI</button>
               <button class="btn btn-sm btn-outline-success" id="ib_resolve">Mark resolved</button>
@@ -99,7 +99,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
             <button class="btn btn-sm btn-outline-primary" id="ib_ai_draft_use" title="Copy into the reply box. Nothing is sent until you press Send.">Use</button>
           </div>
             <div class="card-body p-2">
-              <div id="ib_ai_draft_text" style="white-space:pre-wrap;background:#f8f9fa;border:1px dashed #ced4da;border-radius:4px;padding:6px"></div>
+              <div id="ib_ai_draft_text" class="ib-ai-draft-text"></div>
               <small class="text-muted d-block mt-1" id="ib_ai_draft_meta"></small>
             </div>
             <div class="card-footer p-2">
@@ -120,7 +120,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
           </div>
 
           <div class="card"><div class="card-header p-2"><b>Internal notes</b></div>
-            <div id="ib_notes" class="card-body p-2" style="max-height:220px;overflow-y:auto"><small class="text-muted">No notes yet.</small></div>
+            <div id="ib_notes" class="card-body p-2 ib-notes-scroll"><small class="text-muted">No notes yet.</small></div>
           </div>
         </div>
       </div>
@@ -129,12 +129,12 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
 </section>
 
 <!-- Canned responses: which channels each one is offered on -->
-<div class="modal fade" id="ib_canned_modal" tabindex="-1" role="dialog">
+<div class="modal fade ib-page" id="ib_canned_modal" tabindex="-1" role="dialog">
   <div class="modal-dialog modal-lg" role="document"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title"><i class="fas fa-comment-dots"></i> Canned responses</h5>
       <button type="button" class="close" data-dismiss="modal">&times;</button></div>
     <div class="modal-body">
-      <div id="ib_canned_table" class="mb-3" style="max-height:40vh;overflow-y:auto"></div>
+      <div id="ib_canned_table" class="mb-3 ib-canned-scroll"></div>
       <input type="hidden" id="ib_canned_id" value="0">
       <input id="ib_canned_name" class="form-control form-control-sm mb-1" maxlength="255" placeholder="Name">
       <textarea id="ib_canned_text" class="form-control form-control-sm mb-1" rows="3" placeholder="Message"></textarea>
@@ -152,7 +152,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
 </div>
 
 <!-- Label manager: create / rename / recolour / delete this account's labels -->
-<div class="modal fade" id="ib_labels_modal" tabindex="-1" role="dialog">
+<div class="modal fade ib-page" id="ib_labels_modal" tabindex="-1" role="dialog">
   <div class="modal-dialog" role="document"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title"><i class="fas fa-tags"></i> Labels</h5>
       <button type="button" class="close" data-dismiss="modal">&times;</button></div>
@@ -161,7 +161,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       <div id="ib_labels_table" class="mb-3"></div>
       <div class="input-group input-group-sm">
         <input id="ib_label_new_name" class="form-control" maxlength="60" placeholder="New label name">
-        <input id="ib_label_new_color" type="color" class="form-control" value="#6777ef" style="max-width:52px;padding:2px">
+        <input id="ib_label_new_color" type="color" class="form-control ib-color-swatch" value="#6777ef">
         <div class="input-group-append"><button type="button" id="ib_label_create" class="btn btn-primary">Add</button></div>
       </div>
     </div>
@@ -179,7 +179,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
 
   function labelBadge(l, removable) {
     var bg = l.color || '#6c757d';
-    return '<span class="badge mr-1 mb-1" style="background:' + esc(bg) + ';color:#fff">' + esc(l.name) +
+    return '<span class="badge mr-1 mb-1 ib-label-badge" style="background:' + esc(bg) + '">' + esc(l.name) +
       (removable ? ' <a href="#" class="ib-label-detach text-white" data-id="' + (+l.id) + '" title="Remove">&times;</a>' : '') + '</span>';
   }
 
@@ -211,7 +211,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
     $('#ib_labels_table').html(LABELS.length ? LABELS.map(function (l) {
       return '<div class="d-flex align-items-center mb-1" data-id="' + (+l.id) + '">' +
         '<input class="form-control form-control-sm ib-label-name" maxlength="60" value="' + esc(l.name) + '">' +
-        '<input type="color" class="form-control form-control-sm ib-label-color ml-1" style="max-width:44px;padding:2px" value="' + esc(l.color || '#6c757d') + '">' +
+        '<input type="color" class="form-control form-control-sm ib-label-color ml-1 ib-color-swatch-sm" value="' + esc(l.color || '#6c757d') + '">' +
         '<small class="text-muted mx-2 text-nowrap">' + (+l.conversations) + ' conv.</small>' +
         '<button type="button" class="btn btn-sm btn-outline-primary ib-label-rename">Save</button>' +
         '<button type="button" class="btn btn-sm btn-outline-danger ml-1 ib-label-delete"><i class="fas fa-trash"></i></button></div>';
@@ -270,7 +270,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       r.rows.forEach(function (c) {
         var icon = PLAT_ICON[c.platform] || 'fas fa-comment';
         var active = current && current.id === c.id ? ' active-conv' : '';
-        html += '<div class="ib-row p-2 border-bottom' + active + '" data-id="' + c.id + '" style="cursor:pointer' + (active ? ';background:#eef3ff' : '') + '">' +
+        html += '<div class="ib-row p-2 border-bottom' + active + '" data-id="' + c.id + '">' +
           '<div class="d-flex justify-content-between"><b><i class="' + icon + ' mr-1"></i>' + esc(c.customer_name) + '</b>' +
           (c.unread_count > 0 ? '<span class="badge badge-primary">' + c.unread_count + '</span>' : '') + '</div>' +
           '<div class="text-muted small text-truncate">' + esc(c.last_message_preview || '') + '</div>' +
@@ -334,7 +334,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
 
   function renderSummary(text, generatedAt) {
     if (!text) { $('#ib_summary_body').html('<small class="text-muted">No summary yet.</small>'); return; }
-    $('#ib_summary_body').html('<div style="white-space:pre-wrap">' + esc(text) + '</div>' +
+    $('#ib_summary_body').html('<div class="ib-pre-wrap">' + esc(text) + '</div>' +
       (generatedAt ? '<small class="text-muted d-block mt-1">Generated ' + esc(generatedAt) + '</small>' : ''));
   }
 
@@ -354,8 +354,8 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   // are escaped again here; nothing from a message is ever inserted as raw HTML.
   function renderAttachment(a) {
     var u = esc(a.url);
-    if (a.type === 'image') return '<a href="' + u + '" target="_blank" rel="noopener noreferrer"><img src="' + u + '" alt="image" style="max-width:220px;max-height:220px;border-radius:4px" loading="lazy"></a>';
-    if (a.type === 'video') return '<video src="' + u + '" controls preload="none" style="max-width:260px"></video>';
+    if (a.type === 'image') return '<a href="' + u + '" target="_blank" rel="noopener noreferrer"><img src="' + u + '" alt="image" class="ib-attachment-image" loading="lazy"></a>';
+    if (a.type === 'video') return '<video src="' + u + '" controls preload="none" class="ib-attachment-video"></video>';
     if (a.type === 'audio') return '<audio src="' + u + '" controls preload="none"></audio>';
     return '<a href="' + u + '" target="_blank" rel="noopener noreferrer"><i class="fas fa-file"></i> Download file</a>';
   }
@@ -366,11 +366,11 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       var who = m.sender === 'system' ? 'System' : (mine ? (m.agent_name || 'Bot') : 'Customer');
       var r = m.render || {text: m.message_content, attachments: [], media_unavailable: false};
       var body = '';
-      if (r.text) body += '<div style="white-space:pre-wrap">' + esc(r.text) + '</div>';
+      if (r.text) body += '<div class="ib-pre-wrap">' + esc(r.text) + '</div>';
       (r.attachments || []).forEach(function (a) { body += '<div class="mt-1">' + renderAttachment(a) + '</div>'; });
       if (r.media_unavailable) body += '<em class="small">Media message — the file was not stored, so it cannot be shown here.</em>';
       return '<div class="mb-2 text-' + (mine ? 'right' : 'left') + '">' +
-        '<div class="d-inline-block p-2 rounded text-left" style="max-width:80%;background:' + (mine ? '#4b7bec;color:#fff' : '#fff') + ';border:1px solid #e3e3e3">' +
+        '<div class="d-inline-block p-2 rounded text-left ib-bubble ' + (mine ? 'ib-bubble-mine' : 'ib-bubble-theirs') + '">' +
         body + '</div><br><small class="text-muted">' + esc(who) + ' · ' + esc(m.conversation_time) + '</small></div>';
     }).join('');
     if (replace) $('#ib_thread').html(html); else $('#ib_thread').prepend(html);

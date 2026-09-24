@@ -6,7 +6,7 @@
 $titles = $step_titles;
 $flags  = $progress['flags'];
 ?>
-<section class="section">
+<section class="section ob-page">
   <div class="section-header">
     <h1><i class="fas fa-rocket"></i> Setup Guide <small class="text-muted" dir="rtl">دليل التجهيز</small></h1>
     <div class="section-header-breadcrumb">
@@ -23,8 +23,8 @@ $flags  = $progress['flags'];
       </div>
     <?php endif; ?>
 
-    <div class="card mb-3"><div class="card-body py-2" style="overflow-x:auto">
-      <ul class="nav nav-pills flex-nowrap" style="white-space:nowrap">
+    <div class="card mb-3"><div class="card-body py-2 ob-stepper-scroll">
+      <ul class="nav nav-pills flex-nowrap ob-stepper-nowrap">
         <?php foreach ($titles as $i => $t):
           $reachable = ($i == 1) || !empty($tpl);
           $cls = $i == $step ? 'active' : (!empty($flags[$i]) ? 'text-success' : 'text-muted');

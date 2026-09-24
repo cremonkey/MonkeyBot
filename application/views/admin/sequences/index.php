@@ -1,4 +1,4 @@
-<section class="section">
+<section class="section sq-page">
   <div class="section-header">
     <h1><i class="fas fa-stream"></i> <?php echo $page_title; ?></h1>
     <div class="section-header-breadcrumb">
@@ -28,10 +28,10 @@
             <a href="<?php echo base_url('sequences/form'); ?>" class="btn btn-primary">Create your first one</a>
           </div>
         <?php else: ?>
-        <table class="table table-striped mb-0">
+        <div class="table-responsive"><table class="table table-striped mb-0">
           <thead><tr>
-            <th>Name</th><th>Starts when</th><th style="width:90px">Steps</th>
-            <th style="width:260px">Who is in it</th><th style="width:110px">Status</th><th style="width:260px"></th>
+            <th>Name</th><th>Starts when</th><th class="sq-col-w90">Steps</th>
+            <th class="sq-col-w260">Who is in it</th><th class="sq-col-w110">Status</th><th class="sq-col-w260"></th>
           </tr></thead>
           <tbody>
           <?php foreach ($sequences as $s): ?>
@@ -60,7 +60,7 @@
             </tr>
           <?php endforeach; ?>
           </tbody>
-        </table>
+        </table></div>
         <?php endif; ?>
       </div>
     </div>
