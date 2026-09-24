@@ -20,6 +20,8 @@ class livechat extends Home
         $this->load->helper("bot_helper");
         $this->important_feature();
         $this->member_validity();        
+        $this->load->helper('inbox_realtime');
+        $this->load->helper('livechat_realtime');
     }
 
     // SPEC-09: toggle/set bot pause for a subscriber from the live chat UI.
@@ -37,6 +39,20 @@ class livechat extends Home
         $val = ($action === 'resume') ? null : date('Y-m-d H:i:s', strtotime('+6 hours'));
         $this->db->where('id', $sub[0]['id'])->update('messenger_bot_subscriber', ['bot_paused_until'=>$val]);
         echo json_encode(['status'=>'1','paused_until'=>$val]);
+    }
+
+    // POST (Pusher JS private-channel auth): socket_id, channel_name, csrf_token.
+    // Authorizes ONLY the logged-in tenant's own livechat channel (livechat_realtime_authorize());
+    // any other channel, a bad socket id, a missing CSRF token or realtime being off -> 403.
+    // Copied from Inbox::realtime_auth().
+    public function realtime_auth()
+    {
+        header('Content-Type: application/json');
+        $uid = $this->real_user_id ?: $this->user_id;
+        $auth = $this->csrf_token_check(true) === false ? null : livechat_realtime_authorize($uid,
+            $this->input->post('channel_name', true), $this->input->post('socket_id', true), livechat_realtime_ci_settings($this));
+        if ($auth === null) { $this->output->set_status_header(403); echo json_encode(array('error' => 'forbidden')); return; }
+        echo json_encode($auth);
     }
 
     public function load_livechat()
@@ -121,6 +137,9 @@ class livechat extends Home
         $data['whatsapp_business_id'] = $first_bot_id > 0 ? $this->session->userdata('facebook_rx_fb_user_info')  : '';
         $data['load_datatable']=true;
         $data['pusher_status']=$pusher_status;
+        // Realtime: private, per-tenant, ids-only (see livechat_realtime_helper.php).
+        // NULL when Pusher is unconfigured -> page behaves exactly as today.
+        $data['livechat_realtime'] = livechat_realtime_client_config($this, $this->real_user_id ?: $this->user_id);
         return $this->_viewcontroller($data);
     }
 
