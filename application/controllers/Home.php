@@ -362,19 +362,12 @@ class Home extends CI_Controller
         if (!empty($assigned_used_id)) {
             $this->basic->insert_data("announcement", $insert_data);
 
-            $pusher_data = [$user_id, $assigned_used_id, $title, $message_content, date("Y-m-d H:i:s"), $subscriber_name, $social_media];
-            $data = json_encode($pusher_data);
-            $encoding = mb_detect_encoding($data);
-            $data_bytes = mb_strlen($data, $encoding);
-
-            if ($data_bytes <= 10000) {
-                $this->config->load('pusher');
-                if (!empty($this->config->item("pusher_app_key"))) {
-                    $this->load->library('ci_pusher');
-                    $pusher = $this->ci_pusher->get_pusher();
-                    $pusher->trigger('livechat_assigned_agent_channel', 'livechat_assigned_agent_event', $pusher_data);
-                }
-            }
+            // Private, per-tenant, ids-only realtime notice (see livechat_realtime_helper.php).
+            // No-op when Pusher is unconfigured.
+            $this->load->helper('inbox_realtime');
+            $this->load->helper('livechat_realtime');
+            livechat_realtime_publish($this, $user_id, 'livechat_assigned_agent_event',
+                livechat_realtime_assigned_payload($assigned_used_id, $subscriber_id, $social_media));
         }
         return true;
     }
@@ -7957,24 +7950,12 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
 
             if($sender=='user') $message_content_html = display_received_message($page_id,$fb_page_id,$message_content,$message_id,$conversation_time,false,$insert_data['message_status']??null,$insert_data['delivery_status_updated_at']??null);
 
-            $pusher_data = [$user_id,$message_id,$subscriber_id,$page_id,$fb_page_id,$sender,$message_content,$message_content_html,$conversation_time,format_preview_message($last_conversation_message),$agent_name,$social_media];
-        
-            $data = json_encode($pusher_data);
-            //dd($data);
-            $encoding = mb_detect_encoding($data);
-            $data_bytes = mb_strlen($data,$encoding);
-            if($data_bytes<=10000){
-
-                $this->config->load('pusher');
-
-                if(!empty($this->config->item("pusher_app_key"))){
-
-                    $this->load->library('ci_pusher');
-                    $pusher = $this->ci_pusher->get_pusher();
-                    $pusher->trigger('livechat_channel', 'livechat_event', $pusher_data);
-
-                }
-            }
+            // Private, per-tenant, ids-only realtime notice (see livechat_realtime_helper.php).
+            // No message content or rendered HTML travels over Pusher; the browser re-fetches
+            // via the existing tenant-scoped Livechat endpoint. No-op when Pusher is unconfigured.
+            $this->load->helper('livechat_realtime');
+            livechat_realtime_publish($this, $user_id, 'livechat_event',
+                livechat_realtime_message_payload($message_id, $subscriber_id, $page_id, $fb_page_id, $sender, $social_media));
         }
 
         $this->updated_subscriber_last_interaction($subscriber_id,$update_interaction,$message_content,$last_conversation_message,$update_unseen);
