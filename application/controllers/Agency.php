@@ -29,6 +29,7 @@ class Agency extends Home
             ->from('users')->where('deleted', '0')->order_by('id', 'ASC')->get()->result_array();
 
         $this->load->helper('agency_billing');
+        $this->load->helper('agency_health');
         // brief §11: usage vs PACKAGE LIMITS. package.monthly_limit is the same JSON shape/semantics
         // Home::_check_usage() and the admin package screens already use (module_id -> limit, 0/absent
         // = unlimited) — read here, never re-defined. Module 340 "Bot - AI Reply" is the readiness
@@ -53,9 +54,15 @@ class Agency extends Home
             'leads_30'  => $this->_count_by_user('crm_deals', array('created_at >=' => $since)),
             'missed'    => $this->_count_by_user('ai_unanswered_questions', array('status' => 'new')),
             'errors_7'  => $this->_count_by_user('messenger_bot_reply_error_log', array('error_time >=' => $since7)),
-            'waiting'   => $this->_count_by_user('messenger_bot_subscriber', array('bot_paused_until >' => $now)),
+            // A5: "waiting" is the real handoff state now (conversations.handoff_state), not the
+            // legacy bot-pause timer. bot_paused_until is kept as a second column until D1 lands.
+            'waiting_paused_legacy' => $this->_count_by_user('messenger_bot_subscriber', array('bot_paused_until >' => $now)),
             'guard_7'   => $this->_count_by_user('ai_price_guard_log', array('created_at >=' => $since7)),
         );
+        $waiting_by_user = agency_health_waiting_by_user($this->db);
+        $crm_push_by_user = agency_health_crm_push_by_user($this->db);
+        $sheets_by_user = agency_health_sheets_failures_by_user($this->db);
+        $inbound_by_platform = agency_health_last_inbound_by_platform($this->db);
         $last_msg = $this->_max_by_user('livechat_messages', 'conversation_time');
         $ai_cost = $this->_ai_cost_by_user($since);
         $won = $this->_sum_by_user('crm_deals', 'value', array('status' => 'won', 'created_at >=' => $since));
@@ -66,13 +73,19 @@ class Agency extends Home
             $g = function ($k) use ($agg, $u) { return isset($agg[$k][$u]) ? (int) $agg[$k][$u] : 0; };
             $channels = $g('fb_pages') + $g('wa') + $g('wa_cloud') + $g('tg') + $g('web');
             $last = $last_msg[$u] ?? null;
+            $waiting = isset($waiting_by_user[$u]) ? $waiting_by_user[$u] : 0;
+            $crm_push = isset($crm_push_by_user[$u]) ? $crm_push_by_user[$u] : array('pending' => 0, 'failed' => 0, 'last_failure' => null);
+            $sheets = isset($sheets_by_user[$u]) ? $sheets_by_user[$u] : array('failing' => false, 'last_error' => null, 'last_synced_at' => null);
+            $last_inbound = isset($inbound_by_platform[$u]) ? $inbound_by_platform[$u] : array();
             $flags = array();
             if ($c['status'] !== '1') $flags[] = array('secondary', 'account inactive');
             if (!empty($c['expired_date']) && $c['expired_date'] < $now && $c['user_type'] !== 'Admin') $flags[] = array('danger', 'package expired');
             if ($channels > 0 && ($last === null || $last < $since7)) $flags[] = array('warning', 'no messages in 7 days');
-            if ($g('waiting') > 0) $flags[] = array('danger', $g('waiting') . ' waiting for a human');
+            if ($waiting > 0) $flags[] = array('danger', $waiting . ' waiting for a human');
             if ($g('missed') >= 10) $flags[] = array('warning', $g('missed') . ' unanswered questions');
             if ($g('errors_7') > 0) $flags[] = array('warning', $g('errors_7') . ' send errors (7d)');
+            if ($crm_push['failed'] > 0) $flags[] = array('warning', $crm_push['failed'] . ' CRM push failures');
+            if ($sheets['failing']) $flags[] = array('warning', 'Sheets sync failing');
             $inb = $g('msgs_in_7'); $bot = $g('msgs_bot_7');
 
             // brief §11: package name + expiry readiness + usage vs monthly_limit.
@@ -92,11 +105,19 @@ class Agency extends Home
                 'channels' => array('fb' => $g('fb_pages'), 'ig' => $g('ig_pages'), 'wa' => $g('wa') + $g('wa_cloud'), 'tg' => $g('tg'), 'web' => $g('web')),
                 'msgs_in_7' => $inb, 'bot_reply_ratio' => $inb > 0 ? min(100, round($bot / $inb * 100)) : null,
                 'last_message' => $last, 'leads_30' => $g('leads_30'), 'won_30' => (float) ($won[$u] ?? 0),
-                'waiting' => $g('waiting'), 'missed' => $g('missed'), 'errors_7' => $g('errors_7'), 'guard_7' => $g('guard_7'),
+                'waiting' => $waiting, 'waiting_paused_legacy' => $g('waiting_paused_legacy'),
+                'missed' => $g('missed'), 'errors_7' => $g('errors_7'), 'guard_7' => $g('guard_7'),
                 'ai_cost_30' => round((float) ($ai_cost[$u] ?? 0), 2), 'flags' => $flags,
                 'package_name' => $pkg ? $pkg['package_name'] : '—',
                 'days_until_expiry' => $days_left, 'expiry' => $expiry,
                 'usage' => $usage,
+                'integration_health' => array(
+                    'crm_pending' => $crm_push['pending'], 'crm_failed' => $crm_push['failed'],
+                    'crm_last_failure' => $crm_push['last_failure'],
+                    'sheets_failing' => $sheets['failing'], 'sheets_last_error' => $sheets['last_error'],
+                    'sheets_last_synced_at' => $sheets['last_synced_at'],
+                    'last_inbound' => $last_inbound,
+                ),
             );
         }
         // attention first: most flags, then most inbound traffic
