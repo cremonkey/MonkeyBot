@@ -51,6 +51,7 @@ class Whatsapp_bot extends Home
             'app_secret'=>($app_secret !== '' ? secret_encrypt($app_secret) : null), 'verify_token'=>$verify,
             'ai_enabled'=>$ai_enabled, 'status'=>'1', 'created_at'=>date('Y-m-d H:i:s'),
         ));
+        $this->load->helper('audit'); audit_record($this->uid, 'channel.connected', 'whatsapp_account', $this->db->insert_id(), null, array('phone_number_id'=>$pnid));
         $this->session->set_flashdata('success','WhatsApp number connected. Configure the webhook in Meta with the callback URL and verify token shown.');
         redirect('whatsapp_bot');
     }
@@ -59,6 +60,7 @@ class Whatsapp_bot extends Home
     {
         if (!hash_equals((string)$this->session->userdata('csrf_token_session'), (string)$this->input->get('t'))) show_error('Invalid token', 403);
         $this->db->where(['id'=>(int)$id, 'user_id'=>$this->uid])->delete('whatsapp_accounts');
+        $this->load->helper('audit'); audit_record($this->uid, 'channel.disconnected', 'whatsapp_account', (int)$id);
         redirect('whatsapp_bot');
     }
 

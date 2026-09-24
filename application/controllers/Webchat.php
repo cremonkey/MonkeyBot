@@ -102,6 +102,7 @@ class Webchat extends Home
             $this->basic->insert_data('ai_agent_assignments', array('user_id'=>$this->uid,'profile_id'=>$pid,'channel_type'=>'web','target_id'=>$w['widget_key']));
         }
 
+        $this->load->helper('audit'); audit_record($this->uid, 'channel.updated', 'webchat_widget', $id);
         $this->session->set_flashdata('success','Saved');
         redirect('webchat');
     }
@@ -113,6 +114,7 @@ class Webchat extends Home
             $w = $this->db->select('widget_key')->from('webchat_settings')->where('id',(int)$id)->get()->row_array();
             $this->db->where(['id'=>(int)$id,'user_id'=>$this->uid])->delete('webchat_settings');
             if (!empty($w)) $this->db->where(['user_id'=>$this->uid,'channel_type'=>'web','target_id'=>$w['widget_key']])->delete('ai_agent_assignments');
+            $this->load->helper('audit'); audit_record($this->uid, 'channel.disconnected', 'webchat_widget', (int)$id);
         }
         redirect('webchat');
     }

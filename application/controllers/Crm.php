@@ -120,6 +120,8 @@ class Crm extends Home
             ));
         } catch (Throwable $e) { log_message('error', 'crm deal_move event_emit: ' . $e->getMessage()); }
 
+        $this->load->helper('audit'); audit_record($this->uid, 'crm.deal_move', 'crm_deal', $id, array('stage_id'=>(int)$deal['stage_id']), array('stage_id'=>$stage_id));
+
         echo json_encode(['status'=>'1']);
     }
 

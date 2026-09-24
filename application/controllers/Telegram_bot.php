@@ -46,6 +46,7 @@ class Telegram_bot extends Home
         ));
         $acc_id = $this->db->insert_id();
         $this->telegram_api->set_webhook($token, base_url('telegram_bot/webhook/'.$acc_id), $secret);
+        $this->load->helper('audit'); audit_record($this->uid, 'channel.connected', 'telegram_account', $acc_id, null, array('bot_username'=>$username));
         $this->session->set_flashdata('success','Telegram bot connected: @'.$username);
         redirect('telegram_bot');
     }
@@ -54,6 +55,7 @@ class Telegram_bot extends Home
     {
         if (!hash_equals((string)$this->session->userdata('csrf_token_session'), (string)$this->input->get('t'))) show_error('Invalid token', 403);
         $this->db->where(['id'=>(int)$id, 'user_id'=>$this->uid])->delete('telegram_accounts');
+        $this->load->helper('audit'); audit_record($this->uid, 'channel.disconnected', 'telegram_account', (int)$id);
         redirect('telegram_bot');
     }
 

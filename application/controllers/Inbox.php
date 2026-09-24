@@ -439,6 +439,7 @@ class Inbox extends Home
 
         $this->db->where('id', $conv['id'])->where('user_id', $this->uid)
             ->update('conversations', array('assigned_user_id' => $team_member_id, 'updated_at' => date('Y-m-d H:i:s')));
+        $this->load->helper('audit'); audit_record($this->uid, 'inbox.assign', 'conversation', $conv['id'], array('assigned_user_id'=>$conv['assigned_user_id'] ?? null), array('assigned_user_id'=>$team_member_id));
         echo json_encode(array('status' => '1', 'message' => 'Assignment updated'));
     }
 
@@ -477,6 +478,7 @@ class Inbox extends Home
         if (empty($conv)) { echo json_encode(array('status' => '0', 'message' => 'Conversation not found')); return; }
 
         $result = $this->walk_transition_path($conv['id'], inbox_takeover_path($conv['handoff_state']), 'takeover');
+        $this->load->helper('audit'); audit_record($this->uid, 'inbox.takeover', 'conversation', $conv['id'], array('handoff_state'=>$conv['handoff_state']), array('handoff_state'=>$result['handoff_state'] ?? null));
         echo json_encode($result);
     }
 

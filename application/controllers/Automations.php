@@ -148,7 +148,7 @@ class Automations extends Home
             $this->db->insert('automation_rules', $row);
             $id = (int) $this->db->insert_id();
         }
-        log_message('error', 'audit: automation ' . $id . ' saved (' . $status . ') by user ' . $this->session->userdata('user_id'));
+        $this->load->helper('audit'); audit_record($this->uid, 'automation.saved', 'automation_rule', $id, null, array('status'=>$status));
         $ws = $this->workers_status();
         echo json_encode(array(
             'status' => '1', 'id' => $id, 'message' => 'Automation saved.',
@@ -177,7 +177,7 @@ class Automations extends Home
 
         $this->db->where('id', $id)->where('user_id', $this->uid)
             ->update('automation_rules', array('status' => $status, 'updated_at' => date('Y-m-d H:i:s')));
-        log_message('error', 'audit: automation ' . $id . ' set to ' . $status . ' by user ' . $this->session->userdata('user_id'));
+        $this->load->helper('audit'); audit_record($this->uid, $status === 'active' ? 'automation.published' : 'automation.disabled', 'automation_rule', $id, array('status'=>$rule['status']), array('status'=>$status));
         $ws = $this->workers_status();
         echo json_encode(array(
             'status' => '1', 'new_status' => $status,
