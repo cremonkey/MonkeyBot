@@ -597,7 +597,7 @@ class Inbox extends Home
             $this->load->library('Conversation_summarizer');
         }
 
-        $result = $this->conversation_summarizer->summarize($ai_cfg, $messages);
+        $result = $this->conversation_summarizer->summarize($ai_cfg, $messages, $conv['id']);
         if (empty($result['ok'])) {
             echo json_encode(array('status' => '0', 'message' => $result['message']));
             return;

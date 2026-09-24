@@ -30,11 +30,12 @@ class Conversation_summarizer
     }
 
     /**
-     * @param mixed $config_row  open_ai_config row, passed through to the AI caller unchanged
-     * @param array $messages    livechat_messages rows (id, sender, agent_name, message_content, conversation_time), oldest first
+     * @param mixed    $config_row      open_ai_config row, passed through to the AI caller unchanged
+     * @param array    $messages        livechat_messages rows (id, sender, agent_name, message_content, conversation_time), oldest first
+     * @param int|null $conversation_id conversations.id this summary is for (A3: attributes the cost-log row); optional
      * @return array{ok:bool, summary:?string, message:string}
      */
-    public function summarize($config_row, array $messages)
+    public function summarize($config_row, array $messages, $conversation_id = null)
     {
         $messages = array_slice($messages, -self::MAX_MESSAGES);
         $has_content = false;
@@ -54,6 +55,7 @@ class Conversation_summarizer
             'temperature' => 0.2,
             'system'      => $system,      // Anthropic path
             'instruction' => $system,      // OpenAI path
+            'conversation_id' => $conversation_id,
         ));
 
         list($text, $err) = conversation_summary_extract_text($raw);
