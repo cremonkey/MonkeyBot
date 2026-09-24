@@ -52,8 +52,11 @@ if (!function_exists('request_id_set')) {
      */
     function request_id_set($id = null)
     {
-        $id = is_string($id) ? trim($id) : '';
-        if ($id === '' || strlen($id) > 64) $id = request_id_new();
+        // Only accept the exact UUID shape request_id_new() produces: the request_id columns are
+        // VARCHAR(36), and a forwarded header is untrusted input, so anything else (empty,
+        // oversized, non-hex, control characters) gets a fresh id instead.
+        $id = is_string($id) ? $id : '';
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD', $id)) $id = request_id_new();
         try {
             $CI =& get_instance();
             $CI->mb_request_id = $id;

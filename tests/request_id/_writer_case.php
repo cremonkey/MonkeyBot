@@ -35,7 +35,7 @@ require __DIR__ . '/../../application/helpers/request_id_helper.php';
 require __DIR__ . '/../../application/helpers/ai_usage_helper.php';
 
 $case = $argv[1] ?? '';
-request_id_set('writer-test-1111-4000-8000-000000000000');
+request_id_set('f1f1f1f1-1111-4000-8000-000000000000');
 $GLOBALS['__fake_ci']->db->tables['ai_usage_log'] = ($case === 'present') ? array('request_id' => true) : array();
 
 ai_usage_record(7, 'openai', 'gpt-4o-mini', 'chat_reply', 10, 5);

@@ -30,6 +30,10 @@ ALTER TABLE `ai_failure_log`
 ALTER TABLE `ai_failure_log`
   ADD INDEX IF NOT EXISTS `idx_request_id` (`request_id`);
 
+-- System Health Failures (24h) panel counts ai_failure_log by created_at with no user_id predicate
+ALTER TABLE `ai_failure_log`
+  ADD INDEX IF NOT EXISTS `idx_created_at` (`created_at`);
+
 ALTER TABLE `automation_action_log`
   ADD COLUMN IF NOT EXISTS `request_id` VARCHAR(36) NULL DEFAULT NULL
     COMMENT 'webhook-entry correlation id (request_id_helper.php), NULL for rows written before this migration';

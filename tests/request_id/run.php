@@ -81,6 +81,16 @@ $got = request_id_set($forwarded);
 check('set($id) with a given id reuses it verbatim', $got, $forwarded);
 check('get() after set($id) returns that same forwarded id', request_id_get(), $forwarded);
 
+foreach (array('empty' => '', 'non-hex' => 'zzzzzzzz-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    'control chars' => "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeee\n", 'oversized (37)' => 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeeee',
+    'oversized (64)' => str_repeat('a', 64), 'sql-ish' => "x' OR 1=1 --") as $label => $bad) {
+    reset_ci();
+    $got = request_id_set($bad);
+    check("forwarded $label id is replaced by a fresh UUID", $got !== $bad && (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D', $got) && strlen($got) === 36, true);
+}
+reset_ci();
+check('valid forwarded UUID (uppercase) is kept', request_id_set('AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE'), 'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE');
+
 // ============================================================================================
 echo "\n== 2. mb_internal_headers() carries the request id ==\n";
 
@@ -130,7 +140,7 @@ foreach (array('missing', 'present') as $case) {
     if ($case === 'missing') {
         check('field_exists(request_id) = false -> INSERT omits request_id entirely', $line, 'OMITTED');
     } else {
-        check('field_exists(request_id) = true -> INSERT includes the current request id', $line, 'writer-test-1111-4000-8000-000000000000');
+        check('field_exists(request_id) = true -> INSERT includes the current request id', $line, 'f1f1f1f1-1111-4000-8000-000000000000');
     }
 }
 
