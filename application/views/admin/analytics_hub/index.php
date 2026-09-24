@@ -1,4 +1,4 @@
-<section class="section">
+<section class="section an-page">
   <div class="section-header"><h1><i class="fas fa-chart-line"></i> <?php echo $page_title; ?></h1></div>
   <div class="section-body">
     <div class="row">
@@ -11,7 +11,7 @@
         );
         foreach ($cards as $c): ?>
         <div class="col-lg-3 col-md-6 col-6">
-          <div class="card card-statistic-1">
+          <div class="card card-statistic-1 stat-card">
             <div class="card-icon bg-<?php echo $c[3]; ?>"><i class="<?php echo $c[2]; ?>"></i></div>
             <div class="card-wrap"><div class="card-header"><h4><?php echo $c[0]; ?></h4></div>
               <div class="card-body"><?php echo number_format($c[1]); ?></div></div>
@@ -23,10 +23,10 @@
       <?php $k = $sales_kpis;
         $rt = $k['median_response_s'];
         $rt_txt = $rt === null ? '—' : ($rt < 60 ? $rt.'s' : round($rt/60,1).'m'); ?>
-      <div class="col-lg-3 col-6"><div class="card card-statistic-1"><div class="card-icon bg-info"><i class="fas fa-comments"></i></div><div class="card-wrap"><div class="card-header"><h4>Chat &rarr; Lead</h4></div><div class="card-body"><?php echo $k['chat_to_lead']; ?>%</div></div></div></div>
-      <div class="col-lg-3 col-6"><div class="card card-statistic-1"><div class="card-icon bg-success"><i class="fas fa-trophy"></i></div><div class="card-wrap"><div class="card-header"><h4>Lead &rarr; Won</h4></div><div class="card-body"><?php echo $k['lead_to_won']; ?>%</div></div></div></div>
-      <div class="col-lg-3 col-6"><div class="card card-statistic-1"><div class="card-icon bg-primary"><i class="fas fa-hand-holding-usd"></i></div><div class="card-wrap"><div class="card-header"><h4>Won Value (30d)</h4></div><div class="card-body"><?php echo number_format($k['won_value']); ?></div></div></div></div>
-      <div class="col-lg-3 col-6"><div class="card card-statistic-1"><div class="card-icon bg-warning"><i class="fas fa-stopwatch"></i></div><div class="card-wrap"><div class="card-header"><h4>Median Reply</h4></div><div class="card-body"><?php echo $rt_txt; ?></div></div></div></div>
+      <div class="col-lg-3 col-6"><div class="card card-statistic-1 stat-card"><div class="card-icon bg-info"><i class="fas fa-comments"></i></div><div class="card-wrap"><div class="card-header"><h4>Chat &rarr; Lead</h4></div><div class="card-body"><?php echo $k['chat_to_lead']; ?>%</div></div></div></div>
+      <div class="col-lg-3 col-6"><div class="card card-statistic-1 stat-card"><div class="card-icon bg-success"><i class="fas fa-trophy"></i></div><div class="card-wrap"><div class="card-header"><h4>Lead &rarr; Won</h4></div><div class="card-body"><?php echo $k['lead_to_won']; ?>%</div></div></div></div>
+      <div class="col-lg-3 col-6"><div class="card card-statistic-1 stat-card"><div class="card-icon bg-primary"><i class="fas fa-hand-holding-usd"></i></div><div class="card-wrap"><div class="card-header"><h4>Won Value (30d)</h4></div><div class="card-body"><?php echo number_format($k['won_value']); ?></div></div></div></div>
+      <div class="col-lg-3 col-6"><div class="card card-statistic-1 stat-card"><div class="card-icon bg-warning"><i class="fas fa-stopwatch"></i></div><div class="card-wrap"><div class="card-header"><h4>Median Reply</h4></div><div class="card-body"><?php echo $rt_txt; ?></div></div></div></div>
     </div>
 
     <div class="row">
@@ -68,15 +68,15 @@
       </div>
     </div>
     <div class="row">
-      <div class="col-lg-8"><div class="card"><div class="card-header"><h4>New Subscribers (30d)</h4></div><div class="card-body"><canvas id="chSubs" height="90"></canvas></div></div></div>
-      <div class="col-lg-4"><div class="card"><div class="card-header"><h4>Lead Bands</h4></div><div class="card-body"><canvas id="chLeads" height="180"></canvas></div></div></div>
+      <div class="col-lg-8"><div class="card chart-card"><div class="card-header"><h4>New Subscribers (30d)</h4></div><div class="card-body"><canvas id="chSubs" height="90"></canvas></div></div></div>
+      <div class="col-lg-4"><div class="card chart-card"><div class="card-header"><h4>Lead Bands</h4></div><div class="card-body"><canvas id="chLeads" height="180"></canvas></div></div></div>
     </div>
     <div class="row">
-      <div class="col-lg-6"><div class="card"><div class="card-header"><h4>Conversations by Sender (30d)</h4></div><div class="card-body"><canvas id="chMsg" height="120"></canvas></div></div></div>
-      <div class="col-lg-6"><div class="card"><div class="card-header"><h4>Orders &amp; Revenue (30d)</h4></div><div class="card-body"><canvas id="chOrders" height="120"></canvas></div></div></div>
+      <div class="col-lg-6"><div class="card chart-card"><div class="card-header"><h4>Conversations by Sender (30d)</h4></div><div class="card-body"><canvas id="chMsg" height="120"></canvas></div></div></div>
+      <div class="col-lg-6"><div class="card chart-card"><div class="card-header"><h4>Orders &amp; Revenue (30d)</h4></div><div class="card-body"><canvas id="chOrders" height="120"></canvas></div></div></div>
     </div>
     <div class="row">
-      <div class="col-lg-8"><div class="card"><div class="card-header"><h4>AI Replies per Day (30d)</h4></div><div class="card-body"><canvas id="chAi" height="90"></canvas></div></div></div>
+      <div class="col-lg-8"><div class="card chart-card"><div class="card-header"><h4>AI Replies per Day (30d)</h4></div><div class="card-body"><canvas id="chAi" height="90"></canvas></div></div></div>
       <div class="col-lg-4"><div class="card"><div class="card-header"><h4>Estimated AI Cost (30d)</h4></div><div class="card-body text-center"><h2 class="text-primary">$<?php echo number_format($ai_cost,2); ?></h2><small class="text-muted">rough estimate from token usage</small></div></div></div>
     </div>
 

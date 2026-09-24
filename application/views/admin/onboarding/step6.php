@@ -12,7 +12,7 @@ $this->load->view('admin/onboarding/_shell');
       <div class="card-body"><ul class="list-unstyled mb-0">
         <?php foreach ($tpl['pipeline']['stages'] as $s): $exists = isset($have[mb_strtolower(trim($s['name']))]); ?>
           <li class="mb-2">
-            <span class="badge" style="background:<?php echo htmlspecialchars($s['color']); ?>;color:#fff">&nbsp;</span>
+            <span class="badge ob-stage-dot" style="background:<?php echo htmlspecialchars($s['color']); ?>">&nbsp;</span>
             <strong><?php echo htmlspecialchars($s['name']); ?></strong>
             <?php if ($s['stage_type'] !== 'open'): ?><small class="text-muted">(<?php echo $s['stage_type'] === 'won' ? 'success' : 'closed'; ?>)</small><?php endif; ?>
             <?php echo $exists ? '<span class="badge badge-success float-right">already there</span>' : '<span class="badge badge-light float-right">will be added</span>'; ?>

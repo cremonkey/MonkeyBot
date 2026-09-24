@@ -4,11 +4,11 @@ $ago = function ($t) { if (!$t) return '—'; $s = time() - strtotime($t); if ($
 $ch_icon = array('fb' => 'fab fa-facebook-messenger', 'ig' => 'fab fa-instagram', 'wa' => 'fab fa-whatsapp', 'tg' => 'fab fa-telegram', 'web' => 'fas fa-globe');
 $sched_ok = $cron_age !== null && $cron_age <= 900;
 ?>
-<section class="section">
+<section class="section ag-page">
   <div class="section-header"><h1><i class="fas fa-building"></i> <?php echo $page_title; ?></h1>
     <div class="section-header-breadcrumb">
       <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#new_client_modal"><i class="fas fa-plus"></i> New client</button>
-      <a href="<?php echo base_url('system_health'); ?>" class="badge <?php echo $sched_ok ? 'badge-success' : 'badge-danger'; ?>" style="font-size:13px">
+      <a href="<?php echo base_url('system_health'); ?>" class="badge <?php echo $sched_ok ? 'badge-success' : 'badge-danger'; ?> ag-sched-badge">
         Automation <?php echo $sched_ok ? 'running' : 'NOT running'; ?> · <?php echo $age($cron_age); ?></a>
     </div>
   </div>
@@ -47,17 +47,17 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
               <td><?php if ($r['expiry']['status'] === 'none'): ?><span class="text-muted">—</span>
                 <?php else: ?><span class="badge badge-<?php echo $r['expiry']['flag'] ? $r['expiry']['flag'] : 'light'; ?>"><?php echo htmlspecialchars($r['expiry']['label']); ?></span>
                 <?php endif; ?></td>
-              <td style="min-width:110px">
+              <td class="ag-col-usage">
                 <?php if ($r['usage']['unlimited']): ?><span class="text-muted">Unlimited</span>
                 <?php else: ?>
-                  <div class="progress" style="height:14px" title="<?php echo $r['usage']['usage'] . ' / ' . $r['usage']['limit']; ?>">
+                  <div class="progress ag-usage-bar" title="<?php echo $r['usage']['usage'] . ' / ' . $r['usage']['limit']; ?>">
                     <div class="progress-bar bg-<?php echo $r['usage']['percent'] >= 90 ? 'danger' : ($r['usage']['percent'] >= 70 ? 'warning' : 'success'); ?>"
                       style="width:<?php echo $r['usage']['percent']; ?>%"></div>
                   </div>
                   <small class="text-muted"><?php echo $r['usage']['usage'] . '/' . $r['usage']['limit'] . ' (' . $r['usage']['percent'] . '%)'; ?></small>
                 <?php endif; ?>
               </td>
-              <td style="white-space:nowrap"><?php foreach ($r['channels'] as $k => $n): if ($n > 0): ?>
+              <td class="ag-col-nowrap"><?php foreach ($r['channels'] as $k => $n): if ($n > 0): ?>
                 <span class="mr-1" title="<?php echo $k . ': ' . $n; ?>"><i class="<?php echo $ch_icon[$k]; ?>"></i><?php echo $n > 1 ? '<sup>' . $n . '</sup>' : ''; ?></span>
                 <?php endif; endforeach; ?><?php if (!array_sum($r['channels'])): ?><span class="text-muted">none</span><?php endif; ?></td>
               <td><?php echo $r['msgs_in_7']; ?></td>
@@ -131,7 +131,7 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
             <b>Copy this now — it will not be shown again.</b>
             <div class="mt-2">
               <div>Email: <b id="nc_out_email" dir="ltr"></b></div>
-              <div>Temporary password: <code id="nc_out_password" dir="ltr" style="font-size:15px"></code>
+              <div>Temporary password: <code id="nc_out_password" dir="ltr" class="ag-password-code"></code>
                 <button type="button" class="btn btn-sm btn-outline-secondary ml-1" id="nc_copy">Copy</button></div>
             </div>
           </div>

@@ -1,0 +1,349 @@
+/**
+ * Design tokens — MonkeyBot admin panel
+ *
+ * Three-layer architecture (primitive -> semantic -> component scaffolding).
+ * This file defines tokens only; it does not style anything by itself, so
+ * loading it changes no rendered pixel until later layers (design-system.css
+ * and view-level classes) consume these variables.
+ *
+ * Baseline values below were extracted from the theme as it exists today so
+ * this layer is a faithful restatement, not a redesign:
+ *   - Primary color: Bootstrap's --blue (#0D8BF1), the value in effect on
+ *     every .btn-primary / .bg-primary / .text-primary today
+ *     (assets/modules/bootstrap/css/bootstrap.min.css :root, consumed via
+ *     var(--blue) throughout assets/css/style.css, e.g. lines 66, 80, 104,
+ *     319, 377).
+ *   - Font stack: assets/css/style.css line 1983 (`body` rule).
+ *   - Border radius: assets/css/style.css uses 3px as the dominant base
+ *     radius on cards/inputs/buttons (e.g. lines 236, 302, 407, 433, 488,
+ *     606) and 30px/50px for pill-shaped controls (lines 331, 359, 641-690).
+ *   - Box shadow: assets/css/style.css uses 0 4px 8px rgba(0,0,0,.03) as the
+ *     dominant card shadow (lines 148, 604), 0 1px 2px rgba(0,0,0,.05) for a
+ *     lighter shadow (line 490), and 0 4px 15px rgba(0,0,0,.2) for a heavier
+ *     one (line 1003).
+ *
+ * Dark-skin toggle: NOT FOUND. Searched assets/js/*.js,
+ * application/views/admin/theme/*.php, application/views/include/*.php and
+ * assets/css/skins/ (which only holds an RTL "reverse.css", unrelated to
+ * dark mode) for skin-dark / data-theme / dark-mode / prefers-color-scheme
+ * / any body-class dark toggle. None exists in this codebase today — see
+ * task-1-report.md for the full search trail. No dark semantic block is
+ * defined below; per the plan's instruction ("do not invent a new
+ * dark-mode mechanism alongside an existing one"), no dark-skin block is
+ * added here. Dark mode is out of scope for this plan by controller
+ * ruling (recorded in the SDD ledger): no dark-skin mechanism exists to
+ * extend, and building one is a new feature. A dark theme can be added
+ * later by redefining the semantic layer (section 2) under a single
+ * selector.
+ */
+
+:root {
+  /* ---------------------------------------------------------------- */
+  /* 1. Primitives — raw values, never used directly in components    */
+  /* ---------------------------------------------------------------- */
+
+  /* Brand blue ramp (50 lightest -> 900 darkest), anchored on today's
+     effective primary #0D8BF1 at step 500 */
+  --mb-blue-50:  #eaf6fe;
+  --mb-blue-100: #d2ecfd;
+  --mb-blue-200: #a6d9fb;
+  --mb-blue-300: #79c6f8;
+  --mb-blue-400: #3fadf4;
+  --mb-blue-500: #0d8bf1; /* today's --blue / current primary */
+  --mb-blue-600: #0b74c9;
+  --mb-blue-700: #095c9f;
+  --mb-blue-800: #074574;
+  --mb-blue-900: #052d4a;
+
+  /* Neutral gray ramp */
+  --mb-gray-50:  #f8f9fa;
+  --mb-gray-100: #f4f6f9; /* current body background, style.css line 1980 */
+  --mb-gray-200: #e3eaef; /* current .bg-light / .text-light, style.css */
+  --mb-gray-300: #cdd3d8; /* current .bg-secondary, style.css */
+  --mb-gray-400: #a9b4bd;
+  --mb-gray-500: #728394;
+  --mb-gray-600: #526170;
+  --mb-gray-700: #38434c;
+  --mb-gray-800: #191d21; /* current .bg-dark / .text-dark, style.css */
+  --mb-gray-900: #0e1012;
+
+  --mb-white:     #ffffff;
+  --mb-navy-900:  #064663; /* current body color, style.css line 1984 */
+
+  /* Success ramp (anchored on current .bg-success/.text-success #63ed7a) */
+  --mb-green-50:  #eafcf0;
+  --mb-green-300: #9ff5b8;
+  --mb-green-500: #63ed7a;
+  --mb-green-700: #388645; /* Task 6: darkened from #1f9e3c for 4.5:1 vs white (was 3.49:1) */
+  --mb-green-900: #0f5220;
+
+  /* Warning ramp (anchored on current .bg-warning/.text-warning #ffa426) */
+  --mb-yellow-50:  #fff6e8;
+  --mb-yellow-300: #ffce8a;
+  --mb-yellow-500: #ffa426;
+  --mb-yellow-700: #a46a19; /* Task 6: darkened from #b8730f for 4.5:1 vs white (was 3.82:1) */
+  --mb-yellow-900: #5c3a08;
+
+  /* Danger ramp (anchored on current .bg-danger/.text-danger #fc544b) */
+  --mb-red-50:  #ffeceb;
+  --mb-red-300: #fea19c;
+  --mb-red-500: #fc544b;
+  --mb-red-700: #c22a22;
+  --mb-red-900: #611511;
+
+  /* Info ramp (anchored on current .bg-info/.text-info #3abaf4) */
+  --mb-cyan-50:  #e9f7fe;
+  --mb-cyan-300: #93d8fa;
+  --mb-cyan-500: #3abaf4;
+  --mb-cyan-700: #277ea6; /* Task 6: darkened from #1a86b8 for 4.5:1 vs white (was 4.08:1) */
+  --mb-cyan-900: #0d435c;
+
+  /* Spacing scale, 4px base */
+  --mb-space-1: 4px;
+  --mb-space-2: 8px;
+  --mb-space-3: 12px;
+  --mb-space-4: 16px;
+  --mb-space-6: 24px;
+  --mb-space-8: 32px;
+  --mb-space-12: 48px;
+  --mb-space-16: 64px;
+
+  /* Radius scale */
+  --mb-radius-sm: 3px;   /* current dominant base radius, style.css e.g. line 236 */
+  --mb-radius-md: 6px;
+  --mb-radius-lg: 12px;
+  --mb-radius-full: 50px; /* current pill radius, style.css line 331/359 */
+
+  /* Shadow scale */
+  --mb-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);  /* style.css line 490 */
+  --mb-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.03);    /* style.css line 148/604 */
+  --mb-shadow-lg: 0 4px 15px rgba(0, 0, 0, 0.2);    /* style.css line 1003 */
+
+  /* Type scale */
+  --mb-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --mb-text-xs:   12px;
+  --mb-text-sm:   13px;
+  --mb-text-base: 14px; /* current body font-size, style.css line 1981 */
+  --mb-text-lg:   16px;
+  --mb-text-xl:   20px;
+  --mb-text-2xl:  24px;
+
+  /* Border-width scale */
+  --mb-border-width-1: 1px;
+  --mb-border-width-2: 2px;
+
+  /* Fixed-size scale (raw px) — used only by Task 4 page-component column
+     widths / fixed heights that have no natural token-scale equivalent
+     (table column widths, a fixed JSON textarea height). Named by their
+     pixel value; consumed only through the component tokens in section 3
+     below, never referenced directly from view CSS. */
+  --mb-size-2:   2px;
+  --mb-size-28:  28px;
+  --mb-size-44:  44px;
+  --mb-size-52:  52px;
+  --mb-size-32:  32px;
+  --mb-size-36:  36px;
+  --mb-size-40:  40px;
+  --mb-size-90:  90px;
+  --mb-size-110: 110px;
+  --mb-size-120: 120px;
+  --mb-size-140: 140px;
+  --mb-size-150: 150px;
+  --mb-size-160: 160px;
+  --mb-size-170: 170px;
+  --mb-size-180: 180px;
+  --mb-size-220: 220px;
+  --mb-size-260: 260px;
+  --mb-size-360: 360px;
+
+  /* Font-weight scale */
+  --mb-font-weight-semibold: 600;
+
+  /* ---------------------------------------------------------------- */
+  /* 2. Semantic — purpose, theme-switchable                          */
+  /* ---------------------------------------------------------------- */
+
+  --color-primary:       var(--mb-blue-600); /* Task 6: was mb-blue-500 (#0d8bf1), 3.51:1 vs white; mb-blue-600 (#0b74c9) is 4.82:1 */
+  --color-primary-hover: var(--mb-blue-700); /* Task 6: was mb-blue-600, kept darker-than-primary for hover distinction */
+  --color-surface:       var(--mb-white);
+  --color-surface-alt:   var(--mb-gray-100);
+  --color-border:        var(--mb-gray-300);
+  --color-text:          var(--mb-navy-900);
+  --color-text-muted:    var(--mb-gray-500);
+  --color-danger:        var(--mb-red-700);   /* Task 6: was mb-red-500 (#fc544b), 3.23:1; mb-red-700 (#c22a22) is 5.76:1 */
+  --color-success:       var(--mb-green-700); /* Task 6: was mb-green-500 (#63ed7a), 1.51:1; mb-green-700 is 4.50:1 */
+  --color-warning:       var(--mb-yellow-700);/* Task 6: was mb-yellow-500 (#ffa426), 1.98:1; mb-yellow-700 is 4.51:1 */
+  --color-info:          var(--mb-cyan-700);  /* Task 6: was mb-cyan-500 (#3abaf4), 2.21:1; mb-cyan-700 is 4.54:1 */
+
+  --space-1: var(--mb-space-1);
+  --space-2: var(--mb-space-2);
+  --space-3: var(--mb-space-3);
+  --space-4: var(--mb-space-4);
+  --space-6: var(--mb-space-6);
+  --space-8: var(--mb-space-8);
+  --space-12: var(--mb-space-12);
+  --space-16: var(--mb-space-16);
+
+  --radius-sm: var(--mb-radius-sm);
+  --radius-md: var(--mb-radius-md);
+  --radius-lg: var(--mb-radius-lg);
+  --radius-full: var(--mb-radius-full);
+
+  --shadow-sm: var(--mb-shadow-sm);
+  --shadow-md: var(--mb-shadow-md);
+  --shadow-lg: var(--mb-shadow-lg);
+
+  --font-sans: var(--mb-font-sans);
+  --text-xs: var(--mb-text-xs);
+  --text-sm: var(--mb-text-sm);
+  --text-base: var(--mb-text-base);
+  --text-lg: var(--mb-text-lg);
+  --text-xl: var(--mb-text-xl);
+  --text-2xl: var(--mb-text-2xl);
+
+  --border-width-default: var(--mb-border-width-1);
+  --focus-ring-width-default: var(--mb-border-width-2);
+  --font-weight-semibold: var(--mb-font-weight-semibold);
+
+  /* ---------------------------------------------------------------- */
+  /* 3. Component scaffolding — placeholders for Tasks 2-5             */
+  /* ---------------------------------------------------------------- */
+
+  --btn-radius: var(--radius-sm);
+  --btn-shadow: var(--shadow-sm);
+  --btn-padding-y: var(--space-2);
+  --btn-padding-x: var(--space-4);
+
+  --card-radius: var(--radius-md);
+  --card-shadow: var(--shadow-md);
+  --card-padding: var(--space-6);
+  --card-bg: var(--color-surface);
+  --card-border: var(--color-border);
+
+  --badge-radius: var(--radius-full);
+  --badge-padding-y: var(--space-1);
+  --badge-padding-x: var(--space-3);
+
+  --btn-font-weight: var(--font-weight-semibold);
+  --btn-border-width: var(--border-width-default);
+
+  --card-title-color: var(--color-text);
+  --card-border-width: var(--border-width-default);
+
+  --badge-font-weight: var(--font-weight-semibold);
+
+  --alert-radius: var(--radius-md);
+  --alert-padding-y: var(--space-3);
+  --alert-padding-x: var(--space-4);
+  --alert-border-width: var(--border-width-default);
+
+  --form-radius: var(--radius-sm);
+  --form-border-width: var(--border-width-default);
+  --form-border-color: var(--color-border);
+  --form-border-color-focus: var(--color-primary);
+  --form-label-color: var(--color-text-muted);
+  --form-label-weight: var(--font-weight-semibold);
+
+  --table-border: var(--color-border);
+  --table-stripe-bg: var(--color-surface-alt);
+  --table-cell-padding: var(--space-3);
+  --table-header-bg: var(--color-surface-alt);
+  --table-header-color: var(--color-text);
+  --table-radius: var(--radius-md);
+
+  /* Focus ring - shared by .btn, .form-control, .custom-select, nav links */
+  --focus-ring-color: var(--color-primary);
+  --focus-ring-width: var(--focus-ring-width-default);
+  --focus-ring-offset: var(--focus-ring-width-default);
+  --focus-ring-offset-tight: var(--border-width-default);
+  --focus-ring: 0 0 0 var(--focus-ring-offset) var(--color-surface), 0 0 0 calc(var(--focus-ring-offset) + var(--focus-ring-width)) var(--focus-ring-color);
+
+  /* Nav (sidebar / topbar / user menu) component tokens — Task 2 */
+  --nav-bg: var(--color-surface);
+  --nav-item-color: var(--color-text);
+  --nav-item-color-muted: var(--color-text-muted);
+  --nav-item-hover-bg: var(--mb-blue-50);
+  --nav-item-hover-color: var(--mb-blue-700); /* Task 6: color-primary on nav-item-hover-bg (blue-50) was 4.39:1; blue-700 is 6.28:1 */
+  --nav-item-active-bg: var(--mb-blue-50);
+  --nav-item-active-color: var(--mb-blue-700); /* Task 6: same fix as nav-item-hover-color */
+  --nav-item-radius: var(--radius-sm);
+  --nav-item-gap-y: var(--space-1);
+  --nav-section-gap: var(--space-4);
+  --nav-header-color: var(--mb-gray-500);
+  --nav-badge-radius: var(--badge-radius);
+  --nav-badge-bg: var(--color-primary);
+  --nav-badge-color: var(--mb-white);
+
+  --topbar-bg: var(--color-surface);
+  --topbar-border: var(--color-border);
+  --topbar-shadow: var(--shadow-sm);
+  --topbar-icon-color: var(--color-primary);
+  --topbar-icon-hover-bg: var(--mb-blue-50);
+
+  --usermenu-radius: var(--radius-md);
+  --usermenu-shadow: var(--shadow-lg);
+  --usermenu-item-hover-bg: var(--color-surface-alt);
+  --usermenu-divider: var(--color-border);
+
+  /* Page-component tokens — Task 4 (Inbox, Onboarding, Pricing, Sequences,
+     Agency Control Center). Fixed sizes reference the raw scale above;
+     everything else references the existing semantic/primitive layers. */
+  --ib-swatch-width: var(--mb-size-52);
+  --ib-swatch-width-sm: var(--mb-size-44);
+  --ib-bubble-max-width: 80%;
+  --ib-notes-scroll-max-height: var(--mb-size-220);
+  --ib-attachment-image-max-size: var(--mb-size-220);
+  --ib-attachment-video-max-width: var(--mb-size-260);
+  --ib-actions-gap: var(--mb-size-2);
+
+  --ob-col-num-width: var(--mb-size-36);
+  --ob-col-check-width: var(--mb-size-32);
+  --ob-col-icon-width: var(--mb-size-28);
+  --ob-col-price-width: var(--mb-size-140);
+  --ob-col-per-width: var(--mb-size-150);
+  --ob-col-guests-width: var(--mb-size-110);
+  --ob-col-pp-width: var(--mb-size-170);
+
+  --pr-col-name-min-width: var(--mb-size-170);
+  --pr-col-wide-min-width: var(--mb-size-160);
+  --pr-col-w90: var(--mb-size-90);
+  --pr-col-w120: var(--mb-size-120);
+  --pr-col-w150: var(--mb-size-150);
+  --pr-json-area-height: var(--mb-size-360);
+
+  --sq-col-w40: var(--mb-size-40);
+  --sq-col-w90: var(--mb-size-90);
+  --sq-col-w110: var(--mb-size-110);
+  --sq-col-w170: var(--mb-size-170);
+  --sq-col-w180: var(--mb-size-180);
+  --sq-col-w260: var(--mb-size-260);
+  --sq-search-min-width: var(--mb-size-260);
+
+  --ag-col-usage-min-width: var(--mb-size-110);
+  --ag-usage-bar-height: var(--space-4);
+
+  /* Page-component tokens — Task 5 (Dashboard, Analytics Hub). Stat-card
+     value/label/trend + chart-container title bar, built on Task 3's card
+     tokens; no new raw values, only semantic references. */
+  --dash-stat-value-size: var(--text-2xl);
+  --dash-stat-value-weight: var(--font-weight-semibold);
+  --dash-stat-label-color: var(--color-text-muted);
+  --dash-stat-label-size: var(--text-sm);
+  --dash-stat-trend-up: var(--color-success);
+  --dash-stat-trend-down: var(--color-danger);
+  --dash-chart-card-title-gap: var(--space-2);
+
+  --an-stat-value-size: var(--text-2xl);
+  --an-stat-value-weight: var(--font-weight-semibold);
+  --an-stat-label-color: var(--color-text-muted);
+  --an-stat-label-size: var(--text-sm);
+  --an-stat-trend-up: var(--color-success);
+  --an-stat-trend-down: var(--color-danger);
+  --an-chart-card-title-gap: var(--space-2);
+}
+
+/*
+ * Dark-skin semantic overrides go here once a dark-mode toggle mechanism
+ * exists in this codebase. None was found — see the note above the :root
+ * block and task-1-report.md. Do not add a selector here speculatively.
+ */

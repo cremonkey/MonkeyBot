@@ -1,4 +1,4 @@
-<section class="section">
+<section class="section sq-page">
   <div class="section-header">
     <h1><i class="fas fa-stream"></i> <?php echo $page_title; ?></h1>
     <div class="section-header-breadcrumb">
@@ -32,7 +32,7 @@
             <div id="sq_cond_wrap" style="display:none">
               <h6 class="mt-4">Only if&hellip; <small class="text-muted">(all must be true — leave empty for "always")</small></h6>
               <table class="table table-sm">
-                <thead><tr><th>Information</th><th style="width:180px">Compare</th><th>Value</th><th style="width:40px"></th></tr></thead>
+                <thead><tr><th>Information</th><th class="sq-col-w180">Compare</th><th>Value</th><th class="sq-col-w40"></th></tr></thead>
                 <tbody id="sq_conditions"></tbody>
               </table>
               <button type="button" class="btn btn-sm btn-outline-primary" id="sq_add_cond"><i class="fas fa-plus"></i> Add a condition</button>

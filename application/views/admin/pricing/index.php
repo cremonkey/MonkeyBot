@@ -2,7 +2,7 @@
 $has_stays = !empty($cfg['accommodation']) || !empty($cfg['day_use']);
 $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); };
 ?>
-<section class="section">
+<section class="section pr-page">
   <div class="section-header"><h1><i class="fas fa-tags"></i> <?php echo $page_title; ?></h1>
     <div class="section-header-breadcrumb">
       <?php if ($has_own): ?>
@@ -102,9 +102,9 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
               Options = sizes or types with their own price, e.g. <span dir="ltr">Small=100, Large=150</span>. Other names = what customers call it.
               <br>أي حاجة بتبيعها: منتج، خدمة، جلسة، ساعة، كيلو. الاختيارات = مقاسات أو أنواع ليها سعر مختلف.</small></p>
             <div class="table-responsive"><table class="table table-sm"><thead><tr>
-              <th style="min-width:170px">Name <small class="text-muted">/ category</small></th><th style="width:120px">Unit</th>
-              <th style="width:120px">Price</th><th style="min-width:160px">Options <small class="text-muted">name = price</small></th>
-              <th style="min-width:160px">Other names <small class="text-muted">/ note</small></th><th></th></tr></thead>
+              <th class="pr-col-name">Name <small class="text-muted">/ category</small></th><th class="pr-col-w120">Unit</th>
+              <th class="pr-col-w120">Price</th><th class="pr-col-wide">Options <small class="text-muted">name = price</small></th>
+              <th class="pr-col-wide">Other names <small class="text-muted">/ note</small></th><th></th></tr></thead>
               <tbody id="pr_items"></tbody></table></div>
             <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_item"><i class="fas fa-plus"></i> Add product or service</button>
           </div>
@@ -112,12 +112,12 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
             <div class="form-row mb-2">
               <div class="col-md-12"><label>Note shown with room prices</label><input id="pr_note" class="form-control" placeholder="e.g. Price is per room, not per person"></div>
             </div>
-            <table class="table table-sm"><thead><tr><th>Room name</th><th style="width:90px">Guests</th><th style="width:120px">Per night</th><th>Package offers <small class="text-muted">nights = total</small></th><th></th></tr></thead>
+            <table class="table table-sm"><thead><tr><th>Room name</th><th class="pr-col-w90">Guests</th><th class="pr-col-w120">Per night</th><th>Package offers <small class="text-muted">nights = total</small></th><th></th></tr></thead>
               <tbody id="pr_rooms"></tbody></table>
             <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_room"><i class="fas fa-plus"></i> Add room</button>
           </div>
           <div class="tab-pane fade" id="tab_dayuse">
-            <table class="table table-sm"><thead><tr><th>Package name</th><th style="width:150px">Price per person</th><th></th></tr></thead>
+            <table class="table table-sm"><thead><tr><th>Package name</th><th class="pr-col-w150">Price per person</th><th></th></tr></thead>
               <tbody id="pr_packages"></tbody></table>
             <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_pkg"><i class="fas fa-plus"></i> Add package</button>
             <div class="form-row mt-3">
@@ -140,14 +140,14 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
           </div>
           <div class="tab-pane fade" id="tab_json">
             <p class="text-muted mb-1"><small>Full configuration, including fields not shown in the form (media, room aliases). Edits here replace the form.</small></p>
-            <textarea id="pr_json" class="form-control" style="height:360px;font-family:monospace;font-size:12px" dir="ltr"></textarea>
+            <textarea id="pr_json" class="form-control pr-json-area" dir="ltr"></textarea>
             <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="pr_json_apply">Apply JSON to form</button>
           </div>
         </div></div>
 
         <div id="pr_errors" class="alert alert-danger" style="display:none"></div>
         <div class="form-inline">
-          <input id="pr_summary" class="form-control mr-2" style="flex:1" placeholder="What changed? (shown in history)">
+          <input id="pr_summary" class="form-control mr-2 pr-summary-input" placeholder="What changed? (shown in history)">
           <button class="btn btn-primary" id="pr_save"><i class="fas fa-save"></i> Save prices<?php echo $scope_key !== '' ? ' for this page' : ''; ?></button>
         </div>
       </div>

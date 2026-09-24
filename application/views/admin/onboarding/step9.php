@@ -7,7 +7,7 @@
     <tbody>
     <?php foreach ($checklist as $c): ?>
       <tr>
-        <td style="width:36px">
+        <td class="ob-col-num">
           <?php if (!empty($c['done'])): ?><i class="fas fa-check-circle text-success"></i>
           <?php elseif (!empty($c['required'])): ?><i class="fas fa-times-circle text-danger"></i>
           <?php else: ?><i class="far fa-circle text-muted"></i><?php endif; ?>
