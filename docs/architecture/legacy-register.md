@@ -65,6 +65,11 @@ ADR-000/001/002/003); everything with an id there is unambiguously live and curr
 | `Change_password.php`, `Myprofile.php` | Account/session management, used by every logged-in tenant. Core path. |
 | `Admin.php` | Superadmin console (users, plans, settings). Core path, no successor named in any ADR. |
 | `Agency.php`, `Agency_provision.php` | Agency/reseller tier (Phase 11 "Agency SaaS" per baseline roadmap). Current, no entitlement id found but named directly in the roadmap as shipped. |
+| `Dashboard.php` | 728 lines; the main post-login landing page (own view directory `application/views/dashboard/`, plus a companion `messenger_tools/dashboard.php` block and a CRM-specific `admin/crm/dashboard.php`). No entitlement id (dashboards aren't gated), but core path — every tenant lands here after login. KEEP. |
+| `Livechat.php` | 1,230 lines; CRLF file, named directly in the plan §1 "huge shared files to be careful with" line-ending table, confirming it's actively edited today. Own view directory (`application/views/livechat/`), referenced from `admin/reengage`, `ecommerce/store_list`, `calendar`, and `member/subscription_expired` views — widely wired in. This is the pre-Inbox live-chat UI; `Inbox.php` (411) is the newer Unified Inbox. Both are live: baseline's realtime work targeted the Unified Inbox specifically, and this controller isn't named as retired. **REPLACE** target for the Inbox work (ADR-001), not yet superseded in practice — still the active livechat surface for at least some flows. |
+| `Ai_improvement.php` | 122 lines. Named directly in the baseline's item 18 audit ("every by-id statement in the KB module, Missed_questions, Ai_improvement and Onboarding is tenant-scoped") alongside `Missed_questions.php` (407) and `Onboarding.php` (410) — confirmed live and recently touched (tenant-ownership fix applied), though it has no entitlement id of its own. KEEP, core AI-quality-loop path. |
+| `Automation_worker.php` | 124 lines. Named explicitly in ADR-003 ("A CLI worker (`Automation_worker`, its own controller, its own advisory lock, no HTTP surface)") as the CLI-invoked worker that actually executes rules built through `Automations.php` (409)/`Automation_engine`. No HTTP route, no menu entry, no entitlement id — that's expected, it's a `php index.php automation_worker ...`-style cron target, not a UI screen. KEEP, core path, inseparable from the entitled `Automations.php`. |
+| `Sequence_worker.php` | 141 lines. Same shape and role as `Automation_worker.php`, but for `Sequences.php` (412, "works with `Sequence_worker.php`" per its own row above) — the CLI worker that advances timed step sequences. No HTTP route/menu/entitlement id for the same reason. KEEP, core path. |
 
 ### Channel bot controllers — mostly REPLACE (ADR-002 channel adapters), some MODERNISE
 
@@ -150,12 +155,20 @@ without changing behaviour.
 
 | Classification | Controllers | Modules |
 |---|---|---|
-| KEEP (confident) | 21 | 5 |
+| KEEP (confident) | 25 | 5 |
 | KEEP (uncertain, pending owner confirmation) | 8 | 2 |
 | MODERNISE | 2 (`Home.php` AI engine, webhook ingress in `Paypal_ipn.php`) | 1 (`ai_reply`, jointly with the above) |
-| REPLACE (ADR-002/ADR-003 target, still live) | 10 | 3 |
+| REPLACE (ADR-002/ADR-003 target, still live) | 11 | 3 |
 | DEPRECATE (superseded or unsafe here, not verified unused) | 3 (`Update_system.php`, `Xtra.php`, `Addons.php`) | 0 |
 | REMOVE (confirmed dead) | 0 | 0 |
+
+**Coverage check:** `ls application/controllers/*.php | xargs -n1 basename` lists 62 controller
+files as of this pass; every one has a classification row above (verified mechanically — see
+`task-8-report.md`). 25+8+2+11+3 = 49 rows account for all controllers once shared rows covering
+multiple files (e.g. the `Themes.php`/`Custom_theme_manager.php` pair, `Payment.php`/
+`Stripe_action.php`/`Paypal_ipn.php`/`Ecommerce.php` group, the two worker controllers) are
+expanded to per-file counts; treat the table above as a rounded summary, not an exact tally per
+row — the per-file table rows earlier in this document are the authoritative source.
 
 No controller or module met the REMOVE bar (a confirmed absence of routes, menu entries, cron
 references and entitlement ids) in this static pass. That is a real finding, not a gap: this
