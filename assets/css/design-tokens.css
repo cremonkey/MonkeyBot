@@ -192,6 +192,33 @@
   --table-border: var(--color-border);
   --table-stripe-bg: var(--color-surface-alt);
   --table-cell-padding: var(--space-3);
+
+  /* Nav (sidebar / topbar / user menu) component tokens — Task 2 */
+  --nav-bg: var(--color-surface);
+  --nav-item-color: var(--color-text);
+  --nav-item-color-muted: var(--color-text-muted);
+  --nav-item-hover-bg: var(--mb-blue-50);
+  --nav-item-hover-color: var(--color-primary);
+  --nav-item-active-bg: var(--mb-blue-50);
+  --nav-item-active-color: var(--color-primary);
+  --nav-item-radius: var(--radius-sm);
+  --nav-item-gap-y: var(--space-1);
+  --nav-section-gap: var(--space-4);
+  --nav-header-color: var(--mb-gray-500);
+  --nav-badge-radius: var(--badge-radius);
+  --nav-badge-bg: var(--color-primary);
+  --nav-badge-color: var(--mb-white);
+
+  --topbar-bg: var(--color-surface);
+  --topbar-border: var(--color-border);
+  --topbar-shadow: var(--shadow-sm);
+  --topbar-icon-color: var(--color-primary);
+  --topbar-icon-hover-bg: var(--mb-blue-50);
+
+  --usermenu-radius: var(--radius-md);
+  --usermenu-shadow: var(--shadow-lg);
+  --usermenu-item-hover-bg: var(--color-surface-alt);
+  --usermenu-divider: var(--color-border);
 }
 
 /*
