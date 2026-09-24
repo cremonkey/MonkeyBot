@@ -35,6 +35,18 @@ class Job_worker extends Home
         show_404();
     }
 
+    /** How stale a 'running' lock has to be before job_reclaim_stale() takes it back. */
+    const STALE_MINUTES = 10;
+
+    /** Stop claiming NEW jobs once a tick has run this long, so a `timeout 55` cron
+     *  wrapper always gets a chance to finish the jobs already claimed before it kills
+     *  the process (brief §42 review, critical finding). Jobs already in flight when the
+     *  deadline hits still run to completion or throw; only claiming new work stops. */
+    const CLAIM_DEADLINE_SECONDS = 40;
+
+    /** Claimed in small batches so the deadline check is fine-grained. */
+    const CLAIM_BATCH = 5;
+
     /**
      * @param int $limit max jobs claimed per tick.
      */
@@ -56,28 +68,41 @@ class Job_worker extends Home
 
         $started = microtime(true);
         $limit = max(1, min(200, (int) $limit));
-        $totals = array('claimed' => 0, 'done' => 0, 'retried' => 0, 'dead' => 0);
+        $totals = array('reclaimed' => 0, 'reclaimed_dead' => 0, 'claimed' => 0, 'done' => 0, 'retried' => 0, 'dead' => 0);
         $error = null;
 
         try {
-            $handlers = job_handlers();
-            $jobs = job_claim($limit);
-            $totals['claimed'] = count($jobs);
+            // Rows a previous tick claimed and never finished (killed by `timeout 55` or a
+            // crashed worker) go back to queued/dead BEFORE this tick claims anything new,
+            // otherwise they stay 'running' forever.
+            $reclaimed = job_reclaim_stale(self::STALE_MINUTES);
+            $totals['reclaimed'] = $reclaimed['reclaimed'];
+            $totals['reclaimed_dead'] = $reclaimed['dead'];
 
-            foreach ($jobs as $job) {
-                $type = $job['type'];
-                $payload = job_payload($job);
-                try {
-                    if (!isset($handlers[$type]) || !is_callable($handlers[$type])) {
-                        throw new Exception('no handler registered for job type: ' . $type);
+            $handlers = job_handlers();
+
+            while ($totals['claimed'] < $limit) {
+                if ((microtime(true) - $started) >= self::CLAIM_DEADLINE_SECONDS) break;
+
+                $batch = job_claim(min(self::CLAIM_BATCH, $limit - $totals['claimed']));
+                if (empty($batch)) break;
+                $totals['claimed'] += count($batch);
+
+                foreach ($batch as $job) {
+                    $type = $job['type'];
+                    $payload = job_payload($job);
+                    try {
+                        if (!isset($handlers[$type]) || !is_callable($handlers[$type])) {
+                            throw new Exception('no handler registered for job type: ' . $type);
+                        }
+                        call_user_func($handlers[$type], $payload, $job);
+                        job_complete($job['id']);
+                        $totals['done']++;
+                    } catch (Throwable $e) {
+                        log_message('error', 'job_worker job ' . $job['id'] . ' (' . $type . '): ' . $e->getMessage());
+                        $outcome = job_retry_or_dead_letter($job, $e->getMessage());
+                        $totals[$outcome === 'dead' ? 'dead' : 'retried']++;
                     }
-                    call_user_func($handlers[$type], $payload, $job);
-                    job_complete($job['id']);
-                    $totals['done']++;
-                } catch (Throwable $e) {
-                    log_message('error', 'job_worker job ' . $job['id'] . ' (' . $type . '): ' . $e->getMessage());
-                    $outcome = job_retry_or_dead_letter($job, $e->getMessage());
-                    $totals[$outcome === 'dead' ? 'dead' : 'retried']++;
                 }
             }
         } catch (Throwable $e) {
@@ -87,7 +112,8 @@ class Job_worker extends Home
 
         $this->db->query("SELECT RELEASE_LOCK('" . self::LOCK . "')");
 
-        $detail = "claimed {$totals['claimed']}, done {$totals['done']}, retried {$totals['retried']}, dead {$totals['dead']}";
+        $detail = "reclaimed {$totals['reclaimed']} (dead {$totals['reclaimed_dead']}), claimed {$totals['claimed']}, "
+                . "done {$totals['done']}, retried {$totals['retried']}, dead {$totals['dead']}";
         ops_health_record('job_worker', $error === null, microtime(true) - $started, $error === null ? $detail : $error);
         echo $detail . "\n";
     }

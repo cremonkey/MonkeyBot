@@ -75,6 +75,17 @@ class FakeDb
                 if (!in_array($row[$k] ?? null, $v, true)) return false;
                 continue;
             }
+            // CI-style operator suffix, e.g. where('locked_at <', $cutoff)
+            if (preg_match('/^(\S+)\s*(<=|>=|<|>)$/', trim($k), $m)) {
+                $col = $m[1]; $op = $m[2]; $have = $row[$col] ?? null;
+                switch ($op) {
+                    case '<':  if (!($have < $v)) return false; break;
+                    case '<=': if (!($have <= $v)) return false; break;
+                    case '>':  if (!($have > $v)) return false; break;
+                    case '>=': if (!($have >= $v)) return false; break;
+                }
+                continue;
+            }
             if (($row[$k] ?? null) !== $v) return false;
         }
         return true;
@@ -88,6 +99,7 @@ class FakeDb
             usort($rows, function ($a, $b) use ($k, $dir) { return $dir * strcmp((string) $a[$k], (string) $b[$k]); });
         }
         if ($this->lim !== null) $rows = array_slice($rows, 0, $this->lim);
+        $this->wheres = array(); $this->order = null; $this->lim = null; // CI resets the query builder after get()
         return new FakeResult($rows);
     }
 
@@ -110,6 +122,15 @@ class FakeDb
     {
         foreach (($this->tables[$t] ?? array()) as $id => $row) {
             if ($this->matches($row)) $this->tables[$t][$id] = array_merge($row, $data);
+        }
+        $this->wheres = array();
+        return true;
+    }
+
+    public function delete($t)
+    {
+        foreach (($this->tables[$t] ?? array()) as $id => $row) {
+            if ($this->matches($row)) unset($this->tables[$t][$id]);
         }
         $this->wheres = array();
         return true;
@@ -216,6 +237,31 @@ $ids1 = array_map(function ($r) { return (int) $r['id']; }, $c1);
 $ids2 = array_map(function ($r) { return (int) $r['id']; }, $c2);
 same('claim: no overlap between two consecutive claims (SKIP LOCKED equivalent)', array(), array_intersect($ids1, $ids2));
 
+// ------------------------------------------------------------ 2b. job_reclaim_stale (a `timeout
+// 55` cron kill leaves a row 'running' forever without this)
+
+$CI = fresh_ci();
+$stale_locked_at = date('Y-m-d H:i:s', time() - 20 * 60); // 20 min ago, older than the 10 min default
+$fresh_locked_at = date('Y-m-d H:i:s', time() - 1 * 60);  // 1 min ago, still within the window
+$CI->db->tables['jobs'] = array(
+    1 => array('id' => 1, 'user_id' => 1, 'type' => 'a', 'status' => 'running', 'attempts' => 1, 'max_attempts' => 5, 'locked_by' => 'dead-worker', 'locked_at' => $stale_locked_at, 'run_after' => $now),
+    2 => array('id' => 2, 'user_id' => 1, 'type' => 'a', 'status' => 'running', 'attempts' => 5, 'max_attempts' => 5, 'locked_by' => 'dead-worker', 'locked_at' => $stale_locked_at, 'run_after' => $now),
+    3 => array('id' => 3, 'user_id' => 1, 'type' => 'a', 'status' => 'running', 'attempts' => 1, 'max_attempts' => 5, 'locked_by' => 'live-worker', 'locked_at' => $fresh_locked_at, 'run_after' => $now),
+    4 => array('id' => 4, 'user_id' => 1, 'type' => 'a', 'status' => 'queued', 'attempts' => 0, 'max_attempts' => 5, 'locked_by' => null, 'locked_at' => null, 'run_after' => $now),
+);
+$reclaim = job_reclaim_stale(10);
+same('reclaim: counts one reclaimed, one dead', array('reclaimed' => 1, 'dead' => 1), $reclaim);
+same('reclaim: stale, under max_attempts -> back to queued', 'queued', $CI->db->tables['jobs'][1]['status']);
+check('reclaim: stale row locked_by cleared', $CI->db->tables['jobs'][1]['locked_by'] === null);
+check('reclaim: stale row run_after pushed into the future (backoff)', strtotime($CI->db->tables['jobs'][1]['run_after']) > time());
+same('reclaim: stale, at max_attempts -> dead-lettered', 'dead', $CI->db->tables['jobs'][2]['status']);
+same('reclaim: recently-locked row left running (not stale yet)', 'running', $CI->db->tables['jobs'][3]['status']);
+same('reclaim: already-queued row untouched', 'queued', $CI->db->tables['jobs'][4]['status']);
+
+$job_worker_run_src = file_get_contents(APPPATH . 'controllers/Job_worker.php');
+check('job_worker: calls job_reclaim_stale() at the start of every tick', strpos($job_worker_run_src, 'job_reclaim_stale(') !== false);
+check('job_worker: bounds claiming by elapsed time (deadline check before claiming more)', strpos($job_worker_run_src, 'CLAIM_DEADLINE_SECONDS') !== false);
+
 // ------------------------------------------------------------ 3. job_complete
 
 $CI = fresh_ci();
@@ -273,6 +319,88 @@ try {
     ok('kb handler: throws on missing ids');
 }
 
+// idempotent re-run: a retry after backoff must not duplicate chunks
+$first_count = count($CI->db->tables['ai_knowledge_chunks']);
+job_handle_kb_chunk_embed(array('source_id' => 9, 'user_id' => 4, 'text' => $long_text), array('id' => 100));
+same('kb handler: re-run does not duplicate chunks', $first_count, count($CI->db->tables['ai_knowledge_chunks']));
+same('kb handler: re-run calls embed again (twice total)', 2, count($GLOBALS['__embed_calls']));
+
+// source deleted before the job ran -> silent no-op, no chunks written, no throw
+$CI = fresh_ci();
+$CI->db->tables['ai_knowledge_sources'] = array(); // source 9 does not exist
+$CI->db->tables['ai_knowledge_chunks'] = array();
+job_handle_kb_chunk_embed(array('source_id' => 9, 'user_id' => 4, 'text' => $long_text), array('id' => 102));
+same('kb handler: source gone -> no chunks written', 0, count($CI->db->tables['ai_knowledge_chunks']));
+
+// ------------------------------------------------------------ 6b. job_handle_conversation_summary
+
+class FakeSummarizer
+{
+    public $result = array('ok' => true, 'summary' => 'a summary');
+    public function summarize($cfg, $msgs, $conversation_id) { return $this->result; }
+}
+$GLOBALS['__conv_get_result'] = null;
+function conversation_get($conversation_id, $user_id) { return $GLOBALS['__conv_get_result']; }
+
+// conversation not found (wrong tenant / deleted) -> no-op, no throw, no DB write attempted
+$CI = fresh_ci();
+$GLOBALS['__conv_get_result'] = null;
+$CI->db->tables['open_ai_config'] = array(1 => array('id' => 1, 'user_id' => 4));
+$CI->db->tables['conversations'] = array(1 => array('id' => 1, 'user_id' => 4, 'last_summary' => null));
+$CI->conversation_summarizer = new FakeSummarizer();
+job_handle_conversation_summary(array('conversation_id' => 1, 'user_id' => 4), array('id' => 200));
+same('summary handler: conversation not found -> conversations table untouched', array(1, 4, null), array($CI->db->tables['conversations'][1]['id'], $CI->db->tables['conversations'][1]['user_id'], $CI->db->tables['conversations'][1]['last_summary']));
+
+// ai config missing -> same "nothing to generate with" no-op as Inbox::summarize()
+$CI = fresh_ci();
+$GLOBALS['__conv_get_result'] = array('id' => 1, 'user_id' => 4);
+$CI->db->tables['open_ai_config'] = array(); // none for this tenant
+$CI->db->tables['conversations'] = array(1 => array('id' => 1, 'user_id' => 4, 'last_summary' => null));
+$CI->db->tables['livechat_messages'] = array();
+$CI->conversation_summarizer = new FakeSummarizer();
+job_handle_conversation_summary(array('conversation_id' => 1, 'user_id' => 4), array('id' => 201));
+same('summary handler: no AI config -> no-op, last_summary stays null', null, $CI->db->tables['conversations'][1]['last_summary']);
+
+// summarizer failure -> throws (so job_worker retries it), conversation left unchanged
+$CI = fresh_ci();
+$GLOBALS['__conv_get_result'] = array('id' => 1, 'user_id' => 4);
+$CI->db->tables['open_ai_config'] = array(1 => array('id' => 1, 'user_id' => 4));
+$CI->db->tables['conversations'] = array(1 => array('id' => 1, 'user_id' => 4, 'last_summary' => null));
+$CI->db->tables['livechat_messages'] = array();
+$CI->conversation_summarizer = new FakeSummarizer();
+$CI->conversation_summarizer->result = array('ok' => false, 'message' => 'provider down');
+try {
+    job_handle_conversation_summary(array('conversation_id' => 1, 'user_id' => 4), array('id' => 202));
+    bad('summary handler: throws when the summarizer fails', 'did not throw');
+} catch (Exception $e) {
+    ok('summary handler: throws when the summarizer fails');
+}
+same('summary handler: failed summarize does not write a stale summary', null, $CI->db->tables['conversations'][1]['last_summary']);
+
+// happy path -> conversation updated
+$CI = fresh_ci();
+$GLOBALS['__conv_get_result'] = array('id' => 1, 'user_id' => 4);
+$CI->db->tables['open_ai_config'] = array(1 => array('id' => 1, 'user_id' => 4));
+$CI->db->tables['conversations'] = array(1 => array('id' => 1, 'user_id' => 4, 'last_summary' => null));
+$CI->db->tables['livechat_messages'] = array();
+$CI->conversation_summarizer = new FakeSummarizer();
+job_handle_conversation_summary(array('conversation_id' => 1, 'user_id' => 4), array('id' => 203));
+same('summary handler: happy path writes the new summary', 'a summary', $CI->db->tables['conversations'][1]['last_summary']);
+
+// ------------------------------------------------------------ 6c. job_pending_exists (dedupe)
+
+$CI = fresh_ci();
+$CI->db->tables['jobs'] = array(
+    1 => array('id' => 1, 'user_id' => 4, 'type' => 'conversation_summary', 'payload_json' => json_encode(array('conversation_id' => 1)), 'status' => 'queued'),
+    2 => array('id' => 2, 'user_id' => 4, 'type' => 'conversation_summary', 'payload_json' => json_encode(array('conversation_id' => 2)), 'status' => 'running'),
+    3 => array('id' => 3, 'user_id' => 4, 'type' => 'conversation_summary', 'payload_json' => json_encode(array('conversation_id' => 3)), 'status' => 'done'),
+    4 => array('id' => 4, 'user_id' => 5, 'type' => 'conversation_summary', 'payload_json' => json_encode(array('conversation_id' => 1)), 'status' => 'queued'),
+);
+check('dedupe: pending queued job for same user+conversation found', job_pending_exists(4, 'conversation_summary', array('conversation_id' => 1)));
+check('dedupe: pending running job for same user+conversation found', job_pending_exists(4, 'conversation_summary', array('conversation_id' => 2)));
+check('dedupe: done jobs do not count as pending', !job_pending_exists(4, 'conversation_summary', array('conversation_id' => 3)));
+check('dedupe: another tenant\'s pending job for the same conversation_id does not match', !job_pending_exists(4, 'conversation_summary', array('conversation_id' => 4)));
+
 // ------------------------------------------------------------ 7. flag wiring / flag-off = today
 
 $kb_src = file_get_contents(APPPATH . 'modules/ai_knowledge_base/controllers/Ai_knowledge_base.php');
@@ -280,16 +408,24 @@ check('kb controller: checks jobs_enabled flag', strpos($kb_src, "config->item('
 check('kb controller: still has the inline chunk loop for the flag-off path', strpos($kb_src, "ai_chunk_text_ai(\$text, \$this->user_id) : ai_chunk_text(\$text, 1000, 200)") !== false);
 check('kb controller: still calls ai_embed_source_chunks inline for the flag-off path', substr_count($kb_src, 'ai_embed_source_chunks($source_id, $this->user_id)') === 1);
 check('kb controller: enqueues kb_chunk_embed when flag is on', strpos($kb_src, "job_enqueue(\$this->user_id, 'kb_chunk_embed'") !== false);
+check('kb controller: checks the enqueue return and falls back to inline on failure', strpos($kb_src, 'if ($job_id > 0)') !== false);
 
 $inbox_src = file_get_contents(APPPATH . 'controllers/Inbox.php');
 check('inbox: checks jobs_enabled flag in summarize()', strpos($inbox_src, "config->item('jobs_enabled')") !== false);
 check('inbox: still calls Conversation_summarizer::summarize() inline for the flag-off path', strpos($inbox_src, '$this->conversation_summarizer->summarize($ai_cfg, $messages, $conv[\'id\'])') !== false);
 check('inbox: enqueues conversation_summary when flag is on', strpos($inbox_src, "job_enqueue(\$this->uid, 'conversation_summary'") !== false);
+check('inbox: dedupes with job_pending_exists() before enqueueing', strpos($inbox_src, 'job_pending_exists($this->uid') !== false);
+check('inbox: checks the enqueue return (falls back to inline on failure)', strpos($inbox_src, '$job_id > 0') !== false);
 
 $job_worker_src = file_get_contents(APPPATH . 'controllers/Job_worker.php');
 check('job_worker: CLI-gated (is_cli check present)', substr_count($job_worker_src, 'is_cli()') >= 1);
 check('job_worker: uses GET_LOCK', strpos($job_worker_src, 'GET_LOCK') !== false);
 check('job_worker: records ops health', strpos($job_worker_src, "ops_health_record('job_worker'") !== false);
+check('job_worker: reclaims stale running rows before claiming new work', strpos($job_worker_src, 'job_reclaim_stale(self::STALE_MINUTES)') !== false);
+
+$job_helper_src = file_get_contents(APPPATH . 'helpers/job_helper.php');
+check('job_helper: kb handler deletes existing chunks before inserting (idempotent retry)', strpos($job_helper_src, 'ai_delete_knowledge_chunks($source_id)') !== false);
+check('job_helper: kb handler re-selects the source before writing (no orphaned chunks)', strpos($job_helper_src, "from('ai_knowledge_sources')") !== false);
 
 echo "== $PASS passed, $FAIL failed ==\n";
 exit($FAIL ? 1 : 0);

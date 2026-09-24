@@ -102,6 +102,37 @@ if (!function_exists('job_claim')) {
     }
 }
 
+if (!function_exists('job_reclaim_stale')) {
+    /**
+     * A `timeout 55` cron tick can be killed mid-job (brief §42 review, critical finding):
+     * without this, a job whose handler was still running when the process was killed stays
+     * 'running'/locked forever and is never retried. Call this ONCE at the start of every
+     * tick, before job_claim(). Any row still 'running' with locked_at older than
+     * $stale_minutes is treated exactly like a failed claim: retried with backoff (attempts
+     * was already incremented at claim time, so this does not re-increment it) or
+     * dead-lettered if it had already reached max_attempts.
+     *
+     * @param int $stale_minutes
+     * @return array counts: array('reclaimed' => int, 'dead' => int)
+     */
+    function job_reclaim_stale($stale_minutes = 10)
+    {
+        $CI =& get_instance();
+        $counts = array('reclaimed' => 0, 'dead' => 0);
+        if (!isset($CI->db) || !$CI->db->table_exists('jobs')) return $counts;
+
+        $cutoff = date('Y-m-d H:i:s', time() - max(1, (int) $stale_minutes) * 60);
+        $stale = $CI->db->select('id, attempts, max_attempts')->from('jobs')
+            ->where('status', 'running')->where('locked_at <', $cutoff)->get()->result_array();
+
+        foreach ($stale as $row) {
+            $outcome = job_retry_or_dead_letter($row, 'reclaimed: worker did not finish within ' . $stale_minutes . ' minutes (stale lock)');
+            $counts[$outcome === 'dead' ? 'dead' : 'reclaimed']++;
+        }
+        return $counts;
+    }
+}
+
 if (!function_exists('job_complete')) {
     /** Mark a claimed job done. */
     function job_complete($job_id)
@@ -184,6 +215,13 @@ if (!function_exists('job_handle_kb_chunk_embed')) {
      * payload: source_id, user_id, text. Chunks the source text (same helper the inline path
      * used) and embeds the chunks. Mirrors the inline block that used to run synchronously in
      * Ai_knowledge_base::add_source_action() (see docs/... task-11 report).
+     *
+     * IDEMPOTENT (brief §42 review, important finding): a retry after backoff re-runs this
+     * handler from scratch. Re-selects the source by id+user_id first — if it was deleted
+     * between enqueue and run, this is a silent no-op, not a half-written row. Then deletes
+     * any chunks a previous, interrupted attempt already wrote (ai_delete_knowledge_chunks(),
+     * the same helper delete_source_action() uses) before inserting fresh ones, so re-running
+     * never duplicates chunks.
      */
     function job_handle_kb_chunk_embed(array $payload, array $job)
     {
@@ -194,6 +232,12 @@ if (!function_exists('job_handle_kb_chunk_embed')) {
         $user_id = (int) ($payload['user_id'] ?? 0);
         $text = (string) ($payload['text'] ?? '');
         if ($source_id <= 0 || $user_id <= 0) throw new Exception('kb_chunk_embed: missing source_id/user_id');
+
+        $source = $CI->db->select('id')->from('ai_knowledge_sources')
+            ->where('id', $source_id)->where('user_id', $user_id)->limit(1)->get()->row_array();
+        if (empty($source)) return; // deleted before the job ran — nothing to do
+
+        if (function_exists('ai_delete_knowledge_chunks')) ai_delete_knowledge_chunks($source_id);
 
         $chunks = function_exists('ai_chunk_text_ai') ? ai_chunk_text_ai($text, $user_id) : ai_chunk_text($text, 1000, 200);
         $chunk_count = 0;
@@ -213,6 +257,37 @@ if (!function_exists('job_handle_kb_chunk_embed')) {
             ->update('ai_knowledge_sources', array('total_chunks' => $chunk_count));
 
         if (function_exists('ai_embed_source_chunks')) ai_embed_source_chunks($source_id, $user_id);
+    }
+}
+
+if (!function_exists('job_pending_exists')) {
+    /**
+     * True if a queued/running job of $type already exists for $user_id whose payload matches
+     * every key in $payload_match (used to dedupe, e.g. one conversation_summary job per
+     * conversation at a time — see Inbox::summarize()).
+     *
+     * @param int    $user_id
+     * @param string $type
+     * @param array  $payload_match key => value pairs the job's decoded payload must contain
+     */
+    function job_pending_exists($user_id, $type, array $payload_match)
+    {
+        $CI =& get_instance();
+        if (!isset($CI->db) || !$CI->db->table_exists('jobs')) return false;
+
+        $rows = $CI->db->select('id, payload_json')->from('jobs')
+            ->where('user_id', (int) $user_id)->where('type', trim((string) $type))
+            ->where_in('status', array('queued', 'running'))->get()->result_array();
+
+        foreach ($rows as $row) {
+            $p = job_payload($row);
+            $match = true;
+            foreach ($payload_match as $k => $v) {
+                if (!isset($p[$k]) || $p[$k] !== $v) { $match = false; break; }
+            }
+            if ($match) return true;
+        }
+        return false;
     }
 }
 
