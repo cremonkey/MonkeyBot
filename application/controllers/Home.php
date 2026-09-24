@@ -362,19 +362,12 @@ class Home extends CI_Controller
         if (!empty($assigned_used_id)) {
             $this->basic->insert_data("announcement", $insert_data);
 
-            $pusher_data = [$user_id, $assigned_used_id, $title, $message_content, date("Y-m-d H:i:s"), $subscriber_name, $social_media];
-            $data = json_encode($pusher_data);
-            $encoding = mb_detect_encoding($data);
-            $data_bytes = mb_strlen($data, $encoding);
-
-            if ($data_bytes <= 10000) {
-                $this->config->load('pusher');
-                if (!empty($this->config->item("pusher_app_key"))) {
-                    $this->load->library('ci_pusher');
-                    $pusher = $this->ci_pusher->get_pusher();
-                    $pusher->trigger('livechat_assigned_agent_channel', 'livechat_assigned_agent_event', $pusher_data);
-                }
-            }
+            // Private, per-tenant, ids-only realtime notice (see livechat_realtime_helper.php).
+            // No-op when Pusher is unconfigured.
+            $this->load->helper('inbox_realtime');
+            $this->load->helper('livechat_realtime');
+            livechat_realtime_publish($this, $user_id, 'livechat_assigned_agent_event',
+                livechat_realtime_assigned_payload($assigned_used_id, $subscriber_id, $social_media));
         }
         return true;
     }
@@ -4529,6 +4522,7 @@ class Home extends CI_Controller
     /******88*WEBHOOK,COMMON BOT ADDON FUNCTIONS,PUBLIC CURL CALLS, CRON SUB FUNCTIONS**88******/
     public function central_webhook_callback()
     {
+        $this->load->helper('request_id'); request_id_set(); // Task 13: one request id for this webhook->AI->send chain
         $url = "";
         $challenge = $this->input->get_post('hub_challenge');
         $verify_token = $this->input->get_post('hub_verify_token');
@@ -7398,7 +7392,17 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             'description' => $description,
             'human' => $human,
             'system' => $system_prompt,
+            // A3: attribute the cost-log row to the resolved agent profile and conversation
+            // when we have them; NULL otherwise (ai_usage_record() and Ai_provider handle that).
+            'agent_id' => !empty($ai_profile['id']) ? $ai_profile['id'] : null,
         );
+        if (!empty($user_id) && !empty($subscribe_id)) {
+            $this->load->helper('conversation');
+            $conv_link = conversation_ai_history_link($user_id, $social_media, $page_id, $subscribe_id);
+            if (!empty($conv_link['conversation_id'])) {
+                $completion_overrides['conversation_id'] = $conv_link['conversation_id'];
+            }
+        }
         // Only force the OpenAI model here; for Anthropic let Ai_provider use anthropic_model.
         // Passing the OpenAI model field ($model) to Claude would send an invalid model name.
         if (($api_info[0]['ai_provider'] ?? 'openai') !== 'anthropic') {
@@ -7957,24 +7961,12 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
 
             if($sender=='user') $message_content_html = display_received_message($page_id,$fb_page_id,$message_content,$message_id,$conversation_time,false,$insert_data['message_status']??null,$insert_data['delivery_status_updated_at']??null);
 
-            $pusher_data = [$user_id,$message_id,$subscriber_id,$page_id,$fb_page_id,$sender,$message_content,$message_content_html,$conversation_time,format_preview_message($last_conversation_message),$agent_name,$social_media];
-        
-            $data = json_encode($pusher_data);
-            //dd($data);
-            $encoding = mb_detect_encoding($data);
-            $data_bytes = mb_strlen($data,$encoding);
-            if($data_bytes<=10000){
-
-                $this->config->load('pusher');
-
-                if(!empty($this->config->item("pusher_app_key"))){
-
-                    $this->load->library('ci_pusher');
-                    $pusher = $this->ci_pusher->get_pusher();
-                    $pusher->trigger('livechat_channel', 'livechat_event', $pusher_data);
-
-                }
-            }
+            // Private, per-tenant, ids-only realtime notice (see livechat_realtime_helper.php).
+            // No message content or rendered HTML travels over Pusher; the browser re-fetches
+            // via the existing tenant-scoped Livechat endpoint. No-op when Pusher is unconfigured.
+            $this->load->helper('livechat_realtime');
+            livechat_realtime_publish($this, $user_id, 'livechat_event',
+                livechat_realtime_message_payload($message_id, $subscriber_id, $page_id, $fb_page_id, $sender, $social_media));
         }
 
         $this->updated_subscriber_last_interaction($subscriber_id,$update_interaction,$message_content,$last_conversation_message,$update_unseen);

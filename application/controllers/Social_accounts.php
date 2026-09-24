@@ -245,6 +245,7 @@ class Social_accounts extends Home
         }
 
         $response = $this->delete_data_basedon_account($facebook_rx_fb_user_info_id);
+        $this->load->helper('audit'); audit_record($this->user_id, 'channel.disconnected', 'social_account', $facebook_rx_fb_user_info_id);
         
         echo json_encode($response);
         
@@ -1430,6 +1431,7 @@ class Social_accounts extends Home
                     //************************************************//
                     $this->basic->insert_data('facebook_rx_fb_user_info',$data);
                     $facebook_table_id = $this->db->insert_id();
+                    $this->load->helper('audit'); audit_record($this->user_id, 'channel.connected', 'social_account', $facebook_table_id);
 
                     //insert data to useges log table
                     $this->_insert_usage_log($module_id=65,$request=1);

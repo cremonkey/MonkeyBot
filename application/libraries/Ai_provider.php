@@ -19,6 +19,7 @@ class Ai_provider
     {
         $CI =& get_instance();
         $CI->load->helper('secret');
+        $CI->load->helper('ai_failure');
         $cfg = (array) $config_row;
         $provider = isset($cfg['ai_provider']) && $cfg['ai_provider'] === 'anthropic' ? 'anthropic' : 'openai';
 
@@ -30,34 +31,77 @@ class Ai_provider
         $tools_context = isset($overrides['tools_context']) ? $overrides['tools_context'] : null;
         $tools_on = $tools_context !== null && isset($cfg['ai_tools_enabled']) && $cfg['ai_tools_enabled'] === '1';
 
+        // A3: carried through every log_usage() call below (including tool-loop rounds) via
+        // $cfg, so the cost log can attribute rows to the agent profile and conversation that
+        // produced them. Optional; both stay NULL when the caller doesn't resolve them.
+        $cfg['_ai_usage_agent_id'] = isset($overrides['agent_id']) ? $overrides['agent_id'] : null;
+        $cfg['_ai_usage_conversation_id'] = isset($overrides['conversation_id']) ? $overrides['conversation_id'] : null;
+
         if ($provider === 'anthropic') {
             $api_key = secret_decrypt(isset($cfg['anthropic_secret_key']) ? $cfg['anthropic_secret_key'] : '');
-            if (empty($api_key)) return json_encode(array('error' => array('message' => 'Anthropic API key is not configured.')));
             $model = isset($overrides['model']) && $overrides['model'] ? $overrides['model'] : (!empty($cfg['anthropic_model']) ? $cfg['anthropic_model'] : 'claude-haiku-4-5');
+            $purpose = isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply';
+            if (empty($api_key)) {
+                $this->record_failure($CI, $cfg, 'anthropic', $model, $purpose, 'config_error', 'Anthropic API key is not configured.');
+                return json_encode(array('error' => array('message' => 'Anthropic API key is not configured.')));
+            }
             $system = isset($overrides['system']) ? $overrides['system'] : '';
             $CI->load->library('Anthropic_api');
-            $purpose = isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply';
             if ($tools_on) return $this->anthropic_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $system, $temperature, $tools_context, $cfg, $purpose);
             // Optional short timeout (price judge); unset keeps the driver's 60s default.
             $timeout = isset($overrides['timeout']) && (int) $overrides['timeout'] > 0 ? (int) $overrides['timeout'] : 60;
             $raw = $CI->anthropic_api->anthropic_completion($api_key, $messages, $model, $max_tokens, $system, $temperature, null, $timeout);
             $this->log_usage($CI, $cfg, 'anthropic', $model, $raw, $purpose);
+            $this->maybe_record_provider_error($CI, $cfg, 'anthropic', $model, $purpose, $raw);
             return $raw;
         }
 
         // OpenAI
         $api_key = secret_decrypt(isset($cfg['open_ai_secret_key']) ? $cfg['open_ai_secret_key'] : '');
-        if (empty($api_key)) return json_encode(array('error' => array('message' => 'OpenAI API key is not configured.')));
         $model = isset($overrides['model']) && $overrides['model'] ? $overrides['model'] : (!empty($cfg['models']) ? $cfg['models'] : 'gpt-4o-mini');
+        $purpose = isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply';
+        if (empty($api_key)) {
+            $this->record_failure($CI, $cfg, 'openai', $model, $purpose, 'config_error', 'OpenAI API key is not configured.');
+            return json_encode(array('error' => array('message' => 'OpenAI API key is not configured.')));
+        }
         $instruction = isset($overrides['instruction']) ? $overrides['instruction'] : (isset($cfg['instruction_to_ai']) ? $cfg['instruction_to_ai'] : '');
         $description = isset($overrides['description']) ? $overrides['description'] : '';
         $human = isset($overrides['human']) ? $overrides['human'] : '';
         $CI->load->library('Openai_api');
-        $purpose = isset($overrides['purpose']) ? $overrides['purpose'] : 'chat_reply';
         if ($tools_on) return $this->openai_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $tools_context, $cfg, $purpose);
         $raw = $CI->openai_api->open_ai_completion($api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature);
         $this->log_usage($CI, $cfg, 'openai', $model, $raw, $purpose);
+        $this->maybe_record_provider_error($CI, $cfg, 'openai', $model, $purpose, $raw);
         return $raw;
+    }
+
+    // Task 4 — detect the JSON {"error":{"message":...}} shape both drivers normalize errors
+    // to, and file it in ai_failure_log + emit ai.failed. Never disrupts the reply: the raw
+    // response returned to the caller is untouched either way.
+    protected function maybe_record_provider_error($CI, $cfg, $provider, $model, $purpose, $raw)
+    {
+        try {
+            $dec = json_decode($raw, true);
+            if (!is_array($dec) || !isset($dec['error'])) return;
+            $msg = is_array($dec['error']) && isset($dec['error']['message']) ? $dec['error']['message']
+                : (is_string($dec['error']) ? $dec['error'] : 'AI provider error');
+            $this->record_failure($CI, $cfg, $provider, $model, $purpose, 'provider_error', $msg);
+        } catch (Throwable $e) { /* a failure record must never cost the caller its own work */ }
+    }
+
+    protected function record_failure($CI, $cfg, $provider, $model, $purpose, $error_class, $message, $http_status = null)
+    {
+        try {
+            $CI->load->helper('ai_failure');
+            ai_failure_record((int) ($cfg['user_id'] ?? 0), 'provider', array(
+                'provider'      => $provider,
+                'model'         => $model,
+                'purpose'       => $purpose,
+                'error_class'   => $error_class,
+                'error_message' => $message,
+                'http_status'   => $http_status,
+            ));
+        } catch (Throwable $e) { /* a failure record must never cost the caller its own work */ }
     }
 
     // SPEC-13: record token usage; never disrupt the reply on logging failure.
@@ -71,7 +115,9 @@ class Ai_provider
             if (isset($dec['usage']['prompt_tokens'])) { $in = (int) $dec['usage']['prompt_tokens']; $out = (int) ($dec['usage']['completion_tokens'] ?? 0); }
             elseif (isset($dec['usage']['input_tokens'])) { $in = (int) $dec['usage']['input_tokens']; $out = (int) ($dec['usage']['output_tokens'] ?? 0); }
             $CI->load->helper('ai_usage');
-            ai_usage_record((int) ($cfg['user_id'] ?? 0), $provider, $model, $purpose, $in, $out);
+            $agent_id = isset($cfg['_ai_usage_agent_id']) ? $cfg['_ai_usage_agent_id'] : null;
+            $conversation_id = isset($cfg['_ai_usage_conversation_id']) ? $cfg['_ai_usage_conversation_id'] : null;
+            ai_usage_record((int) ($cfg['user_id'] ?? 0), $provider, $model, $purpose, $in, $out, 0, $agent_id, $conversation_id);
         } catch (Exception $e) { /* ignore */ }
     }
 
@@ -85,6 +131,7 @@ class Ai_provider
         for ($round = 0; $round < self::MAX_TOOL_ROUNDS; $round++) {
             $raw = $CI->openai_api->open_ai_completion($api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $tools);
             $this->log_usage($CI, $cfg, 'openai', $model, $raw, $purpose);
+            $this->maybe_record_provider_error($CI, $cfg, 'openai', $model, $purpose, $raw);
             $dec = json_decode($raw, true);
             $last = $raw;
             if (!isset($dec['choices'][0]['message'])) return $raw; // error or unexpected shape
@@ -103,6 +150,7 @@ class Ai_provider
         // ran out of rounds: force a final answer without tools
         $raw = $CI->openai_api->open_ai_completion($api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature);
         $this->log_usage($CI, $cfg, 'openai', $model, $raw, $purpose);
+        $this->maybe_record_provider_error($CI, $cfg, 'openai', $model, $purpose, $raw);
         return $raw ?: $last;
     }
 
@@ -121,6 +169,7 @@ class Ai_provider
         for ($round = 0; $round < self::MAX_TOOL_ROUNDS; $round++) {
             $raw = $CI->anthropic_api->anthropic_completion($api_key, $convo, $model, $max_tokens, $system, $temperature, $tools);
             $this->log_usage($CI, $cfg, 'anthropic', $model, $raw, $purpose);
+            $this->maybe_record_provider_error($CI, $cfg, 'anthropic', $model, $purpose, $raw);
             $dec = json_decode($raw, true);
             $last = $raw;
             if (isset($dec['error'])) return $raw;
@@ -140,6 +189,7 @@ class Ai_provider
         }
         $raw = $CI->anthropic_api->anthropic_completion($api_key, $convo, $model, $max_tokens, $system, $temperature);
         $this->log_usage($CI, $cfg, 'anthropic', $model, $raw, $purpose);
+        $this->maybe_record_provider_error($CI, $cfg, 'anthropic', $model, $purpose, $raw);
         return $raw ?: $last;
     }
 }

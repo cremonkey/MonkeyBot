@@ -61,10 +61,13 @@ class Agency_provision extends Home
             return;
         }
 
-        // Audit trail (brief §40): who, what, when (log timestamp), which tenant. Never the
-        // password — it is returned to the browser below and nowhere else.
-        log_message('error', 'audit: client ' . $result['user_id'] . ' (' . $result['email'] . ') provisioned by admin '
-            . $admin_id . ' [package ' . $result['package_id'] . ($result['template_key'] ? ', template ' . $result['template_key'] : ', no starter template') . ']');
+        // Audit trail (brief §40): who, what, when, which tenant. Never the password — it is
+        // returned to the browser below and nowhere else (audit_record() also strips any
+        // secret-looking key before it would ever be stored).
+        $this->load->helper('audit');
+        audit_record((int) $result['user_id'], 'client.provisioned', 'user', $result['user_id'], null, array(
+            'email' => $result['email'], 'package_id' => $result['package_id'], 'template_key' => $result['template_key'],
+        ), $admin_id, 'admin');
 
         echo json_encode(array(
             'status'  => '1',

@@ -166,6 +166,9 @@ class Openwa_bot extends Messenger_bot
             // Seed a default "no match" AI bot so WA follows FB/IG no-match path out of the box
             $this->seed_default_bots($acc_id, $session_id, $this->uid);
 
+            $this->load->helper('audit');
+            audit_record($this->uid, $is_update ? 'channel.updated' : 'channel.connected', 'openwa_account', $acc_id, null, array('session_id'=>$session_id));
+
             $msg = $is_update ? 'OpenWA account updated.' : 'OpenWA connected.';
             if (!$wh_id) $msg .= ' Warning: webhook auto-register failed — set callback manually to ' . $callback;
             else $msg .= ' Webhook ready.';
@@ -239,6 +242,7 @@ class Openwa_bot extends Messenger_bot
             // Remove WA bots tied to this account
             $this->db->where(array('page_id'=>(int)$id, 'media_type'=>'wa', 'user_id'=>$this->uid))->delete('messenger_bot');
             $this->db->where(array('id'=>(int)$id, 'user_id'=>$this->uid))->delete('openwa_accounts');
+            $this->load->helper('audit'); audit_record($this->uid, 'channel.disconnected', 'openwa_account', (int)$id);
         }
         redirect('openwa_bot');
     }
@@ -389,6 +393,7 @@ class Openwa_bot extends Messenger_bot
      */
     public function webhook($account_id = 0)
     {
+        $this->load->helper('request_id'); request_id_set(); // Task 13: one request id for this webhook->AI->send chain
         $this->output->set_content_type('application/json');
         $raw = file_get_contents('php://input');
         try {

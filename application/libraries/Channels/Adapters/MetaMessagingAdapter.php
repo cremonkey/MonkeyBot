@@ -21,7 +21,41 @@ abstract class MetaMessagingAdapter extends AbstractChannelAdapter
         // send_image: Messenger Platform Send API, image attachment by public URL (the payload
         // Livechat::reply_to_conversation already sends for media, with messaging_type RESPONSE
         // like sendText). Video / audio / file attachments are not implemented here.
-        return array(Capability::SEND_TEXT, Capability::SEND_IMAGE, Capability::RECEIVE_WEBHOOK);
+        return array(Capability::SEND_TEXT, Capability::SEND_IMAGE, Capability::MARK_SEEN, Capability::TYPING, Capability::RECEIVE_WEBHOOK);
+    }
+
+    /** Send API sender_action=mark_seen, same endpoint/options as sendText. */
+    public function markSeen(OutboundMessage|string $recipient, array $account = array()): SendResult
+    {
+        return $this->senderAction($recipient, $account, 'mark_seen');
+    }
+
+    /** Send API sender_action=typing_on/typing_off, same endpoint/options as sendText. */
+    public function typingIndicator(OutboundMessage|string $recipient, array $account = array(), bool $on = true): SendResult
+    {
+        return $this->senderAction($recipient, $account, $on ? 'typing_on' : 'typing_off');
+    }
+
+    private function senderAction(OutboundMessage|string $recipient, array $account, $action)
+    {
+        $rid = self::recipientOf($recipient);
+        $acct = self::accountOf($recipient, $account);
+        $token = isset($acct['page_access_token']) ? (string) $acct['page_access_token'] : '';
+        if ($token === '') return $this->invalid('page_access_token missing');
+        if ((string) $rid === '') return $this->invalid('empty recipient');
+
+        $payload = json_encode(array('recipient' => array('id' => $rid), 'sender_action' => $action));
+        $res = $this->http->send(new HttpRequest(
+            'POST',
+            graph_url_group('send', 'me/messages?access_token=') . urlencode($token),
+            array('Content-Type: application/json'),
+            $payload,
+            20,
+            null,
+            true,
+            null
+        ));
+        return $this->interpretGraph($res);
     }
 
     public function sendText(OutboundMessage $message): SendResult

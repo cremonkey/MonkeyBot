@@ -36,8 +36,13 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
           <thead><tr><th>Client</th><th>Package</th><th title="Days until package expiry">Renewal</th>
             <th title="Usage vs the package's monthly_limit for AI replies (module 340)">AI usage</th>
             <th>Channels</th><th title="Customer messages in the last 7 days">In (7d)</th><th title="Bot replies per customer message">Bot %</th>
-            <th>Last message</th><th>Leads</th><th>Won</th><th title="Waiting for a human">Waiting</th><th title="Unanswered questions">Missed</th>
-            <th title="Price-guard blocks, 7d">Guard</th><th>AI cost</th><th>Attention</th></tr></thead>
+            <th>Last message</th><th>Leads</th><th>Won</th>
+            <th title="conversations.handoff_state = WAITING_FOR_HUMAN, per client. Legacy bot-pause count shown in parentheses until D1 lands.">Waiting</th>
+            <th title="Unanswered questions">Missed</th>
+            <th title="Price-guard blocks, 7d">Guard</th>
+            <th title="8xCRM push queue (crm_external_log): pending / failed, and last failure time">CRM push</th>
+            <th title="Google Sheet sync (crm_sheet_config)">Sheets</th>
+            <th>AI cost</th><th>Attention</th></tr></thead>
           <tbody>
           <?php foreach ($rows as $r): ?>
             <tr>
@@ -65,9 +70,18 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
               <td><?php echo $ago($r['last_message']); ?></td>
               <td><?php echo $r['leads_30']; ?></td>
               <td><?php echo $r['won_30'] ? number_format($r['won_30']) : '—'; ?></td>
-              <td><?php echo $r['waiting'] ? '<span class="badge badge-danger">' . $r['waiting'] . '</span>' : '0'; ?></td>
+              <td><?php echo $r['waiting'] ? '<span class="badge badge-danger">' . $r['waiting'] . '</span>' : '0'; ?>
+                <?php if ($r['waiting_paused_legacy']): ?><small class="text-muted">(<?php echo $r['waiting_paused_legacy']; ?> paused)</small><?php endif; ?></td>
               <td><?php echo $r['missed']; ?></td>
               <td><?php echo $r['guard_7']; ?></td>
+              <td class="ag-col-nowrap">
+                <?php $ih = $r['integration_health']; ?>
+                <?php if ($ih['crm_failed']): ?><span class="badge badge-warning" title="last failure <?php echo htmlspecialchars($ih['crm_last_failure'] ?: '—'); ?>"><?php echo $ih['crm_failed']; ?> failed</span>
+                <?php elseif ($ih['crm_pending']): ?><span class="text-muted"><?php echo $ih['crm_pending']; ?> pending</span>
+                <?php else: ?><span class="text-muted">—</span><?php endif; ?></td>
+              <td class="ag-col-nowrap"><?php if ($ih['sheets_failing']): ?><span class="badge badge-warning" title="<?php echo htmlspecialchars($ih['sheets_last_error'] ?: ''); ?>">failing</span>
+                <?php elseif ($ih['sheets_last_synced_at']): ?><span class="text-success"><i class="fas fa-check"></i></span>
+                <?php else: ?><span class="text-muted">—</span><?php endif; ?></td>
               <td>$<?php echo number_format($r['ai_cost_30'], 2); ?></td>
               <td><?php foreach ($r['flags'] as $f): ?><span class="badge badge-<?php echo $f[0]; ?> mb-1"><?php echo htmlspecialchars($f[1]); ?></span> <?php endforeach; ?>
                 <?php if (!$r['flags']): ?><span class="text-success"><i class="fas fa-check"></i> OK</span><?php endif; ?></td>
@@ -81,6 +95,57 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
       AI cost uses recorded estimates where available, otherwise the model price table.
       Package/renewal/AI-usage figures are readiness &amp; visibility only, not billing or invoicing —
       that already runs through Payment.php's own gateways.</small></p>
+
+    <!-- Task 10 / brief B2, §50 — per-tenant feature flag overrides. Posts to
+         Agency_flags::toggle_flag(); this section is the only write action here besides
+         "New client" above (Agency.php itself stays read-only). -->
+    <div class="card"><div class="card-header"><h4><i class="fas fa-toggle-on"></i> Feature flags</h4></div>
+      <div class="card-body">
+        <p class="text-muted small">Overrides one flag for one client. Clearing an override falls back to
+          the global config value (today's behaviour for every flag that has never been overridden here).</p>
+        <div class="form-row align-items-end">
+          <div class="form-group col-md-4">
+            <label>Client</label>
+            <select class="form-control" id="ff_user">
+              <?php foreach ($rows as $r): ?>
+                <option value="<?php echo (int) $r['id']; ?>"><?php echo htmlspecialchars($r['name']); ?> (<?php echo htmlspecialchars($r['email']); ?>)</option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="form-group col-md-4">
+            <label>Flag name</label>
+            <input type="text" class="form-control" id="ff_flag" list="ff_known_flags" placeholder="e.g. tiktok_dm_enabled" dir="ltr">
+            <datalist id="ff_known_flags">
+              <?php foreach ($known_flags as $kf): ?><option value="<?php echo htmlspecialchars($kf); ?>"><?php endforeach; ?>
+            </datalist>
+          </div>
+          <div class="form-group col-md-4">
+            <button type="button" class="btn btn-success" id="ff_on"><i class="fas fa-check"></i> On</button>
+            <button type="button" class="btn btn-secondary" id="ff_off"><i class="fas fa-times"></i> Off</button>
+            <button type="button" class="btn btn-outline-secondary" id="ff_clear">Clear override</button>
+          </div>
+        </div>
+        <div id="ff_msg" class="alert alert-danger" style="display:none"></div>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0" id="ff_table">
+            <thead><tr><th>Client</th><th>Flag</th><th>Override</th></tr></thead>
+            <tbody>
+            <?php foreach ($flags_by_user as $uid => $flags): if (!$flags) continue;
+              $client = null; foreach ($rows as $r) { if ($r['id'] === (int) $uid) { $client = $r; break; } } ?>
+              <?php foreach ($flags as $flag => $enabled): ?>
+                <tr>
+                  <td><?php echo $client ? htmlspecialchars($client['name']) : ('#' . (int) $uid); ?></td>
+                  <td dir="ltr"><?php echo htmlspecialchars($flag); ?></td>
+                  <td><span class="badge badge-<?php echo $enabled ? 'success' : 'secondary'; ?>"><?php echo $enabled ? 'ON' : 'OFF'; ?></span></td>
+                </tr>
+              <?php endforeach; ?>
+            <?php endforeach; ?>
+            <?php if (!array_filter($flags_by_user)): ?><tr><td colspan="3" class="text-muted">No per-client overrides set.</td></tr><?php endif; ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -187,5 +252,21 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(pw);
     if (typeof iziToast !== 'undefined') iziToast.info({message: 'Password copied.', position: 'topRight'});
   });
+
+  function ffToggle(action) {
+    var uid = $('#ff_user').val(), flag = $.trim($('#ff_flag').val());
+    if (!uid || !flag) { $('#ff_msg').text('Choose a client and a flag name.').show(); return; }
+    $('#ff_msg').hide();
+    $.post(BASE + 'agency_flags/toggle_flag', {
+      csrf_token: TOKEN, user_id: uid, flag: flag, action: action
+    }, function (r) {
+      if (r.status !== '1') { $('#ff_msg').text(r.message || 'Could not save.').show(); return; }
+      if (typeof iziToast !== 'undefined') iziToast.success({message: r.message, position: 'topRight'});
+      location.reload();
+    }, 'json').fail(function () { $('#ff_msg').text('Network error. Nothing was saved — try again.').show(); });
+  }
+  $('#ff_on').on('click', function () { ffToggle('on'); });
+  $('#ff_off').on('click', function () { ffToggle('off'); });
+  $('#ff_clear').on('click', function () { ffToggle('clear'); });
 })();
 </script>

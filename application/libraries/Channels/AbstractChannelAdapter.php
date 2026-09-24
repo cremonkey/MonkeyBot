@@ -29,6 +29,16 @@ abstract class AbstractChannelAdapter implements ChannelAdapterInterface
         return SendResult::unsupported($this->key(), $type === 'image' ? Capability::SEND_IMAGE : Capability::SEND_MEDIA);
     }
 
+    public function markSeen(OutboundMessage|string $recipient, array $account = array()): SendResult
+    {
+        return SendResult::unsupported($this->key(), Capability::MARK_SEEN);
+    }
+
+    public function typingIndicator(OutboundMessage|string $recipient, array $account = array(), bool $on = true): SendResult
+    {
+        return SendResult::unsupported($this->key(), Capability::TYPING);
+    }
+
     public function normalizeInbound(array $raw, array $context = array()): ?InboundMessage
     {
         $all = $this->normalizeInboundBatch($raw, $context);
@@ -79,6 +89,24 @@ abstract class AbstractChannelAdapter implements ChannelAdapterInterface
     protected static function contextAccount(array $context)
     {
         return isset($context['account_id']) ? self::str($context['account_id']) : null;
+    }
+
+    /** markSeen()/typingIndicator(): the recipient id, whichever form was passed. */
+    protected static function recipientOf(OutboundMessage|string $recipient)
+    {
+        return $recipient instanceof OutboundMessage ? $recipient->recipient : $recipient;
+    }
+
+    /** markSeen()/typingIndicator(): credentials, whichever form was passed. */
+    protected static function accountOf(OutboundMessage|string $recipient, array $account)
+    {
+        return $recipient instanceof OutboundMessage ? $recipient->account : $account;
+    }
+
+    /** markSeen()/typingIndicator(): extra fields (e.g. metadata['message_id']) an OutboundMessage may carry. */
+    protected static function metadataOf(OutboundMessage|string $recipient)
+    {
+        return $recipient instanceof OutboundMessage ? $recipient->metadata : array();
     }
 
     protected static function attachment($type, $url = null, $id = null, $mime = null, $caption = null)

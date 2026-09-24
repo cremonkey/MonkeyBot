@@ -28,10 +28,12 @@ if (!function_exists('ai_usage_price')) {
 
 if (!function_exists('ai_usage_record')) {
     /**
-     * @param string $purpose chat_reply | embedding | kb_chunking | price_judge | transcription | agent_preview | ...
-     * @param float  $units   non-token units (audio seconds for Whisper)
+     * @param string   $purpose         chat_reply | embedding | kb_chunking | price_judge | transcription | agent_preview | ...
+     * @param float    $units           non-token units (audio seconds for Whisper)
+     * @param int|null $agent_id        ai_agent_profiles.id that produced this call, when resolvable (task A3)
+     * @param int|null $conversation_id conversations.id this call belongs to, when resolvable (task A3)
      */
-    function ai_usage_record($user_id, $provider, $model, $purpose, $input_tokens = 0, $output_tokens = 0, $units = 0)
+    function ai_usage_record($user_id, $provider, $model, $purpose, $input_tokens = 0, $output_tokens = 0, $units = 0, $agent_id = null, $conversation_id = null)
     {
         try {
             $CI =& get_instance();
@@ -46,6 +48,23 @@ if (!function_exists('ai_usage_record')) {
             if ($CI->db->field_exists('estimated_cost_usd', 'ai_usage_log')) {
                 $row['units'] = round((float) $units, 3);
                 $row['estimated_cost_usd'] = round($cost, 6);
+            }
+            // A3: columns added by 2026-10-02-ai-usage-ids.sql. Guarded so this keeps working,
+            // byte-identical to before, on a database that hasn't migrated yet. Cached like
+            // conversation_ai_history_link()'s $has_column, one field_exists() call per request.
+            static $has_ids = null;
+            if ($has_ids === null) $has_ids = $CI->db->field_exists('agent_id', 'ai_usage_log') && $CI->db->field_exists('conversation_id', 'ai_usage_log');
+            if ($has_ids) {
+                $row['agent_id'] = ($agent_id !== null && $agent_id !== '') ? (int) $agent_id : null;
+                $row['conversation_id'] = ($conversation_id !== null && $conversation_id !== '') ? (int) $conversation_id : null;
+            }
+            // Task 13: correlation id (2026-10-03d-request-ids.sql). Cached like $has_ids above,
+            // one field_exists() call per request, and omitted from the INSERT until the column
+            // exists so this keeps working, byte-identical to before, pre-migration.
+            static $has_request_id = null;
+            if ($has_request_id === null) $has_request_id = $CI->db->field_exists('request_id', 'ai_usage_log');
+            if ($has_request_id && function_exists('request_id_get')) {
+                $row['request_id'] = request_id_get();
             }
             $CI->db->insert('ai_usage_log', $row);
         } catch (Throwable $e) { /* never break the caller */ }

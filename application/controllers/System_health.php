@@ -28,7 +28,22 @@ class System_health extends Home
             return in_array($m, array('off', 'log', 'enforce'), true) ? $m : 'log';
         };
 
+        // Task 13 (brief 39/51): "Failures (24h)" panel — admin-only exactly like the rest of
+        // this page (constructor above already gates the whole controller). Guarded per table
+        // inside the helper so a not-yet-migrated database still renders the page.
+        $this->load->helper('system_health_failures');
+        $data['failures_24h'] = system_health_failures_24h($this->db);
+
         $data['jobs'] = $jobs;
+        // 7.1 / Task 2: every scheduled job that records health, shown together so an admin
+        // can see all of them without knowing which controller writes which key.
+        $data['job_labels'] = array(
+            'cron_hub'             => 'Cron hub (follow-ups, digest, retention, ...)',
+            'tiktok_poll_comments' => 'TikTok comment polling',
+            'lead_score_decay'     => 'Lead score decay',
+            'automation_worker'    => 'Automation worker',
+            'sequence_worker'      => 'Sequence worker',
+        );
         $data['cron_age'] = ops_job_age_seconds('cron_hub');
         $data['webhooks'] = $wh;
         $data['switches'] = array(

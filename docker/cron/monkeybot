@@ -31,3 +31,11 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # as an automation action, so it must never be able to run while the main flag is off.
 # NOT installed on the host by the 10.5 branch — see docs/automations/sequences.md.
 * * * * * root flock -n /run/monkeybot-sequence.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 55 php /var/www/html/index.php sequence_worker run >> /var/log/monkeybot-cron.log 2>&1
+
+# Generic job queue (remaining-work Task 11 / B3, brief §42): drain due `jobs` rows and run
+# their registered handler (kb_chunk_embed, conversation_summary). Every minute, same flock +
+# GET_LOCK pattern as the other workers. Exits in milliseconds when the jobs table is missing
+# (pre-migration) or empty. Enqueuing itself is gated per-caller by config 'jobs_enabled'
+# (default OFF), so installing this line is safe before switch-on.
+# NOT installed on the host by this branch — see docs/plans/2026-09-24-remaining-work.md.
+* * * * * root flock -n /run/monkeybot-job-worker.lock docker exec -u www-data monkeybot-app-ojzrhf-app-1 timeout 55 php /var/www/html/index.php job_worker run >> /var/log/monkeybot-cron.log 2>&1

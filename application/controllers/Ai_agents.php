@@ -104,6 +104,7 @@ class Ai_agents extends Home
         // Done in PHP through the query builder — none of the CRLF/CR-stripping traps the
         // shell sync script has, because there is no piping or text-mode newline rewrite.
         $synced = $this->sync_profile_to_channels((int)$id);
+        $this->load->helper('audit'); audit_record($this->uid, 'ai_agent.saved', 'ai_agent_profile', $id, null, array('name'=>$fields['name']));
         $this->session->set_flashdata('success', 'Agent profile saved'.($synced ? " (synced to {$synced} channel template".($synced>1?'s':'').')' : ''));
         redirect('ai_agents');
     }
@@ -192,6 +193,7 @@ class Ai_agents extends Home
                 }
             }
         }
+        $this->load->helper('audit'); audit_record($this->uid, 'ai_agent.assignments_saved', 'ai_agent_assignment', '');
         $this->session->set_flashdata('success','Assignments saved');
         redirect('ai_agents');
     }

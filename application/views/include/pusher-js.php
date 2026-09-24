@@ -9,116 +9,89 @@
     $media_text = 'Instagram';
   }
   $get_real_user_id = $this->session->userdata("real_user_id");
+  // Private, per-tenant, ids-only realtime (see livechat_realtime_helper.php). NULL when
+  // Pusher is unconfigured -> subscribe below is skipped and the page behaves as before.
+  $this->load->helper('inbox_realtime');
+  $this->load->helper('livechat_realtime');
+  $livechat_realtime = livechat_realtime_client_config($this, $get_real_user_id ?: $this->session->userdata('user_id'));
 ?>
 <script>
   var get_real_user_id = "<?php echo $get_real_user_id;?>";
   // Enable pusher logging - don't include this in production
   Pusher.logToConsole = false;
-  var pusher = new Pusher('<?php echo $this->config->item("pusher_app_key");?>', {
-    cluster: '<?php echo $this->config->item("pusher_cluster") ?? '';?>'
-  });
+  var LIVECHAT_RT = <?php echo json_encode($livechat_realtime);?>;
+  var LIVECHAT_CSRF = "<?php echo $this->session->userdata('csrf_token_session'); ?>";
+  var pusher = LIVECHAT_RT ? new Pusher(LIVECHAT_RT.key, {
+    cluster: LIVECHAT_RT.cluster || undefined,
+    authEndpoint: '<?php echo site_url('livechat/realtime_auth');?>',
+    auth: {params: {csrf_token: LIVECHAT_CSRF}}
+  }) : null;
   var isNotitificationEnabled = '<?php echo $browser_notification_enabled ?? '0';?>';
   var timezone = '<?php echo !empty($this->config->item("time_zone")) ? $this->config->item("time_zone") : 'Europe/Dublin';?>';
   var messageType = '<?php echo $message_type ?? 'all';?>';
   if(messageType=='') messageType = 'all';
   var route_name = '<?php echo current_url();?>';
 
-  var whatsAppPushChannel = pusher.subscribe('livechat_channel');
-    whatsAppPushChannel.bind('livechat_event', function(responseData) {
-      var subscribe_id = responseData[2];
-      subscriberName = '';
-      if(messageType != 'archived'){
-          if(responseData[5]=='user') {
-            $('#chatNotificationAudio')[0].play();
-          }
+  // Ids-only event: no message content or rendered HTML travels over Pusher any more. We
+  // refresh the conversation list (existing tenant-scoped endpoint) and, if the affected
+  // subscriber's conversation is open, fetch the new message(s) by id through the existing
+  // get_conversation_single endpoint (same one the page already polls with on load).
+  var livechatChannel = (pusher && LIVECHAT_RT) ? pusher.subscribe(LIVECHAT_RT.channel) : null;
+  if (livechatChannel) {
+    livechatChannel.bind('livechat_event', function(responseData) {
+      if (!responseData) return;
+      var subscribe_id = responseData.subscriber_id;
+      var page_id = responseData.page_id;
+      var message_id = responseData.message_id;
+      var sender = responseData.sender;
 
-          if(route_name == '<?php echo base_url('dashboard');?>' && responseData[5]=='user'){ // notification are shown in dashboard only and for received message
+      if(messageType != 'archived' && sender=='user'){
+        $('#chatNotificationAudio')[0].play();
+      }
 
-            if(subscriberName=='') subscriberName = '';
-            var notificationUrl = '<?php echo base_url('livechat/load_livechat');?>'+'?subscriber_id='+subscribe_id+"&media_type="+responseData[11];
-            if(isNotitificationEnabled=='1'){
-              Notification.requestPermission().then(perm=>{
-                if(perm == 'granted'){
+      var selectedSubscriber = $('.open_conversation.bg-light').attr('from_user_id');
 
-                  var last_conversation_message = responseData[9];
-                  last_conversation_message = last_conversation_message.replace( /(<([^>]+)>)/ig, '');
-                  const notification = new Notification(subscriberName+" <?php echo $this->lang->line('sent you a message on') .' '.$media_text;?>",{
-                    body: last_conversation_message,
-                    icon: "<?php echo site_url('assets/images/media/' . $media_text . '.png');?>"
+      var matchingSubscriberElement = $('.open_conversation[from_user_id='+subscribe_id+']');
+      if(matchingSubscriberElement.length==0){
+        $("#refresh_data").trigger('click');
+        return false;
+      }
 
-                  });
-                  notification.onclick = () => {
-                      notification.close();
-                      window.open(notificationUrl, '_blank');
-                  }
-                }
-              });
-            }
-          }
-        }
+      // Refresh the list (preview text, badge, ordering) via the existing endpoint; no
+      // message content is carried in the realtime payload itself.
+      $("#refresh_data").trigger('click');
 
-
-        var selectedSubscriber = $('.open_conversation.bg-light').attr('from_user_id');
-
-        var matchingSubscriberElement= $('.open_conversation[from_user_id='+subscribe_id+']');
-        if(matchingSubscriberElement.length==0) {
-          $("#refresh_data").trigger('click');
-          return false;
-        }
-
-        var matchingSubscriberPreviewElement= $('.open_conversation[from_user_id='+subscribe_id+'] .put-message-preview');
-        matchingSubscriberPreviewElement.html(responseData[9]).removeClass('text-muted').addClass('text-primary');
-        var convertedTime = convertTZ(responseData[8],timezone);
-        $('.open_conversation[from_user_id='+subscribe_id+'] .put-time').text(convertedTime);
-
-        if(responseData[5]=='user'){
-          var matchingSubscriberCountElement= $('.open_conversation[from_user_id='+subscribe_id+'] .rounded-pill');
-          var count  = matchingSubscriberCountElement.html();
-
-          if(count=='' || count == null) count = 0;
-          count = parseInt(count);
-          count++;
-
-          matchingSubscriberCountElement.html(count).removeClass('d-none');
-        }
-
-        setTimeout(function(){
-          var list_html = matchingSubscriberElement.prop('outerHTML');
-          $(matchingSubscriberElement).remove();
-          $('#put_content').prepend(list_html);
-        },200);
-
-
-        if(subscribe_id == selectedSubscriber){
-           $("#conversation_modal_body").append(responseData[7]);
-
-           setTimeout(function(){
-            var timeContent = $("#conversation_modal_body .chat-time-js:last").text();
-            if(timeContent=='') $("#conversation_modal_body .chat-time-js:last").text(convertedTime);
-           }, 200); 
-
-           setTimeout(function(){ 
+      if(subscribe_id == selectedSubscriber){
+        $.ajax({
+          url: '<?php echo site_url('livechat/get_conversation_single');?>',
+          type: 'POST',
+          data: { from_user_id: subscribe_id, whatsapp_bot_id: page_id, last_message_id: (parseInt(message_id, 10) - 1) },
+          success: function(html){
+            if(!html) return;
+            $("#conversation_modal_body").append(html);
+            setTimeout(function(){
               var element = document.getElementById("conversation_modal_body");
-              element.scrollTop = element.scrollHeight; 
-           }, 300);              
-        }
-  });
+              element.scrollTop = element.scrollHeight;
+            }, 200);
+          }
+        });
+      }
+    });
 
-  var assignedAgentPushChannel = pusher.subscribe('livechat_assigned_agent_channel');
-  assignedAgentPushChannel.bind('livechat_assigned_agent_event', function(responseData) {
-    var assignedAgentId = responseData[1];
-    var social_media = responseData[6];
-    var from_type = social_media=='ig' ? 'Instagram' : 'Messenger';
-    $('#agentAssignNotificationAudio')[0].play();    
-      if(route_name == '<?php echo base_url('dashboard');?>' && assignedAgentId == responseData[0]){ // notification are shown in dashboard only and for assigned agent
-        var notificationUrl = 'url('+from_type+'/livechat?message=mine)'
-        var notificationUrl = '<?php echo base_url('livechat/load_livechat');?>'+'?subscriber_id='+subscribe_id+"&media_type="+responseData[6];
+    livechatChannel.bind('livechat_assigned_agent_event', function(responseData) {
+      if (!responseData) return;
+      var social_media = responseData.social_media;
+      var subscribe_id = responseData.subscriber_id;
+      var from_type = social_media=='ig' ? 'Instagram' : 'Messenger';
+      $('#agentAssignNotificationAudio')[0].play();
+      if(route_name == '<?php echo base_url('dashboard');?>'){
+        var notificationUrl = '<?php echo base_url('livechat/load_livechat');?>'+'?subscriber_id='+subscribe_id+"&media_type="+social_media;
         if(isNotitificationEnabled=='1'){
           Notification.requestPermission().then(perm=>{
             if(perm == 'granted'){
-              const notification = new Notification(responseData[2],{
-                body: responseData[3],
-                icon: "<i class='fas fa-ticket-alt'></i>"
+              const notification = new Notification("<?php echo $this->lang->line('You have been assigned a new conversation');?>",{
+                body: from_type,
+                icon: "<?php echo site_url('assets/images/media/' . $media_text . '.png');?>"
               });
               notification.onclick = () => {
                   notification.close();
@@ -128,7 +101,8 @@
           });
         }
       }
-  });
+    });
+  }
 
   $(document).on('click', '#notification_action', function(event) {
     event.preventDefault();

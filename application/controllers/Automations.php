@@ -27,8 +27,14 @@ class Automations extends Home
         $this->load->helper('entitlement');
         entitlement_require('automations');
         $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
-        $this->load->helper('event');
+        $this->load->helper(array('event', 'ops_health'));
         $this->load->library('automation_engine');
+    }
+
+    /** Single source of truth for the "workers off" banner + JSON field (task 6 / brief §51). */
+    protected function workers_status()
+    {
+        return automation_workers_status($this->config->item('automation_engine_enabled') === true);
     }
 
     // ------------------------------------------------------------------ pages
@@ -52,6 +58,7 @@ class Automations extends Home
 
         $data['rules'] = $rules;
         $data['engine_on'] = $this->config->item('automation_engine_enabled') === true;
+        $data['workers_status'] = $this->workers_status();
         $data['events_waiting'] = $this->db->from('events')->where('user_id', $this->uid)
             ->where('processed_at IS NULL', null, false)->count_all_results();
         $data['page_title'] = 'Automations';
@@ -141,8 +148,12 @@ class Automations extends Home
             $this->db->insert('automation_rules', $row);
             $id = (int) $this->db->insert_id();
         }
-        log_message('error', 'audit: automation ' . $id . ' saved (' . $status . ') by user ' . $this->session->userdata('user_id'));
-        echo json_encode(array('status' => '1', 'id' => $id, 'message' => 'Automation saved.'), JSON_UNESCAPED_UNICODE);
+        $this->load->helper('audit'); audit_record($this->uid, 'automation.saved', 'automation_rule', $id, null, array('status'=>$status));
+        $ws = $this->workers_status();
+        echo json_encode(array(
+            'status' => '1', 'id' => $id, 'message' => 'Automation saved.',
+            'workers_paused' => $ws['workers_paused'],
+        ) + ($ws['workers_paused'] ? array('workers_message' => $ws['message_en']) : array()), JSON_UNESCAPED_UNICODE);
     }
 
     /** Activate / pause. Separate from save so the list page can toggle without a full form. */
@@ -166,8 +177,12 @@ class Automations extends Home
 
         $this->db->where('id', $id)->where('user_id', $this->uid)
             ->update('automation_rules', array('status' => $status, 'updated_at' => date('Y-m-d H:i:s')));
-        log_message('error', 'audit: automation ' . $id . ' set to ' . $status . ' by user ' . $this->session->userdata('user_id'));
-        echo json_encode(array('status' => '1', 'new_status' => $status));
+        $this->load->helper('audit'); audit_record($this->uid, $status === 'active' ? 'automation.published' : 'automation.disabled', 'automation_rule', $id, array('status'=>$rule['status']), array('status'=>$status));
+        $ws = $this->workers_status();
+        echo json_encode(array(
+            'status' => '1', 'new_status' => $status,
+            'workers_paused' => $ws['workers_paused'],
+        ) + ($ws['workers_paused'] ? array('workers_message' => $ws['message_en']) : array()));
     }
 
     public function delete_rule()

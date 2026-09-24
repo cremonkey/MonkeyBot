@@ -23,7 +23,38 @@ final class WhatsAppCloudAdapter extends AbstractChannelAdapter
 
     public function capabilities(): array
     {
-        return array(Capability::SEND_TEXT, Capability::SEND_IMAGE, Capability::RECEIVE_WEBHOOK);
+        return array(Capability::SEND_TEXT, Capability::SEND_IMAGE, Capability::MARK_SEEN, Capability::RECEIVE_WEBHOOK);
+    }
+
+    /**
+     * Cloud API mark-as-read: POST {phone_number_id}/messages
+     * {messaging_product:whatsapp, status:read, message_id}. The inbound message
+     * id is not a recipient the adapter is handed elsewhere, so it must come
+     * from the caller: pass an OutboundMessage with metadata['message_id'] set
+     * (a bare recipient string has no id to mark, so the call fails without HTTP).
+     */
+    public function markSeen(OutboundMessage|string $recipient, array $account = array()): SendResult
+    {
+        $acct = self::accountOf($recipient, $account);
+        $meta = self::metadataOf($recipient);
+        $token = isset($acct['access_token']) ? (string) $acct['access_token'] : '';
+        $pnid  = isset($acct['phone_number_id']) ? (string) $acct['phone_number_id'] : '';
+        $mid   = isset($meta['message_id']) ? (string) $meta['message_id'] : '';
+        if ($token === '') return $this->invalid('access_token missing');
+        if ($pnid === '') return $this->invalid('phone_number_id missing');
+        if ($mid === '') return $this->invalid('message_id missing');
+
+        $res = $this->request($token, $pnid, array(
+            'messaging_product' => 'whatsapp', 'status' => 'read', 'message_id' => $mid,
+        ));
+        $body = $res->json(); // {"success": true} on the Cloud API mark-as-read endpoint
+        if (empty($body['success'])) {
+            $err  = isset($body['error']) ? $body['error'] : null;
+            $code = is_array($err) && isset($err['code']) ? (int) $err['code'] : null;
+            $retry = self::retryableHttp($res) || in_array($code, self::TRANSIENT_CODES, true);
+            return SendResult::failure('wa: ' . json_encode($err !== null ? $err : $body), $retry, $res->status, $body);
+        }
+        return SendResult::success(null, $res->status, $body);
     }
 
     public function sendText(OutboundMessage $message): SendResult
@@ -58,9 +89,9 @@ final class WhatsAppCloudAdapter extends AbstractChannelAdapter
         ));
     }
 
-    private function post($token, $pnid, array $payload)
+    private function request($token, $pnid, array $payload)
     {
-        $res = $this->http->send(new HttpRequest(
+        return $this->http->send(new HttpRequest(
             'POST',
             self::GRAPH_BASE . $pnid . '/messages',
             array('Content-Type: application/json', 'Authorization: Bearer ' . $token),
@@ -70,7 +101,11 @@ final class WhatsAppCloudAdapter extends AbstractChannelAdapter
             true,
             2
         ));
+    }
 
+    private function post($token, $pnid, array $payload)
+    {
+        $res = $this->request($token, $pnid, $payload);
         $body = $res->json(); // what Whatsapp_api::post() returned
         if (empty($body['messages'])) {
             $err  = isset($body['error']) ? $body['error'] : null;

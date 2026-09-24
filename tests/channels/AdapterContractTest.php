@@ -630,3 +630,213 @@ t('fb/ig: HUMAN_AGENT tag from the policy reaches the payload; no metadata = leg
         assert_request_equals($specs[$key]['request']('hello there'), $t->only());
     }
 });
+
+// ---- markSeen / typingIndicator (Task 7: adapter interface completeness) ----
+
+foreach (adapter_specs() as $key => $spec) {
+    t("$key: markSeen unsupported <=> no HTTP, unsupported result", function () use ($key, $spec) {
+        $t = new FakeTransport();
+        $a = ChannelRegistry::for($key, $t);
+        if ($a->supports(Capability::MARK_SEEN)) skip('adapter supports mark_seen');
+        $r = $a->markSeen($spec['recipient'], $spec['account']);
+        assert_false($r->ok, 'unsupported markSeen must not report ok');
+        assert_true($r->unsupported, 'must be flagged unsupported');
+        assert_false($r->retryable, 'unsupported is not retryable');
+        assert_count(0, $t->requests, 'no HTTP for unsupported markSeen');
+    });
+
+    t("$key: typingIndicator unsupported <=> no HTTP, unsupported result", function () use ($key, $spec) {
+        $t = new FakeTransport();
+        $a = ChannelRegistry::for($key, $t);
+        if ($a->supports(Capability::TYPING)) skip('adapter supports typing');
+        foreach (array(true, false) as $on) {
+            $r = $a->typingIndicator($spec['recipient'], $spec['account'], $on);
+            assert_false($r->ok, 'unsupported typingIndicator must not report ok');
+            assert_true($r->unsupported, 'must be flagged unsupported');
+            assert_false($r->retryable, 'unsupported is not retryable');
+        }
+        assert_count(0, $t->requests, 'no HTTP for unsupported typingIndicator');
+    });
+}
+
+t('fb/ig: markSeen sends sender_action=mark_seen to the Send API, same endpoint/options as sendText', function () {
+    $specs = adapter_specs();
+    foreach (array('fb', 'ig') as $key) {
+        $t = FakeTransport::replying(200, array('recipient_id' => $specs[$key]['recipient']));
+        $r = ChannelRegistry::for($key, $t)->markSeen($specs[$key]['recipient'], $specs[$key]['account']);
+        assert_true($r->ok, "$key: " . $r->error);
+        assert_false($r->unsupported, "$key");
+        $req = $t->only();
+        assert_same('POST', $req->method, "$key method");
+        assert_same('https://graph.facebook.com/v20.0/me/messages?access_token=' . urlencode('EAAG+tok/en=='), $req->url, "$key url");
+        assert_same(array('Content-Type: application/json'), $req->headers, "$key headers");
+        assert_same(json_encode(array('recipient' => array('id' => $specs[$key]['recipient']), 'sender_action' => 'mark_seen')), $req->body, "$key body");
+        assert_same(20, $req->timeout, "$key timeout");
+        assert_null($req->connect_timeout, "$key connect_timeout");
+        assert_true($req->verify_peer, "$key verify_peer");
+        assert_null($req->verify_host, "$key verify_host");
+    }
+});
+
+t('fb/ig: typingIndicator sends sender_action=typing_on / typing_off', function () {
+    $specs = adapter_specs();
+    foreach (array('fb', 'ig') as $key) {
+        $t = FakeTransport::replying(200, array('recipient_id' => $specs[$key]['recipient']));
+        $r = ChannelRegistry::for($key, $t)->typingIndicator($specs[$key]['recipient'], $specs[$key]['account'], true);
+        assert_true($r->ok, "$key on: " . $r->error);
+        assert_same(json_encode(array('recipient' => array('id' => $specs[$key]['recipient']), 'sender_action' => 'typing_on')), $t->only()->body, "$key typing_on body");
+
+        $t2 = FakeTransport::replying(200, array('recipient_id' => $specs[$key]['recipient']));
+        $r2 = ChannelRegistry::for($key, $t2)->typingIndicator($specs[$key]['recipient'], $specs[$key]['account'], false);
+        assert_true($r2->ok, "$key off: " . $r2->error);
+        assert_same(json_encode(array('recipient' => array('id' => $specs[$key]['recipient']), 'sender_action' => 'typing_off')), $t2->only()->body, "$key typing_off body");
+
+        // default $on is true
+        $t3 = FakeTransport::replying(200, array('recipient_id' => $specs[$key]['recipient']));
+        ChannelRegistry::for($key, $t3)->typingIndicator($specs[$key]['recipient'], $specs[$key]['account']);
+        assert_same(json_encode(array('recipient' => array('id' => $specs[$key]['recipient']), 'sender_action' => 'typing_on')), $t3->only()->body, "$key default on body");
+    }
+});
+
+t('fb/ig: markSeen / typingIndicator accept an OutboundMessage in place of a bare recipient', function () {
+    $specs = adapter_specs();
+    foreach (array('fb', 'ig') as $key) {
+        $msg = OutboundMessage::text($specs[$key]['recipient'], '', $specs[$key]['account']);
+
+        $t = FakeTransport::replying(200, array());
+        $r = ChannelRegistry::for($key, $t)->markSeen($msg);
+        assert_true($r->ok, "$key markSeen: " . $r->error);
+        assert_same(json_encode(array('recipient' => array('id' => $specs[$key]['recipient']), 'sender_action' => 'mark_seen')), $t->only()->body);
+
+        $t2 = FakeTransport::replying(200, array());
+        $r2 = ChannelRegistry::for($key, $t2)->typingIndicator($msg, array(), false);
+        assert_true($r2->ok, "$key typingIndicator: " . $r2->error);
+        assert_same(json_encode(array('recipient' => array('id' => $specs[$key]['recipient']), 'sender_action' => 'typing_off')), $t2->only()->body);
+    }
+});
+
+t('fb/ig: markSeen / typingIndicator without page_access_token -> no HTTP, not ok, not unsupported', function () {
+    $specs = adapter_specs();
+    foreach (array('fb', 'ig') as $key) {
+        $t = new FakeTransport();
+        $r = ChannelRegistry::for($key, $t)->markSeen($specs[$key]['recipient'], array());
+        assert_false($r->ok, "$key markSeen");
+        assert_false($r->retryable, "$key markSeen retryable");
+        assert_false($r->unsupported, "$key markSeen: a bad request is not 'unsupported'");
+
+        $r2 = ChannelRegistry::for($key, $t)->typingIndicator($specs[$key]['recipient'], array());
+        assert_false($r2->ok, "$key typingIndicator");
+        assert_false($r2->unsupported, "$key typingIndicator: a bad request is not 'unsupported'");
+        assert_count(0, $t->requests, "$key: no HTTP without credentials");
+    }
+});
+
+t('fb/ig: markSeen / typingIndicator with empty recipient -> no HTTP, not ok', function () {
+    $specs = adapter_specs();
+    foreach (array('fb', 'ig') as $key) {
+        $t = new FakeTransport();
+        $r = ChannelRegistry::for($key, $t)->markSeen('', $specs[$key]['account']);
+        assert_false($r->ok, "$key");
+        assert_false($r->unsupported, "$key");
+        assert_count(0, $t->requests, "$key");
+    }
+});
+
+t('fb/ig: markSeen channel rejection -> ok=false, retryable per legacy rules', function () {
+    $specs = adapter_specs();
+    foreach (array('fb', 'ig') as $key) {
+        list($status, $body, , $retry) = $specs[$key]['channel_error'];
+        $r = ChannelRegistry::for($key, FakeTransport::replying($status, $body))->markSeen($specs[$key]['recipient'], $specs[$key]['account']);
+        assert_false($r->ok, "$key");
+        assert_false($r->unsupported, "$key");
+        assert_same($retry, $r->retryable, "$key");
+    }
+});
+
+t('wa_cloud: markSeen posts mark-as-read with the message id from the OutboundMessage, same endpoint/options as sendText', function () {
+    $specs = adapter_specs();
+    $t = FakeTransport::replying(200, array('success' => true));
+    $msg = OutboundMessage::text($specs['wa_cloud']['recipient'], '', $specs['wa_cloud']['account'])
+        ->withMetadata(array('message_id' => 'wamid.INBOUND1'));
+    $r = ChannelRegistry::for('wa_cloud', $t)->markSeen($msg);
+    assert_true($r->ok, (string) $r->error);
+    assert_false($r->unsupported);
+    $req = $t->only();
+    assert_same('POST', $req->method);
+    assert_same('https://graph.facebook.com/v21.0/106540352242922/messages', $req->url);
+    assert_same(array('Content-Type: application/json', 'Authorization: Bearer EAAW-cloud-token'), $req->headers);
+    assert_same(json_encode(array('messaging_product' => 'whatsapp', 'status' => 'read', 'message_id' => 'wamid.INBOUND1')), $req->body);
+    assert_same(30, $req->timeout);
+    assert_null($req->connect_timeout);
+    assert_true($req->verify_peer);
+    assert_same(2, $req->verify_host);
+});
+
+t('wa_cloud: markSeen without a message id -> no HTTP, not ok, not unsupported (capability is declared)', function () {
+    $specs = adapter_specs();
+    $t = new FakeTransport();
+    $r = ChannelRegistry::for('wa_cloud', $t)->markSeen($specs['wa_cloud']['recipient'], $specs['wa_cloud']['account']);
+    assert_false($r->ok);
+    assert_false($r->unsupported, 'missing message id is a bad request, not "unsupported"');
+    assert_false($r->retryable);
+    assert_count(0, $t->requests, 'no HTTP without a message id');
+
+    $t2 = new FakeTransport();
+    $msg = OutboundMessage::text($specs['wa_cloud']['recipient'], '', $specs['wa_cloud']['account']); // no metadata
+    $r2 = ChannelRegistry::for('wa_cloud', $t2)->markSeen($msg);
+    assert_false($r2->ok);
+    assert_count(0, $t2->requests);
+});
+
+t('wa_cloud: markSeen without credentials -> no HTTP', function () {
+    $specs = adapter_specs();
+    $t = new FakeTransport();
+    $msg = OutboundMessage::text($specs['wa_cloud']['recipient'], '', array())->withMetadata(array('message_id' => 'wamid.X'));
+    $r = ChannelRegistry::for('wa_cloud', $t)->markSeen($msg);
+    assert_false($r->ok);
+    assert_count(0, $t->requests);
+
+    $t2 = new FakeTransport();
+    $r2 = ChannelRegistry::for('wa_cloud', $t2)->markSeen('201001234567', array('access_token' => 'tok')); // phone_number_id missing
+    assert_false($r2->ok);
+    assert_count(0, $t2->requests);
+});
+
+t('wa_cloud: markSeen channel rejection / transport failure -> ok=false, not unsupported', function () {
+    $specs = adapter_specs();
+    $msg = OutboundMessage::text($specs['wa_cloud']['recipient'], '', $specs['wa_cloud']['account'])->withMetadata(array('message_id' => 'wamid.X'));
+
+    $r = ChannelRegistry::for('wa_cloud', FakeTransport::failing())->markSeen($msg);
+    assert_false($r->ok);
+    assert_true($r->retryable);
+    assert_false($r->unsupported);
+
+    list($status, $body) = $specs['wa_cloud']['rate_error'];
+    $r2 = ChannelRegistry::for('wa_cloud', FakeTransport::replying($status, $body))->markSeen($msg);
+    assert_false($r2->ok);
+    assert_true($r2->retryable);
+});
+
+t('wa_cloud: typingIndicator stays unsupported (only mark-as-read was added)', function () {
+    $t = new FakeTransport();
+    $r = ChannelRegistry::for('wa_cloud', $t)->typingIndicator('201001234567', array('access_token' => 'x', 'phone_number_id' => 'y'));
+    assert_true($r->unsupported);
+    assert_false($r->ok);
+    assert_count(0, $t->requests);
+});
+
+t('markSeen / typingIndicator declared <=> covered by capabilities() and supports()', function () {
+    foreach (array('fb' => true, 'ig' => true, 'wa_cloud' => 'mark_seen_only', 'wa_openwa' => false, 'tg' => false, 'web' => false, 'tiktok' => false) as $key => $expect) {
+        $a = ChannelRegistry::for($key, new FakeTransport());
+        if ($expect === true) {
+            assert_true($a->supports(Capability::MARK_SEEN), "$key mark_seen");
+            assert_true($a->supports(Capability::TYPING), "$key typing");
+        } elseif ($expect === 'mark_seen_only') {
+            assert_true($a->supports(Capability::MARK_SEEN), "$key mark_seen");
+            assert_false($a->supports(Capability::TYPING), "$key typing");
+        } else {
+            assert_false($a->supports(Capability::MARK_SEEN), "$key mark_seen");
+            assert_false($a->supports(Capability::TYPING), "$key typing");
+        }
+    }
+});
