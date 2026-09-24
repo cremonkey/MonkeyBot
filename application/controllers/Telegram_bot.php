@@ -61,6 +61,7 @@ class Telegram_bot extends Home
 
     public function webhook($account_id=0)
     {
+        $this->load->helper('request_id'); request_id_set(); // Task 13: one request id for this webhook->AI->send chain
         $this->output->set_content_type('application/json');
         try {
             $acc = $this->basic->get_data('telegram_accounts', ['where'=>['id'=>(int)$account_id, 'status'=>'1']]);

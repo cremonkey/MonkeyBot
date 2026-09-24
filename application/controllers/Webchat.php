@@ -193,6 +193,7 @@ JS;
     // ---- Public: receive a visitor message ----
     public function send()
     {
+        $this->load->helper('request_id'); request_id_set(); // Task 13: one request id for this webhook->AI->send chain
         $this->output->set_content_type('application/json');
         $key = $this->input->post('widget_key', true);
         $s = $this->settings_by_key($key);

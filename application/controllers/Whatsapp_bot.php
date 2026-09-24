@@ -66,6 +66,7 @@ class Whatsapp_bot extends Home
 
     public function webhook($account_id=0)
     {
+        $this->load->helper('request_id'); request_id_set(); // Task 13: one request id for this webhook->AI->send chain
         $acc = $this->basic->get_data('whatsapp_accounts', ['where'=>['id'=>(int)$account_id, 'status'=>'1']]);
         // GET: Meta verification handshake
         if ($this->input->method() === 'get') {

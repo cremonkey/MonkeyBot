@@ -393,6 +393,7 @@ class Openwa_bot extends Messenger_bot
      */
     public function webhook($account_id = 0)
     {
+        $this->load->helper('request_id'); request_id_set(); // Task 13: one request id for this webhook->AI->send chain
         $this->output->set_content_type('application/json');
         $raw = file_get_contents('php://input');
         try {
