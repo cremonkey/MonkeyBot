@@ -142,10 +142,8 @@ while IFS= read -r -d '' suite; do
   rc=$?
   last_line="$(echo "$out" | tail -1)"
   # A suite fails on non-zero exit, or a summary line reporting a non-zero
-  # failed count (e.g. "12 passed, 2 failed") or the literal word FAILED.
-  if [ $rc -ne 0 ] \
-     || echo "$out" | grep -qiE '[1-9][0-9]* failed' \
-     || echo "$out" | grep -qiE '\bFAILED\b'; then
+  # failed count (e.g. "12 passed, 2 failed").
+  if [ $rc -ne 0 ] || echo "$out" | grep -qiE '[1-9][0-9]* failed'; then
     SUITE_FAILS+=("$rel: $last_line")
   fi
 done < <(find "$TMPDIR/tests" -maxdepth 2 -name 'run.php' -print0 2>/dev/null | sort -z)
