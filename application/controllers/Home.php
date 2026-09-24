@@ -4522,6 +4522,7 @@ class Home extends CI_Controller
     /******88*WEBHOOK,COMMON BOT ADDON FUNCTIONS,PUBLIC CURL CALLS, CRON SUB FUNCTIONS**88******/
     public function central_webhook_callback()
     {
+        $this->load->helper('request_id'); request_id_set(); // Task 13: one request id for this webhook->AI->send chain
         $url = "";
         $challenge = $this->input->get_post('hub_challenge');
         $verify_token = $this->input->get_post('hub_verify_token');

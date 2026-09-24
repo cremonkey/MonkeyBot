@@ -109,7 +109,15 @@ if (!function_exists('mb_internal_headers')) {
     /** Headers an internal forwarder adds to a response_raw POST. */
     function mb_internal_headers($response_raw)
     {
-        return array('X-MB-Internal: ' . mb_internal_sign($response_raw));
+        $headers = array('X-MB-Internal: ' . mb_internal_sign($response_raw));
+        // Task 13 (brief 39/51): carry the webhook's request id along so the internal handler
+        // reuses it (request_id_set()) instead of minting a new one. Does not touch the HMAC
+        // signing above; this is a separate, unsigned header purely for correlation.
+        if (function_exists('request_id_get')) {
+            $rid = request_id_get();
+            if ($rid !== null && $rid !== '') $headers[] = 'X-MB-Request-Id: ' . $rid;
+        }
+        return $headers;
     }
 }
 
@@ -118,6 +126,13 @@ if (!function_exists('mb_internal_gate')) {
     function mb_internal_gate($response_raw)
     {
         $mode = webhook_sec_mode('internal_webhook_mode');
+        // Task 13: read the forwarded request id, if any, before (and regardless of) the HMAC
+        // check below, so downstream work in this internal request reuses the caller's id. Does
+        // not change the HMAC signing/verification logic itself.
+        if (function_exists('request_id_set')) {
+            $forwarded = isset($_SERVER['HTTP_X_MB_REQUEST_ID']) ? (string) $_SERVER['HTTP_X_MB_REQUEST_ID'] : null;
+            if ($forwarded !== null && $forwarded !== '') request_id_set($forwarded);
+        }
         if ($mode === 'off') return true;
         $given = isset($_SERVER['HTTP_X_MB_INTERNAL']) ? (string) $_SERVER['HTTP_X_MB_INTERNAL'] : '';
         if ($given === '') $status = 'missing';

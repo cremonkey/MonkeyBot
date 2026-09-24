@@ -9839,6 +9839,8 @@ class Messenger_bot extends Home
         $this->basic->insert_data("messenger_bot_saved_templates",array("template_name"=>$template_name,"savedata"=>$savedata,"saved_at"=>date("Y-m-d H:i:s"),"user_id"=>$this->user_id,"template_access"=>$template_access,"description"=>$template_description,"preview_image"=>$template_preview_image,"allowed_package_ids"=>implode(',', $allowed_package_ids),"media_type"=>$media_type));
         $insert_id=$this->db->insert_id();
 
+        $this->load->helper('audit'); audit_record($this->user_id, 'export.bot', 'messenger_bot_saved_template', $insert_id, null, array('media_type'=>$media_type));
+
         $message="<div class='alert alert-info text-center'><i class='fa fa-check-circle'></i> ".$this->lang->line("Bot template has been saved to database successfully.")."</div><br><a class='btn-block btn btn-outline-info'  href='".base_url('messenger_bot/saved_templates/').$media_type."'><i class='fa fa-save'></i> ".$this->lang->line("My Saved Templates")."</a><a target='_BLANK' class='btn-block btn btn-outline-primary' href='".base_url('messenger_bot/export_bot_download/').$insert_id."'><i class='fa fa-file-download'></i> ".$this->lang->line("Download Template")."</a>";
         echo json_encode(array('status'=>'1','message'=>$message));
     }

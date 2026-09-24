@@ -168,7 +168,7 @@ class Sequences extends Home
             ));
         }
 
-        log_message('error', 'audit: sequence ' . $id . ' saved (' . $status . ') by user ' . $this->session->userdata('user_id'));
+        $this->load->helper('audit'); audit_record($this->uid, 'sequence.saved', 'sequence', $id, null, array('status'=>$status));
         $ws = $this->workers_status();
         echo json_encode(array(
             'status' => '1', 'id' => $id, 'message' => 'Sequence saved.',
@@ -198,7 +198,7 @@ class Sequences extends Home
 
         $this->db->where('id', $id)->where('user_id', $this->uid)
             ->update('sequences', array('status' => $status, 'updated_at' => date('Y-m-d H:i:s')));
-        log_message('error', 'audit: sequence ' . $id . ' set to ' . $status . ' by user ' . $this->session->userdata('user_id'));
+        $this->load->helper('audit'); audit_record($this->uid, $status === 'active' ? 'sequence.published' : 'sequence.disabled', 'sequence', $id, array('status'=>$seq['status']), array('status'=>$status));
         $ws = $this->workers_status();
         echo json_encode(array(
             'status' => '1', 'new_status' => $status,

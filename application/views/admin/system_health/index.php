@@ -62,6 +62,28 @@ $healthy = $cron_age !== null && $cron_age <= 900;
     </div>
 
     <div class="card">
+      <div class="card-header"><h4>Failures (24h)</h4></div>
+      <div class="card-body p-0">
+        <?php if (empty($failures_24h)): ?>
+        <p class="text-muted mb-0 p-3">No failure sources available on this database yet.</p>
+        <?php else: ?>
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Source</th><th>Count</th><th></th></tr></thead>
+          <tbody>
+          <?php foreach ($failures_24h as $panel): ?>
+            <tr>
+              <td><?php echo htmlspecialchars($panel['label']); ?></td>
+              <td><span class="badge <?php echo $panel['count'] > 0 ? 'badge-danger' : 'badge-success'; ?>"><?php echo (int) $panel['count']; ?></span></td>
+              <td><?php if (!empty($panel['link'])): ?><a href="<?php echo base_url($panel['link']); ?>">Details</a><?php endif; ?></td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-header"><h4>Webhook authenticity</h4></div>
       <div class="card-body">
         <p class="mb-2">Counts since the check was added. Switch a check to <b>enforce</b> only when real traffic shows <b>valid</b> and no unexplained <b>invalid</b>/<b>missing</b>.</p>

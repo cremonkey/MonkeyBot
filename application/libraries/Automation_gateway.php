@@ -145,12 +145,21 @@ class Automation_gateway
     public function action_log($run_id, $index, $type, $status, $error, $retry_count)
     {
         try {
-            $this->CI->db->insert('automation_action_log', array(
+            $row = array(
                 'run_id' => (int) $run_id, 'action_index' => (int) $index,
                 'action_type' => mb_substr((string) $type, 0, 48), 'status' => mb_substr((string) $status, 0, 32),
                 'error' => $error === null ? null : mb_substr((string) $error, 0, 1000),
                 'retry_count' => (int) $retry_count, 'created_at' => date('Y-m-d H:i:s'),
-            ));
+            );
+            // Task 13: correlation id (2026-10-03d-request-ids.sql), cached in a static like
+            // Inbox.php's own field_exists caching, and omitted until the column exists so this
+            // keeps working, byte-identical to before, pre-migration.
+            static $has_request_id = null;
+            if ($has_request_id === null) $has_request_id = $this->CI->db->field_exists('request_id', 'automation_action_log');
+            if ($has_request_id && function_exists('request_id_get')) {
+                $row['request_id'] = request_id_get();
+            }
+            $this->CI->db->insert('automation_action_log', $row);
         } catch (Throwable $e) {
             $this->log('error', 'automation action_log: ' . $e->getMessage());
         }

@@ -75,6 +75,13 @@ if (!function_exists('event_emit')) {
             $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
             if ($json === false) $json = '{}';
 
+            // Task 13 (brief 39/51): default to the current webhook's request id when the
+            // caller didn't pass one explicitly, so events from one webhook->AI->send chain
+            // share a correlation_id without every call site having to know about it.
+            if ($correlation_id === null && function_exists('request_id_get')) {
+                $correlation_id = request_id_get();
+            }
+
             $CI->db->insert('events', array(
                 'user_id'        => $user_id,
                 'event_type'     => mb_substr($type, 0, 64),
