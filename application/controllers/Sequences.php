@@ -21,10 +21,16 @@ class Sequences extends Home
     {
         parent::__construct();
         if ($this->session->userdata('logged_in') != 1) redirect('home/login_page', 'location');
-        $this->load->helper(array('entitlement', 'sequence', 'event'));
+        $this->load->helper(array('entitlement', 'sequence', 'event', 'ops_health'));
         entitlement_require('sequences');
         $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
         $this->load->library('automation_engine');
+    }
+
+    /** Single source of truth for the "workers off" banner + JSON field (task 6 / brief §51). */
+    protected function workers_status()
+    {
+        return automation_workers_status($this->config->item('automation_engine_enabled') === true);
     }
 
     // ------------------------------------------------------------------ pages
@@ -44,6 +50,7 @@ class Sequences extends Home
 
         $data['sequences'] = $sequences;
         $data['engine_on'] = $this->config->item('automation_engine_enabled') === true;
+        $data['workers_status'] = $this->workers_status();
         $data['page_title'] = 'Sequences';
         $data['body'] = 'admin/sequences/index';
         $this->_viewcontroller($data);
@@ -162,7 +169,11 @@ class Sequences extends Home
         }
 
         log_message('error', 'audit: sequence ' . $id . ' saved (' . $status . ') by user ' . $this->session->userdata('user_id'));
-        echo json_encode(array('status' => '1', 'id' => $id, 'message' => 'Sequence saved.'), JSON_UNESCAPED_UNICODE);
+        $ws = $this->workers_status();
+        echo json_encode(array(
+            'status' => '1', 'id' => $id, 'message' => 'Sequence saved.',
+            'workers_paused' => $ws['workers_paused'],
+        ) + ($ws['workers_paused'] ? array('workers_message' => $ws['message_en']) : array()), JSON_UNESCAPED_UNICODE);
     }
 
     /** Activate / pause / draft. Does not touch already-running enrollments' current step. */
@@ -188,7 +199,11 @@ class Sequences extends Home
         $this->db->where('id', $id)->where('user_id', $this->uid)
             ->update('sequences', array('status' => $status, 'updated_at' => date('Y-m-d H:i:s')));
         log_message('error', 'audit: sequence ' . $id . ' set to ' . $status . ' by user ' . $this->session->userdata('user_id'));
-        echo json_encode(array('status' => '1', 'new_status' => $status));
+        $ws = $this->workers_status();
+        echo json_encode(array(
+            'status' => '1', 'new_status' => $status,
+            'workers_paused' => $ws['workers_paused'],
+        ) + ($ws['workers_paused'] ? array('workers_message' => $ws['message_en']) : array()));
     }
 
     public function delete_sequence()
@@ -238,7 +253,11 @@ class Sequences extends Home
         );
         if (!$ok) { echo json_encode(array('status' => '0', 'message' => $note ?: 'Could not enroll this customer.')); return; }
         log_message('error', 'audit: sequence ' . $id . ' manually enrolled subscriber ' . $subscriber_id . ' by user ' . $this->session->userdata('user_id'));
-        echo json_encode(array('status' => '1', 'enrollment_id' => $enrollment_id, 'note' => $note), JSON_UNESCAPED_UNICODE);
+        $ws = $this->workers_status();
+        echo json_encode(array(
+            'status' => '1', 'enrollment_id' => $enrollment_id, 'note' => $note,
+            'workers_paused' => $ws['workers_paused'],
+        ) + ($ws['workers_paused'] ? array('workers_message' => $ws['message_en']) : array()), JSON_UNESCAPED_UNICODE);
     }
 
     /**

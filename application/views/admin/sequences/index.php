@@ -12,11 +12,12 @@
       help message 10 minutes in, a reminder a few hours later, a follow-up task for your team
       the next day. Enroll someone by hand, or let an automation do it for you.</p>
 
-    <?php if (!$engine_on): ?>
+    <?php if (!empty($workers_status['workers_paused'])): ?>
       <div class="alert alert-warning">
-        <strong>Sequences are not switched on for this system yet.</strong>
-        You can build and test sequences now — steps will start firing as soon as your
-        administrator enables the automation engine (the same switch Automations uses).
+        <strong>Automations are paused on this server — nothing will be sent.</strong>
+        <span dir="rtl">الأتمتة متوقفة على السيرفر دلوقتي — مفيش هيتبعت.</span>
+        You can build and test sequences now — steps will start firing as soon as this is
+        switched back on (the same switch Automations uses).
       </div>
     <?php endif; ?>
 

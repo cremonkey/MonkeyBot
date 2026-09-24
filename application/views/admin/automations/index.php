@@ -12,10 +12,11 @@
       and then does the work for you — tag the customer, create a deal, tell your team, or reply.
       Nothing runs until you switch it on.</p>
 
-    <?php if (!$engine_on): ?>
+    <?php if (!empty($workers_status['workers_paused'])): ?>
       <div class="alert alert-warning">
-        <strong>Automations are not switched on for this system yet.</strong>
-        You can build and test rules now — they will start running as soon as your administrator enables them.
+        <strong>Automations are paused on this server — nothing will be sent.</strong>
+        <span dir="rtl">الأتمتة متوقفة على السيرفر دلوقتي — مفيش هيتبعت.</span>
+        You can build and test rules now — they will start running as soon as this is switched back on.
         Everything that happens in the meantime is still being recorded<?php if ($events_waiting > 0): ?>
           (<?php echo (int) $events_waiting; ?> waiting)<?php endif; ?>.
       </div>
