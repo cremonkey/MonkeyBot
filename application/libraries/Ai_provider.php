@@ -30,6 +30,12 @@ class Ai_provider
         $tools_context = isset($overrides['tools_context']) ? $overrides['tools_context'] : null;
         $tools_on = $tools_context !== null && isset($cfg['ai_tools_enabled']) && $cfg['ai_tools_enabled'] === '1';
 
+        // A3: carried through every log_usage() call below (including tool-loop rounds) via
+        // $cfg, so the cost log can attribute rows to the agent profile and conversation that
+        // produced them. Optional; both stay NULL when the caller doesn't resolve them.
+        $cfg['_ai_usage_agent_id'] = isset($overrides['agent_id']) ? $overrides['agent_id'] : null;
+        $cfg['_ai_usage_conversation_id'] = isset($overrides['conversation_id']) ? $overrides['conversation_id'] : null;
+
         if ($provider === 'anthropic') {
             $api_key = secret_decrypt(isset($cfg['anthropic_secret_key']) ? $cfg['anthropic_secret_key'] : '');
             if (empty($api_key)) return json_encode(array('error' => array('message' => 'Anthropic API key is not configured.')));
@@ -71,7 +77,9 @@ class Ai_provider
             if (isset($dec['usage']['prompt_tokens'])) { $in = (int) $dec['usage']['prompt_tokens']; $out = (int) ($dec['usage']['completion_tokens'] ?? 0); }
             elseif (isset($dec['usage']['input_tokens'])) { $in = (int) $dec['usage']['input_tokens']; $out = (int) ($dec['usage']['output_tokens'] ?? 0); }
             $CI->load->helper('ai_usage');
-            ai_usage_record((int) ($cfg['user_id'] ?? 0), $provider, $model, $purpose, $in, $out);
+            $agent_id = isset($cfg['_ai_usage_agent_id']) ? $cfg['_ai_usage_agent_id'] : null;
+            $conversation_id = isset($cfg['_ai_usage_conversation_id']) ? $cfg['_ai_usage_conversation_id'] : null;
+            ai_usage_record((int) ($cfg['user_id'] ?? 0), $provider, $model, $purpose, $in, $out, 0, $agent_id, $conversation_id);
         } catch (Exception $e) { /* ignore */ }
     }
 

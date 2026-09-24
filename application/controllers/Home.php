@@ -7398,7 +7398,17 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
             'description' => $description,
             'human' => $human,
             'system' => $system_prompt,
+            // A3: attribute the cost-log row to the resolved agent profile and conversation
+            // when we have them; NULL otherwise (ai_usage_record() and Ai_provider handle that).
+            'agent_id' => !empty($ai_profile['id']) ? $ai_profile['id'] : null,
         );
+        if (!empty($user_id) && !empty($subscribe_id)) {
+            $this->load->helper('conversation');
+            $conv_link = conversation_ai_history_link($user_id, $social_media, $page_id, $subscribe_id);
+            if (!empty($conv_link['conversation_id'])) {
+                $completion_overrides['conversation_id'] = $conv_link['conversation_id'];
+            }
+        }
         // Only force the OpenAI model here; for Anthropic let Ai_provider use anthropic_model.
         // Passing the OpenAI model field ($model) to Claude would send an invalid model name.
         if (($api_info[0]['ai_provider'] ?? 'openai') !== 'anthropic') {
