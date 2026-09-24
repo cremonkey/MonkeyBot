@@ -8,7 +8,11 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  | receives, never stores secrets.
  |
  | Table: ai_failure_log (migration 2026-10-02b-ai-failure-log.sql). Code works before the
- | migration runs: table_exists is checked (and cached) on every call.
+ | migration runs: table_exists() is checked fresh on every call, NOT cached in a static.
+ | Deliberate deviation from plan rule 4's usual "cache the result in a static": this only
+ | runs on the failure path (a handful of times per AI turn), not a hot per-page-load loop
+ | like Inbox.php, so a fresh check every time costs nothing and the table is picked up the
+ | moment the migration lands, with no worker restart needed.
  */
 
 if (!function_exists('ai_failure_scrub')) {
