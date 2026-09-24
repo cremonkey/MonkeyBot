@@ -31,6 +31,37 @@ $healthy = $cron_age !== null && $cron_age <= 900;
     </div>
 
     <div class="card">
+      <div class="card-header"><h4>Background jobs</h4></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Job</th><th>Last success</th><th>Last failure</th><th>Runs</th><th>Failures</th><th>Last result / error</th></tr></thead>
+          <tbody>
+          <?php foreach ($job_labels as $key => $label): $j = isset($jobs[$key]) ? $jobs[$key] : array(); ?>
+            <tr>
+              <td><?php echo htmlspecialchars($label); ?> <small class="text-muted">(<?php echo htmlspecialchars($key); ?>)</small></td>
+              <td><small><?php echo htmlspecialchars($j['last_success_at'] ?? 'never'); ?></small></td>
+              <td><small class="<?php echo empty($j['last_failure_at']) ? '' : 'text-danger'; ?>"><?php echo htmlspecialchars($j['last_failure_at'] ?? '—'); ?></small></td>
+              <td><?php echo (int) ($j['runs'] ?? 0); ?></td>
+              <td><?php echo (int) ($j['failures'] ?? 0);
+                if (!empty($j['consecutive_failures'])): ?> <span class="badge badge-danger"><?php echo (int) $j['consecutive_failures']; ?> in a row</span><?php endif; ?></td>
+              <td>
+                <?php $failed_last = !empty($j['last_error']) && ($j['last_failure_at'] ?? '') > ($j['last_success_at'] ?? ''); ?>
+                <?php if ($failed_last): ?>
+                  <small class="text-danger"><?php echo htmlspecialchars($j['last_error']); ?></small>
+                <?php elseif (isset($j['last_result'])): ?>
+                  <small><?php echo htmlspecialchars(is_scalar($j['last_result']) ? (string) $j['last_result'] : json_encode($j['last_result'], JSON_UNESCAPED_UNICODE)); ?></small>
+                <?php else: ?>
+                  <small class="text-muted">no runs yet</small>
+                <?php endif; ?>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-header"><h4>Webhook authenticity</h4></div>
       <div class="card-body">
         <p class="mb-2">Counts since the check was added. Switch a check to <b>enforce</b> only when real traffic shows <b>valid</b> and no unexplained <b>invalid</b>/<b>missing</b>.</p>

@@ -29,6 +29,15 @@ class System_health extends Home
         };
 
         $data['jobs'] = $jobs;
+        // 7.1 / Task 2: every scheduled job that records health, shown together so an admin
+        // can see all of them without knowing which controller writes which key.
+        $data['job_labels'] = array(
+            'cron_hub'             => 'Cron hub (follow-ups, digest, retention, ...)',
+            'tiktok_poll_comments' => 'TikTok comment polling',
+            'lead_score_decay'     => 'Lead score decay',
+            'automation_worker'    => 'Automation worker',
+            'sequence_worker'      => 'Sequence worker',
+        );
         $data['cron_age'] = ops_job_age_seconds('cron_hub');
         $data['webhooks'] = $wh;
         $data['switches'] = array(

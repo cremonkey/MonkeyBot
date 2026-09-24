@@ -21,30 +21,49 @@ class Tiktok_cron extends Home
         set_time_limit(0);
         $this->load->config('tiktok');
         $this->load->library('Tiktok_api');
-        $this->load->helper(array('ai_knowledge', 'my_helper'));
+        $this->load->helper(array('ai_knowledge', 'my_helper', 'ops_health'));
     }
+
+    /** Per-run counters for the current poll_comments() call (7.1 health counters). */
+    protected $_health_stats = array('processed' => 0, 'failed' => 0);
 
     /**
      * Entry point: poll comments for all active campaigns.
      */
     public function poll_comments()
     {
-        $campaigns = $this->basic->get_data('tiktok_campaigns', array(
-            'where' => array(
-                'campaign_type' => 'comment',
-                'status'        => 'active'
-            )
-        ));
+        $started = microtime(true);
+        $this->_health_stats = array('processed' => 0, 'failed' => 0);
 
-        if (empty($campaigns)) {
-            echo "No active comment campaigns.\n";
-            return;
-        }
+        try {
+            $campaigns = $this->basic->get_data('tiktok_campaigns', array(
+                'where' => array(
+                    'campaign_type' => 'comment',
+                    'status'        => 'active'
+                )
+            ));
 
-        foreach ($campaigns as $campaign) {
-            $this->_process_comment_campaign($campaign);
+            if (empty($campaigns)) {
+                echo "No active comment campaigns.\n";
+                ops_health_record('tiktok_poll_comments', true, microtime(true) - $started,
+                    'campaigns 0, processed ' . $this->_health_stats['processed'] . ', failed ' . $this->_health_stats['failed']);
+                return;
+            }
+
+            foreach ($campaigns as $campaign) {
+                $this->_process_comment_campaign($campaign);
+            }
+            $detail = 'campaigns ' . count($campaigns) . ', processed ' . $this->_health_stats['processed']
+                . ', failed ' . $this->_health_stats['failed'];
+            ops_health_record('tiktok_poll_comments', true, microtime(true) - $started, $detail);
+            echo "Comment polling completed.\n";
+        } catch (Throwable $e) {
+            log_message('error', 'tiktok poll_comments: ' . $e->getMessage());
+            $detail = get_class($e) . ': ' . $e->getMessage() . ' (processed ' . $this->_health_stats['processed']
+                . ', failed ' . $this->_health_stats['failed'] . ')';
+            ops_health_record('tiktok_poll_comments', false, microtime(true) - $started, $detail);
+            echo "Comment polling failed: " . $e->getMessage() . "\n";
         }
-        echo "Comment polling completed.\n";
     }
 
     /**
@@ -154,8 +173,10 @@ class Tiktok_cron extends Home
             $result = $this->tiktok_api->reply_to_comment($account['access_token'], $account['open_id'], $comment_id, $reply_text, $video_id);
             if ($result['status'] == '1') {
                 $this->_report($campaign, $comment_text, $reply_text, json_encode($result['data']), 'success', $comment_id);
+                $this->_health_stats['processed']++;
             } else {
                 $this->_report($campaign, $comment_text, $reply_text, $result['message'], 'failed', $comment_id);
+                $this->_health_stats['failed']++;
             }
 
             // Avoid hitting rate limits; sleep briefly between replies
