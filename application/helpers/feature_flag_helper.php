@@ -37,6 +37,19 @@ if (!function_exists('feature_flags_table_ready')) {
     }
 }
 
+if (!function_exists('feature_flags_read_cache')) {
+    /**
+     * The request-scoped read cache feature_enabled() uses, exposed by reference so
+     * feature_flag_set() can invalidate one entry after a write (read-after-write in the same
+     * request must see the new value, not a stale cached one).
+     */
+    function &feature_flags_read_cache()
+    {
+        static $cache = array();
+        return $cache;
+    }
+}
+
 if (!function_exists('feature_flag_truthy')) {
     /** TRUE/'1'/1 = on, exactly like the config-item convention already used everywhere. */
     function feature_flag_truthy($v)
@@ -57,7 +70,7 @@ if (!function_exists('feature_enabled')) {
      */
     function feature_enabled($db, $config, $flag, $uid)
     {
-        static $cache = array();
+        $cache = &feature_flags_read_cache();
         $flag = (string) $flag;
         $uid = (int) $uid;
         $cache_key = spl_object_hash($db) . '|' . $uid . '|' . $flag;
@@ -94,6 +107,12 @@ if (!function_exists('feature_flag_set')) {
         $uid = (int) $uid;
         $flag = (string) $flag;
 
+        // Invalidate feature_enabled()'s per-request read cache for this exact (db,uid,flag) so
+        // a read right after this write, in the same request, sees the new value rather than a
+        // stale cached one.
+        $cache = &feature_flags_read_cache();
+        unset($cache[spl_object_hash($db) . '|' . $uid . '|' . $flag]);
+
         if ($enabled === null) {
             $db->where('user_id', $uid)->where('flag', $flag)->delete('feature_flags');
             return true;
@@ -110,6 +129,31 @@ if (!function_exists('feature_flag_set')) {
             $db->insert('feature_flags', $data);
         }
         return true;
+    }
+}
+
+if (!function_exists('feature_on')) {
+    /**
+     * The function callers should use. A thin CI-friendly wrapper around feature_enabled() that
+     * supplies $this->db and $this->config via get_instance(), so ordinary call sites don't have
+     * to plumb them through:
+     *
+     *   if (feature_on('tiktok_dm_enabled', $user_id)) { ... }
+     *
+     * Never throws: if CI isn't bootstrapped (get_instance() unavailable/fails, e.g. a CLI
+     * script or a unit test with no CI instance), returns FALSE — the same "unset = OFF" safe
+     * default every flag in this codebase already has.
+     */
+    function feature_on($flag, $uid)
+    {
+        if (!function_exists('get_instance')) return false;
+        try {
+            $CI = get_instance();
+        } catch (Throwable $e) {
+            return false;
+        }
+        if (!isset($CI->db) || !isset($CI->config)) return false;
+        return feature_enabled($CI->db, $CI->config, $flag, $uid);
     }
 }
 

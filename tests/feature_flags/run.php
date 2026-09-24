@@ -10,7 +10,15 @@
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
 define('BASEPATH', 1);
-function get_instance() { throw new Exception('feature_flag_helper.php must not need a CI instance'); }
+// get_instance() normally throws — every helper function under test must work with no CI
+// instance at all. feature_on() is the one exception: it explicitly calls get_instance() to
+// find $this->db/$this->config, so tests for it set $GLOBALS['FAKE_CI'] first to get a fake
+// CI object back instead of the throw.
+function get_instance()
+{
+    if (isset($GLOBALS['FAKE_CI'])) return $GLOBALS['FAKE_CI'];
+    throw new Exception('feature_flag_helper.php must not need a CI instance');
+}
 
 require __DIR__ . '/../../application/helpers/feature_flag_helper.php';
 
@@ -185,6 +193,44 @@ check('grouped per user', $got, array(5 => array('a' => true, 'b' => false), 9 =
 
 $db16 = new FakeFlagsDB(); $db16->table_exists = false;
 check('feature_flags_all_by_user pre-migration -> empty array, not a crash', feature_flags_all_by_user($db16), array());
+
+echo "== read-after-write in the same request sees the new value, not a stale cache ==\n";
+$db17 = new FakeFlagsDB(); $cfg17 = new FakeConfig(); $cfg17->items['raw_flag'] = false;
+check('initial read: no override, config FALSE -> disabled', feature_enabled($db17, $cfg17, 'raw_flag', 42), false);
+feature_flag_set($db17, 42, 'raw_flag', true);
+check('read right after set(TRUE) -> enabled, not the stale FALSE cached earlier', feature_enabled($db17, $cfg17, 'raw_flag', 42), true);
+feature_flag_set($db17, 42, 'raw_flag', false);
+check('read right after set(FALSE) -> disabled again', feature_enabled($db17, $cfg17, 'raw_flag', 42), false);
+feature_flag_set($db17, 42, 'raw_flag', null);
+check('read right after clear() -> falls back to config (FALSE), not the stale override', feature_enabled($db17, $cfg17, 'raw_flag', 42), false);
+$db18 = new FakeFlagsDB(); $cfg18 = new FakeConfig(); $cfg18->items['other_flag'] = true;
+feature_enabled($db18, $cfg18, 'other_flag', 1); // cache it
+feature_flag_set($db18, 2, 'other_flag', true);  // unrelated uid — must not evict uid 1's entry
+$cache_ref = &feature_flags_read_cache();
+check('a write for one flag does not invalidate a different flag/uid cache entry',
+    array_key_exists(spl_object_hash($db18) . '|1|other_flag', $cache_ref), true);
+
+// ============================================================================================
+echo "== feature_on(): the CI-friendly wrapper callers should use ==\n";
+unset($GLOBALS['FAKE_CI']);
+check('feature_on() with no CI bootstrapped -> FALSE, never throws', feature_on('anything', 5), false);
+
+$fakeCI = new stdClass();
+$fakeCI->db = new FakeFlagsDB();
+$fakeCI->db->rows['5|new_ai_feature'] = 1;
+$fakeCI->config = new FakeConfig();
+$GLOBALS['FAKE_CI'] = $fakeCI;
+check('feature_on() with a fake CI instance reads the tenant override via get_instance()', feature_on('new_ai_feature', 5), true);
+check('feature_on() falls back to the fake CI config item when no override', feature_on('nope', 5), false);
+$fakeCI->config->items['nope2'] = true; // distinct flag name: 'nope' above is now cached FALSE
+check('feature_on() reads the fake CI config item TRUE', feature_on('nope2', 5), true);
+unset($GLOBALS['FAKE_CI']);
+
+$halfCI = new stdClass(); // missing ->config
+$halfCI->db = new FakeFlagsDB();
+$GLOBALS['FAKE_CI'] = $halfCI;
+check('feature_on() with a CI object missing ->config -> FALSE, never a fatal', feature_on('x', 5), false);
+unset($GLOBALS['FAKE_CI']);
 
 // ============================================================================================
 echo "== Agency_flags::toggle_flag() is admin-gated, CSRF-checked, and validates the client id ==\n";
