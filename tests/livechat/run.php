@@ -123,6 +123,76 @@ try { livechat_realtime_publish($fakeCi, 0, 'livechat_event', $msg); } catch (\T
 check('publish() with user_id 0 never throws', $threw3, false);
 
 // ============================================================================================
+echo "\n== publish: queue-and-flush timing (mirrors inbox_realtime_notify/flush) ==\n";
+
+// (No FakeCi needed here: livechat_realtime_ci_settings()'s per-process static cache is
+// already poisoned to NULL by the "Pusher unconfigured" tests above, so these queue/flush
+// timing tests exercise livechat_realtime_enqueue() directly with the already-computed pure
+// $S settings, which is exactly what livechat_realtime_publish() delegates to internally.)
+
+// Web request path ($sapi forced to a non-cli value, as tests/livechat/run.php itself always
+// runs under PHP_SAPI==='cli' and cannot flip the real constant): publish() must queue the
+// event and make NO transport call at the call site itself.
+$st = &livechat_realtime_queue();
+$st['queue'] = array(); $st['broken'] = false; $st['shutdown'] = false; $st['transport'] = null;
+$sent = array();
+$st['transport'] = function ($b) use (&$sent) { $sent[] = $b; };
+livechat_realtime_enqueue($S, 7, 'livechat_event', $msg, 'apache2handler');
+check('web path: publish() queues the event instead of sending it', count($st['queue']), 1);
+check('web path: publish() makes no transport/network call at the call site', count($sent), 0);
+check('web path: the queued item is the tenant\'s private channel, ids-only data', $st['queue'][0],
+    array('channel' => livechat_realtime_channel_name(7, $S['ns']), 'name' => 'livechat_event', 'data' => $msg));
+
+// Flushing (e.g. from the registered shutdown function) sends the queued batch and empties the queue.
+livechat_realtime_flush($S);
+check('flush sends the queued batch through the transport', count($sent), 1);
+check('flush empties the queue', $st['queue'], array());
+
+// A second publish() in the same (simulated) web request, after the first already registered
+// its shutdown flush, must still only queue — never send inline.
+$sent = array();
+$st['transport'] = function ($b) use (&$sent) { $sent[] = $b; };
+livechat_realtime_enqueue($S, 7, 'livechat_assigned_agent_event', $assigned, 'apache2handler');
+check('a second web-path publish() in the same request also only queues', count($st['queue']), 1);
+check('...and still makes no transport call at the call site', count($sent), 0);
+$st['queue'] = array(); $st['transport'] = null; $st['shutdown'] = false; $st['broken'] = false;
+
+// CLI path: publish() sends immediately (queue is emptied by the time publish() returns).
+$sentCli = array();
+$st['transport'] = function ($b) use (&$sentCli) { $sentCli[] = $b; };
+livechat_realtime_enqueue($S, 7, 'livechat_event', $msg, 'cli');
+check('CLI path: publish() sends immediately (transport called once)', count($sentCli), 1);
+check('CLI path: publish() leaves nothing queued afterwards', $st['queue'], array());
+check('CLI path: the sent batch is ids-only, matching the tenant channel', $sentCli[0][0],
+    array('channel' => livechat_realtime_channel_name(7, $S['ns']), 'name' => 'livechat_event', 'data' => $msg));
+$st['transport'] = null; $st['broken'] = false; $st['queue'] = array(); $st['shutdown'] = false;
+
+// A transport failure at flush time never reaches the caller, and stops further sends for the
+// rest of the (simulated) request — same containment as inbox_realtime_flush().
+$st['transport'] = function ($b) { throw new \RuntimeException('pusher timed out'); };
+$threwFlush = false;
+livechat_realtime_enqueue($S, 7, 'livechat_event', $msg, 'apache2handler');
+try { livechat_realtime_flush($S); } catch (\Throwable $e) { $threwFlush = true; }
+check('a transport failure at flush time never reaches the caller', $threwFlush, false);
+check('...and marks realtime broken for the rest of the request', $st['broken'], true);
+$calls = 0;
+$st['transport'] = function ($b) use (&$calls) { $calls++; };
+livechat_realtime_enqueue($S, 7, 'livechat_event', $msg, 'apache2handler');
+check('once broken, publish() no longer even queues (fails safe, stays quiet)', count($st['queue']), 0);
+livechat_realtime_flush($S);
+check('...so later flushes in the same broken request never call the transport again', $calls, 0);
+$st['broken'] = false; $st['transport'] = null; $st['queue'] = array(); $st['shutdown'] = false;
+
+// Matches inbox_realtime_flush(): the queue is drained (nothing left for a later flush to
+// re-send) but with $settings NULL nothing is ever sent over the network.
+check('flush with realtime off (settings NULL) drains the queue without sending anything', (function () use ($msg) {
+    $st = &livechat_realtime_queue();
+    $st['queue'] = array(array('channel' => 'x', 'name' => 'livechat_event', 'data' => $msg));
+    livechat_realtime_flush(null);
+    return $st['queue'];
+})(), array());
+
+// ============================================================================================
 echo "\n== wiring: Home.php publishes on the new private channel, not the old public trigger() ==\n";
 
 $home = file_get_contents(__DIR__ . '/../../application/controllers/Home.php');
