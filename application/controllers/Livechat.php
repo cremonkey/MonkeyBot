@@ -304,6 +304,7 @@ class livechat extends Home
         $this->db->select('*');
         $this->db->from('livechat_messages');
         $this->db->where('subscriber_id ', $from_user_id);
+        $this->db->where('user_id', $this->user_id); // tenant filter: subscriber_id alone is not enough (cross-tenant leak, task 15)
 
         if (!empty($last_message_id)) {
             $this->db->where('id >', $last_message_id);
@@ -320,7 +321,7 @@ class livechat extends Home
             exit();
         }
 
-        $this->basic->update_data('messenger_bot_subscriber',array("subscribe_id"=>$from_user_id),array("unseen_count"=>'0'));
+        $this->basic->update_data('messenger_bot_subscriber',array("subscribe_id"=>$from_user_id,"user_id"=>$this->user_id),array("unseen_count"=>'0'));
         $str = '';
         foreach($conversation as $key=>$value)
         {
