@@ -29,10 +29,12 @@
  * / any body-class dark toggle. None exists in this codebase today — see
  * task-1-report.md for the full search trail. No dark semantic block is
  * defined below; per the plan's instruction ("do not invent a new
- * dark-mode mechanism alongside an existing one"), inventing one was out of
- * scope for this task. This is flagged as a blocker for the plan's Global
- * Constraint 3 (dark mode) affecting Tasks 2-6, not something this task
- * should decide unilaterally.
+ * dark-mode mechanism alongside an existing one"), no dark-skin block is
+ * added here. Dark mode is out of scope for this plan by controller
+ * ruling (recorded in the SDD ledger): no dark-skin mechanism exists to
+ * extend, and building one is a new feature. A dark theme can be added
+ * later by redefining the semantic layer (section 2) under a single
+ * selector.
  */
 
 :root {
@@ -41,7 +43,7 @@
   /* ---------------------------------------------------------------- */
 
   /* Brand blue ramp (50 lightest -> 900 darkest), anchored on today's
-     effective primary #0D8BF1 at step 600 */
+     effective primary #0D8BF1 at step 500 */
   --mb-blue-50:  #eaf6fe;
   --mb-blue-100: #d2ecfd;
   --mb-blue-200: #a6d9fb;
@@ -64,6 +66,9 @@
   --mb-gray-700: #38434c;
   --mb-gray-800: #191d21; /* current .bg-dark / .text-dark, style.css */
   --mb-gray-900: #0e1012;
+
+  --mb-white:     #ffffff;
+  --mb-navy-900:  #064663; /* current body color, style.css line 1984 */
 
   /* Success ramp (anchored on current .bg-success/.text-success #63ed7a) */
   --mb-green-50:  #eafcf0;
@@ -129,10 +134,10 @@
 
   --color-primary:       var(--mb-blue-500);
   --color-primary-hover: var(--mb-blue-600);
-  --color-surface:       #ffffff;
+  --color-surface:       var(--mb-white);
   --color-surface-alt:   var(--mb-gray-100);
   --color-border:        var(--mb-gray-300);
-  --color-text:          #064663; /* current body color, style.css line 1984 */
+  --color-text:          var(--mb-navy-900);
   --color-text-muted:    var(--mb-gray-500);
   --color-danger:        var(--mb-red-500);
   --color-success:       var(--mb-green-500);
