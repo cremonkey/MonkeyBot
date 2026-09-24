@@ -597,6 +597,29 @@ class Inbox extends Home
             $this->load->library('Conversation_summarizer');
         }
 
+        // Remaining-work Task 11 (B3, brief §42): behind config flag 'jobs_enabled' (default
+        // OFF), regeneration moves to the async job queue instead of calling the summarizer
+        // inline in this request. Flag OFF (today's behaviour, byte-for-byte) falls through
+        // to the inline call below. With the flag on, a fixture is still honoured (tests never
+        // reach a real AI provider either way) by leaving Conversation_summarizer loaded with
+        // the fixture caller above — the job handler re-loads the library itself, so it always
+        // uses the real caller; this endpoint only enqueues.
+        if ($this->config->item('jobs_enabled') === true) {
+            $this->load->helper('job');
+            job_enqueue($this->uid, 'conversation_summary', array(
+                'conversation_id' => $conv['id'],
+                'user_id' => $this->uid,
+            ));
+            echo json_encode(array(
+                'status' => '1',
+                'summary' => isset($conv['last_summary']) ? $conv['last_summary'] : null,
+                'generated_at' => isset($conv['last_summary_at']) ? $conv['last_summary_at'] : null,
+                'cached' => true,
+                'queued' => true,
+            ));
+            return;
+        }
+
         $result = $this->conversation_summarizer->summarize($ai_cfg, $messages, $conv['id']);
         if (empty($result['ok'])) {
             echo json_encode(array('status' => '0', 'message' => $result['message']));

@@ -247,6 +247,37 @@ class Ai_knowledge_base extends Home
         $this->basic->insert_data('ai_knowledge_sources', $insert_data);
         $source_id = $this->db->insert_id();
 
+        // Remaining-work Task 11 (B3, brief §42): behind config flag 'jobs_enabled' (default
+        // OFF), chunking + embedding move to the async job queue instead of running inline in
+        // this request. Flag OFF (today's behaviour, byte-for-byte) falls through below.
+        $jobs_enabled = $this->config->item('jobs_enabled') === true;
+
+        if ($jobs_enabled) {
+            $this->db->trans_complete();
+
+            if ($this->db->trans_status() === false) {
+                $this->basic->delete_data('ai_knowledge_sources', array('id' => $source_id, 'user_id' => $this->user_id));
+                if ($file_path && file_exists($file_path)) {
+                    @unlink($file_path);
+                }
+                echo json_encode(array('status' => '0', 'message' => $this->lang->line('Database error. Please try again.')));
+                exit();
+            }
+
+            $this->load->helper('job');
+            job_enqueue($this->user_id, 'kb_chunk_embed', array(
+                'source_id' => $source_id,
+                'user_id' => $this->user_id,
+                'text' => $text,
+            ));
+
+            echo json_encode(array(
+                'status' => '1',
+                'message' => $this->lang->line('Knowledge source added successfully.') . ' ' . $this->lang->line('Processing in the background.')
+            ));
+            return;
+        }
+
         // SPEC-29: semantic chunking via the model (strips nav boilerplate, keeps topics
         // whole). Falls back to length-based chunking on any error, so upload never breaks.
         $chunks = function_exists('ai_chunk_text_ai') ? ai_chunk_text_ai($text, $this->user_id) : ai_chunk_text($text, 1000, 200);
