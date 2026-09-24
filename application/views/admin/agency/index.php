@@ -36,8 +36,13 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
           <thead><tr><th>Client</th><th>Package</th><th title="Days until package expiry">Renewal</th>
             <th title="Usage vs the package's monthly_limit for AI replies (module 340)">AI usage</th>
             <th>Channels</th><th title="Customer messages in the last 7 days">In (7d)</th><th title="Bot replies per customer message">Bot %</th>
-            <th>Last message</th><th>Leads</th><th>Won</th><th title="Waiting for a human">Waiting</th><th title="Unanswered questions">Missed</th>
-            <th title="Price-guard blocks, 7d">Guard</th><th>AI cost</th><th>Attention</th></tr></thead>
+            <th>Last message</th><th>Leads</th><th>Won</th>
+            <th title="conversations.handoff_state = WAITING_FOR_HUMAN, per client. Legacy bot-pause count shown in parentheses until D1 lands.">Waiting</th>
+            <th title="Unanswered questions">Missed</th>
+            <th title="Price-guard blocks, 7d">Guard</th>
+            <th title="8xCRM push queue (crm_external_log): pending / failed, and last failure time">CRM push</th>
+            <th title="Google Sheet sync (crm_sheet_config)">Sheets</th>
+            <th>AI cost</th><th>Attention</th></tr></thead>
           <tbody>
           <?php foreach ($rows as $r): ?>
             <tr>
@@ -65,9 +70,18 @@ $sched_ok = $cron_age !== null && $cron_age <= 900;
               <td><?php echo $ago($r['last_message']); ?></td>
               <td><?php echo $r['leads_30']; ?></td>
               <td><?php echo $r['won_30'] ? number_format($r['won_30']) : '—'; ?></td>
-              <td><?php echo $r['waiting'] ? '<span class="badge badge-danger">' . $r['waiting'] . '</span>' : '0'; ?></td>
+              <td><?php echo $r['waiting'] ? '<span class="badge badge-danger">' . $r['waiting'] . '</span>' : '0'; ?>
+                <?php if ($r['waiting_paused_legacy']): ?><small class="text-muted">(<?php echo $r['waiting_paused_legacy']; ?> paused)</small><?php endif; ?></td>
               <td><?php echo $r['missed']; ?></td>
               <td><?php echo $r['guard_7']; ?></td>
+              <td class="ag-col-nowrap">
+                <?php $ih = $r['integration_health']; ?>
+                <?php if ($ih['crm_failed']): ?><span class="badge badge-warning" title="last failure <?php echo htmlspecialchars($ih['crm_last_failure'] ?: '—'); ?>"><?php echo $ih['crm_failed']; ?> failed</span>
+                <?php elseif ($ih['crm_pending']): ?><span class="text-muted"><?php echo $ih['crm_pending']; ?> pending</span>
+                <?php else: ?><span class="text-muted">—</span><?php endif; ?></td>
+              <td class="ag-col-nowrap"><?php if ($ih['sheets_failing']): ?><span class="badge badge-warning" title="<?php echo htmlspecialchars($ih['sheets_last_error'] ?: ''); ?>">failing</span>
+                <?php elseif ($ih['sheets_last_synced_at']): ?><span class="text-success"><i class="fas fa-check"></i></span>
+                <?php else: ?><span class="text-muted">—</span><?php endif; ?></td>
               <td>$<?php echo number_format($r['ai_cost_30'], 2); ?></td>
               <td><?php foreach ($r['flags'] as $f): ?><span class="badge badge-<?php echo $f[0]; ?> mb-1"><?php echo htmlspecialchars($f[1]); ?></span> <?php endforeach; ?>
                 <?php if (!$r['flags']): ?><span class="text-success"><i class="fas fa-check"></i> OK</span><?php endif; ?></td>
