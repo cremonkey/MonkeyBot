@@ -189,9 +189,39 @@
   --badge-padding-y: var(--space-1);
   --badge-padding-x: var(--space-3);
 
+  --btn-font-weight: 600;
+  --btn-border-width: 1px;
+
+  --card-title-color: var(--color-text);
+  --card-border-width: 1px;
+
+  --badge-font-weight: 600;
+
+  --alert-radius: var(--radius-md);
+  --alert-padding-y: var(--space-3);
+  --alert-padding-x: var(--space-4);
+  --alert-border-width: 1px;
+
+  --form-radius: var(--radius-sm);
+  --form-border-width: 1px;
+  --form-border-color: var(--color-border);
+  --form-border-color-focus: var(--color-primary);
+  --form-label-color: var(--color-text-muted);
+  --form-label-weight: 600;
+
   --table-border: var(--color-border);
   --table-stripe-bg: var(--color-surface-alt);
   --table-cell-padding: var(--space-3);
+  --table-header-bg: var(--color-surface-alt);
+  --table-header-color: var(--color-text);
+  --table-radius: var(--radius-md);
+
+  /* Focus ring - shared by .btn, .form-control, .custom-select, nav links */
+  --focus-ring-color: var(--color-primary);
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-offset-tight: 1px;
+  --focus-ring: 0 0 0 var(--focus-ring-offset) var(--color-surface), 0 0 0 calc(var(--focus-ring-offset) + var(--focus-ring-width)) var(--focus-ring-color);
 
   /* Nav (sidebar / topbar / user menu) component tokens — Task 2 */
   --nav-bg: var(--color-surface);
