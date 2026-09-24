@@ -6,7 +6,8 @@
  *
  *   docker run --rm -v "$PWD":/app -w /app monkeybot-app-ojzrhf-app:latest php tests/agency/run.php
  *
- * A real-DB check ("numbers match direct SQL") is docker/scripts/staging_agency_tests.sh.
+ * The "numbers match direct SQL" acceptance check (brief A5) is covered by these unit tests
+ * only — no docker/scripts/staging_agency_tests.sh exists; see task-5-report.md for why.
  */
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 

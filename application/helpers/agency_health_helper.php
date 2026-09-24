@@ -61,6 +61,8 @@ if (!function_exists('agency_health_crm_push_by_user')) {
      */
     function agency_health_crm_push_by_user($db)
     {
+        // 'processing' rows are a row mid-flight in Cron_hub's push (claimed but not yet
+        // marked sent/failed) — transient by design, so intentionally not counted here.
         if (!agency_health_table_ready($db, 'crm_external_log', array('user_id', 'status', 'created_at'))) return array();
         $out = array();
         $get = function ($u) use (&$out) {
