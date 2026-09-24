@@ -142,6 +142,12 @@ class Agency extends Home
         $this->load->helper('industry_template');
         $data['templates'] = industry_templates_all();
 
+        // Task 10 / brief B2, §50 — per-tenant feature flag overrides. Read-only here (the
+        // one write action is Agency_flags::toggle_flag()); empty before the migration runs.
+        $this->load->helper('feature_flag');
+        $data['known_flags'] = feature_flags_known();
+        $data['flags_by_user'] = feature_flags_all_by_user($this->db);
+
         $data['days'] = $days;
         $data['page_title'] = 'Agency Control Center';
         $data['body'] = 'admin/agency/index';
