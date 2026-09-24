@@ -18,6 +18,44 @@ the owner merges and deploys them following this runbook.
 | Nightly backups run from `/root/backups/monkeybot-nightly` (cron on the host, `/usr/local/bin/monkeybot-backup.sh` via `/etc/cron.d/monkeybot-ops`), independent of any git worktree. | A backup exists from the previous night regardless of this deploy. Still take a fresh one for tables you're about to touch — see step 2 below. |
 | `/health` reports a version and is polled by an on-host 5-minute watcher. | Use it as the go/no-go signal after every deploy. |
 
+## Pre-deploy check script
+
+Before merging a branch into `release/9.x-integration` (or before it goes from there into
+production), run `docker/scripts/predeploy_check.sh` against it. It never touches production, never
+merges or deploys anything, and only reads the target ref through a temporary git worktree that it
+removes on exit.
+
+```sh
+docker/scripts/predeploy_check.sh <ref> [<base>] [--db]
+```
+
+- `<ref>` — the branch/tag/commit to check (required).
+- `<base>` — what to diff against for "what changed". Defaults to
+  `chore/commit-live-work-20260922` (the production branch) if it exists locally, else
+  `release/9.x-integration`.
+- `--db` — opt-in only. Also applies any new migration files twice against a throwaway MariaDB
+  container to check they're idempotent. **Off by default**: this host runs other clients' live
+  containers and memory is shared, so the flag gates a `free -g` check requiring ≥ 3 GB available
+  before it starts a DB container. Run it deliberately, not as part of routine checks, when memory
+  allows.
+
+It checks, and prints a pass/fail table for:
+
+1. `php -l` on every PHP file changed vs `<base>`.
+2. All dependency-free unit suites (`tests/run.php` + `tests/*/run.php`, skipping
+   `tests/conversations`) via the `monkeybot-app-ojzrhf-app:latest` image.
+3. New migration files (added vs `<base>`) follow the safety conventions: start with `DO 0;`, no
+   `;` at the end of a `--` comment line (the runner splits on `;` + newline), `CREATE`/`ALTER ...
+   ADD` use `IF NOT EXISTS`, no `DROP`/`TRUNCATE`/`DELETE FROM`/`MODIFY`.
+4. No file was added under `application/config/` (that path is a Docker volume in production; new
+   files there would never reach it — see the table above).
+5. No file's CRLF/LF line-ending regime changed vs `<base>` (many legacy files are CRLF; see the
+   "Current reality" table).
+6. (`--db` only) new migrations apply cleanly twice on a throwaway DB.
+
+Exit code is non-zero if any check fails. Use it before step 4 below, and again on the merged
+result before promoting to production.
+
 ## Deploy procedure
 
 This assumes code has already been reviewed and merged into `release/9.x-integration` in a worktree
