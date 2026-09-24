@@ -67,6 +67,13 @@ if (!function_exists('ai_failure_record')) {
                 'http_status'   => isset($fields['http_status']) && $fields['http_status'] !== null ? (int) $fields['http_status'] : null,
                 'created_at'    => date('Y-m-d H:i:s'),
             );
+            // Task 13: correlation id (2026-10-03d-request-ids.sql). Fresh field_exists() check
+            // each time, matching this file's own deviation from the usual static cache (see
+            // header comment): failures are rare, so this costs nothing and self-heals the
+            // moment the migration lands.
+            if ($CI->db->field_exists('request_id', 'ai_failure_log') && function_exists('request_id_get')) {
+                $row['request_id'] = request_id_get();
+            }
             $CI->db->insert('ai_failure_log', $row);
             $id = (int) $CI->db->insert_id();
 
