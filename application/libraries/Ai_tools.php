@@ -164,8 +164,26 @@ class Ai_tools
             }
         } catch (Exception $e) {
             log_message('error', 'Ai_tools '.$name.' failed: '.$e->getMessage());
+            $this->record_tool_failure($name, $args, $context, get_class($e), $e->getMessage());
             return 'The action could not be completed right now.';
         }
+    }
+
+    // Task 4 — file tool exceptions to ai_failure_log (kind=tool). Never disrupts the
+    // model/customer: the caller above already has its safe fallback string.
+    protected function record_tool_failure($name, $args, $context, $error_class, $message)
+    {
+        try {
+            $this->CI->load->helper('ai_failure');
+            $user_id = (int) (is_array($context) && isset($context['user_id']) ? $context['user_id'] : 0);
+            if ($user_id <= 0) return;
+            ai_failure_record($user_id, 'tool', array(
+                'tool_name'     => $name,
+                'args_hash'     => ai_failure_args_hash($args),
+                'error_class'   => $error_class,
+                'error_message' => $message,
+            ));
+        } catch (Throwable $e) { /* a failure record must never cost the caller its own work */ }
     }
 
     protected function t_search_products($user_id, $args)
