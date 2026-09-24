@@ -30,8 +30,8 @@
         <?php else: ?>
         <table class="table table-striped mb-0">
           <thead><tr>
-            <th>Name</th><th>Starts when</th><th style="width:90px">Steps</th>
-            <th style="width:260px">Who is in it</th><th style="width:110px">Status</th><th style="width:260px"></th>
+            <th>Name</th><th>Starts when</th><th class="sq-col-w90">Steps</th>
+            <th class="sq-col-w260">Who is in it</th><th class="sq-col-w110">Status</th><th class="sq-col-w260"></th>
           </tr></thead>
           <tbody>
           <?php foreach ($sequences as $s): ?>

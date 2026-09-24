@@ -12,8 +12,8 @@
       <div class="card-body">
         <h6>Enroll a customer by hand</h6>
         <div class="form-inline">
-          <input id="sq_search" class="form-control mr-2" style="min-width:260px" placeholder="Search by name, phone or id">
-          <select id="sq_pick" class="form-control mr-2" style="min-width:260px"><option value="">Search above, then pick&hellip;</option></select>
+          <input id="sq_search" class="form-control mr-2 sq-search-input" placeholder="Search by name, phone or id">
+          <select id="sq_pick" class="form-control mr-2 sq-search-input"><option value="">Search above, then pick&hellip;</option></select>
           <button type="button" class="btn btn-primary" id="sq_enroll_btn">Enroll</button>
         </div>
         <div id="sq_enroll_msg" class="mt-2"></div>
@@ -40,7 +40,7 @@
       <div class="card-body">
         <h6 class="mb-2">Step outcomes</h6>
         <?php foreach ($skip_labels as $k => $l): if (empty($step_log_tally[$k])) continue; ?>
-          <span class="badge badge-<?php echo $l['class']; ?> mr-2 mb-1" style="font-size:.9em">
+          <span class="badge badge-<?php echo $l['class']; ?> mr-2 mb-1 sq-skip-badge">
             <?php echo (int) $step_log_tally[$k]; ?> skipped: <?php echo htmlspecialchars($l['label']); ?>
           </span>
         <?php endforeach; ?>
@@ -61,8 +61,8 @@
         <table class="table table-striped mb-0">
           <thead><tr>
             <th>Customer</th><?php if (!$sequence): ?><th>Sequence</th><?php endif; ?>
-            <th>Channel</th><th style="width:90px">Step</th><th style="width:110px">Status</th>
-            <th style="width:170px">Next step due</th><th>Notes</th>
+            <th>Channel</th><th class="sq-col-w90">Step</th><th class="sq-col-w110">Status</th>
+            <th class="sq-col-w170">Next step due</th><th>Notes</th>
           </tr></thead>
           <tbody>
           <?php foreach ($enrollments as $e): ?>
