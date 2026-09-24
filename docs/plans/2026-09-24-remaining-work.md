@@ -166,50 +166,50 @@ Types: `feat`, `fix`, `test`, `docs`, `chore`. Small logical commits. Do not pus
 Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live customer conversations.
 
 ### Phase A — Quick, low-risk fixes
-- [ ] **A1** Livechat Pusher channels → private per-tenant, ids only (§13 security) — S, med — deps: none
-- [ ] **A2** Health records for TikTok poll + lead decay; job counters (§7, §39) — S, low
-- [ ] **A3** `agent_id` + `conversation_id` on AI cost log (§30) — S, low
-- [ ] **A4** Record AI provider failures + tool failures (§20, §51) — S, low
-- [ ] **A5** Agency Control Center: real "waiting" + integration health (§31) — S, low — deps: none
-- [ ] **A6** Sequences/automations show "worker not running" instead of silently queueing (§51) — S, low
-- [ ] **A7** `markSeen()` / `typingIndicator()` on the adapter interface (§10) — S, low
-- [ ] **A8** Docs: legacy register (§35), ADR-005 framework decision draft (§36), deployment runbook refresh (§8) — S, none
+- [ ] **Task 1 (A1)** Livechat Pusher channels → private per-tenant, ids only (§13 security) — S, med — deps: none
+- [ ] **Task 2 (A2)** Health records for TikTok poll + lead decay; job counters (§7, §39) — S, low
+- [ ] **Task 3 (A3)** `agent_id` + `conversation_id` on AI cost log (§30) — S, low
+- [ ] **Task 4 (A4)** Record AI provider failures + tool failures (§20, §51) — S, low
+- [ ] **Task 5 (A5)** Agency Control Center: real "waiting" + integration health (§31) — S, low — deps: none
+- [ ] **Task 6 (A6)** Sequences/automations show "worker not running" instead of silently queueing (§51) — S, low
+- [ ] **Task 7 (A7)** `markSeen()` / `typingIndicator()` on the adapter interface (§10) — S, low
+- [ ] **Task 8 (A8)** Docs: legacy register (§35), ADR-005 framework decision draft (§36), deployment runbook refresh (§8) — S, none
 
 ### Phase B — Foundations
-- [ ] **B1** General audit log (§40) — M, low
-- [ ] **B2** Per-tenant feature flags (§50) — S/M, low
-- [ ] **B3** Generic job queue + worker; move KB embedding and summaries onto it (§42) — M, low/med
-- [ ] **B4** Pre-deploy check script (§8, §43) — S/M, none
-- [ ] **B5** Correlation id webhook → AI → send; failure counters on System Health (§39, §51) — M, med — deps: A4
-- [ ] **B6** Offline adversarial AI-safety suite (§45) — M, none
-- [ ] **B7** Cross-tenant tests for CRM, analytics, uploads (§38) — M, none
+- [ ] **Task 9 (B1)** General audit log (§40) — M, low
+- [ ] **Task 10 (B2)** Per-tenant feature flags (§50) — S/M, low
+- [ ] **Task 11 (B3)** Generic job queue + worker; move KB embedding and summaries onto it (§42) — M, low/med
+- [ ] **Task 12 (B4)** Pre-deploy check script (§8, §43) — S/M, none
+- [ ] **Task 13 (B5)** Correlation id webhook → AI → send; failure counters on System Health (§39, §51) — M, med — deps: A4
+- [ ] **Task 14 (B6)** Offline adversarial AI-safety suite (§45) — M, none
+- [ ] **Task 15 (B7)** Cross-tenant tests for CRM, analytics, uploads (§38) — M, none
 
 ### Phase C — Product features
-- [ ] **C1** Customer 360 page + Inbox profile panel (read side) (§16, §13) — L, low
-- [ ] **C2** Teams + team inbox (§13) — M, low — deps: B1
-- [ ] **C3** Conversational CRM upgrades (§27) — M, low — deps: C1 helpful
-- [ ] **C4** Knowledge system: update/version, re-index from UI, agent scope, citations (§19) — M, low — deps: B3
-- [ ] **C5** AI Improvement Center new signals (§20) — M, low — deps: A4
-- [ ] **C6** Business-first analytics KPIs + daily aggregates + insight sentences (§29, §41) — L, low — deps: B3
-- [ ] **C7** ⚠ REVIEW GATE — Admin navigation regroup (§34) — M, low (touches every tenant's menu)
-- [ ] **C8** Industry templates: sequences, automations, media, appointments (§33) — M, low
-- [ ] **C9** Emit the missing events + new automation triggers/actions (§22, §23) — M/L, med — deps: B3
-- [ ] **C10** CRM connector interface + unified outbox view (§28) — M, med
-- [ ] **C11** ⚠ REVIEW GATE — Pricing extensions: seasons, weekday/weekend, min stay, packages, quantity discounts, coupons (§21) — L, med
-- [ ] **C12** ⚠ REVIEW GATE — AI Employee Builder: structured fields, per-tool toggles, deterministic restrictions, booking tool (§17) — L, med
-- [ ] **C13** API v2, read-only first (§37) — L, low — deps: C1, B2
-- [ ] **C14** ⚠ REVIEW GATE — Customer merge + verified identity linking (§16) — M, med — deps: C1, B1
+- [ ] **Task 16 (C1)** Customer 360 page + Inbox profile panel (read side) (§16, §13) — L, low
+- [ ] **Task 17 (C2)** Teams + team inbox (§13) — M, low — deps: B1
+- [ ] **Task 18 (C3)** Conversational CRM upgrades (§27) — M, low — deps: C1 helpful
+- [ ] **Task 19 (C4)** Knowledge system: update/version, re-index from UI, agent scope, citations (§19) — M, low — deps: B3
+- [ ] **Task 20 (C5)** AI Improvement Center new signals (§20) — M, low — deps: A4
+- [ ] **Task 21 (C6)** Business-first analytics KPIs + daily aggregates + insight sentences (§29, §41) — L, low — deps: B3
+- [ ] **Task 22 (C7)** ⚠ REVIEW GATE — Admin navigation regroup (§34) — M, low (touches every tenant's menu)
+- [ ] **Task 23 (C8)** Industry templates: sequences, automations, media, appointments (§33) — M, low
+- [ ] **Task 24 (C9)** Emit the missing events + new automation triggers/actions (§22, §23) — M/L, med — deps: B3
+- [ ] **Task 25 (C10)** CRM connector interface + unified outbox view (§28) — M, med
+- [ ] **Task 26 (C11)** ⚠ REVIEW GATE — Pricing extensions: seasons, weekday/weekend, min stay, packages, quantity discounts, coupons (§21) — L, med
+- [ ] **Task 27 (C12)** ⚠ REVIEW GATE — AI Employee Builder: structured fields, per-tool toggles, deterministic restrictions, booking tool (§17) — L, med
+- [ ] **Task 28 (C13)** API v2, read-only first (§37) — L, low — deps: C1, B2
+- [ ] **Task 29 (C14)** ⚠ REVIEW GATE — Customer merge + verified identity linking (§16) — M, med — deps: C1, B1
 
 ### Phase D — Core behaviour changes (all ⚠ REVIEW GATE, build flag-off only)
-- [ ] **D1** Handoff paths through the state machine; bot gates read `conversation_is_bot_allowed` (§14) — M, high
-- [ ] **D2** Automation modes replace staff hours + tenant timezone (§15) — L, high — deps: D1
-- [ ] **D3** Legacy senders through the channel policy engine (§26) — M, high
-- [ ] **D4** Inbound webhooks through `normalizeInbound()`, one channel at a time (§10, §11, §44) — L, high
-- [ ] **D5** AI Orchestrator extraction with shadow compare (§18) — L, high — deps: A4, B5
-- [ ] **D6** Follow-ups / re-engage as sequence templates (§25) — L, high — deps: D3
-- [ ] **D7** Conversation core additions: `sender_type`, `ai_generated`, tiktok platform, OpenWA vs WA Cloud split (§12) — M, med/high
-- [ ] **D8** S-14 charset conversion — migration prepared and rehearsed on a restored backup only (§51) — M, high
-- [ ] **D9** Legacy `cron_job/*` jobs: readiness report + per-job enable plan (§7) — M, high
+- [ ] **Task 30 (D1)** Handoff paths through the state machine; bot gates read `conversation_is_bot_allowed` (§14) — M, high
+- [ ] **Task 31 (D2)** Automation modes replace staff hours + tenant timezone (§15) — L, high — deps: D1
+- [ ] **Task 32 (D3)** Legacy senders through the channel policy engine (§26) — M, high
+- [ ] **Task 33 (D4)** Inbound webhooks through `normalizeInbound()`, one channel at a time (§10, §11, §44) — L, high
+- [ ] **Task 34 (D5)** AI Orchestrator extraction with shadow compare (§18) — L, high — deps: A4, B5
+- [ ] **Task 35 (D6)** Follow-ups / re-engage as sequence templates (§25) — L, high — deps: D3
+- [ ] **Task 36 (D7)** Conversation core additions: `sender_type`, `ai_generated`, tiktok platform, OpenWA vs WA Cloud split (§12) — M, med/high
+- [ ] **Task 37 (D8)** S-14 charset conversion — migration prepared and rehearsed on a restored backup only (§51) — M, high
+- [ ] **Task 38 (D9)** Legacy `cron_job/*` jobs: readiness report + per-job enable plan (§7) — M, high
 
 ### OWNER / OPS (not for coding agents)
 - [ ] Run `cron_hub migrate` on production for `2026-10-01-inbound-media.sql` (inbound media stays off until then).
@@ -228,7 +228,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 
 ## 5. Task cards
 
-### A1 — Livechat Pusher channels: private, per tenant, ids only
+### Task 1 (A1) — Livechat Pusher channels: private, per tenant, ids only
 - **Why:** `Home.php` publishes on `livechat_channel` (~line 7974) and `livechat_assigned_agent_channel`
   (~line 375). Both are public and install-wide, and events include message content: any tenant's
   browser could receive another tenant's messages once Pusher is configured. Today Pusher is empty in
@@ -247,7 +247,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   publish, no JS errors.
 - **Files:** `Home.php` (2 publish sites only), `Livechat.php` (CRLF!), Livechat view JS, `inbox_realtime_helper.php`.
 
-### A2 — Health records + job counters
+### Task 2 (A2) — Health records + job counters
 - **Do:** Call `ops_health_record()` at the end of `Tiktok_cron::poll_comments` and
   `Cron_job::lead_score_decay` (success and failure). Add per-run counters (items processed,
   failed) to the record payload for `cron_hub run`, `automation_worker`, `sequence_worker`. Show them on
@@ -255,7 +255,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - **Accept:** System Health lists all five jobs with last success, last failure and counts. Unit test
   for the counter shape.
 
-### A3 — AI cost log gets `agent_id` and `conversation_id`
+### Task 3 (A3) — AI cost log gets `agent_id` and `conversation_id`
 - **Do:** Migration adding nullable `agent_id INT UNSIGNED`, `conversation_id BIGINT UNSIGNED` + index
   `(user_id, conversation_id)` to `ai_usage_log`. Extend `ai_usage_record()` with optional args (keep
   the old signature working). Pass them from `Ai_provider` (profile id from `ai_resolve_profile`,
@@ -263,7 +263,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - **Accept:** Rows written by a reply carry both ids when resolvable; NULL otherwise; code works
   before the migration (field_exists guard). Analytics hub can later sum cost per conversation.
 
-### A4 — Record AI provider and tool failures
+### Task 4 (A4) — Record AI provider and tool failures
 - **Do:** `Ai_provider` has a catch-all that swallows errors. Record each failure (tenant, provider,
   model, purpose, error class/message truncated, http status) into a new table `ai_failure_log`
   (migration) and emit `ai.failed` via `event_emit` when the events table exists. In
@@ -272,7 +272,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - **Accept:** Fake-provider unit tests: provider error → one row + event; tool exception → one row;
   reply path unchanged.
 
-### A5 — Agency Control Center accuracy
+### Task 5 (A5) — Agency Control Center accuracy
 - **Do:** In `Agency::index`, "waiting" = count of `conversations` with
   `handoff_state='WAITING_FOR_HUMAN'` (keep the old `bot_paused_until` number as a second column until
   D1 lands). Add per-client integration health: last `crm_external_log` failure / pending count,
@@ -280,14 +280,14 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   platform where sender='user'), expired page tokens if a column records them.
 - **Accept:** Admin-only; numbers match direct SQL in a stack test.
 
-### A6 — No silent queueing when workers are off
+### Task 6 (A6) — No silent queueing when workers are off
 - **Do:** When `automation_engine_enabled` is not TRUE, or the worker's last `ops_health` success is
   older than 10 minutes, show a clear banner on the Automations and Sequences pages ("Automations are
   paused on this server — nothing will be sent"), and make enroll/publish endpoints return that
   message in their JSON. Do not block saving drafts.
 - **Accept:** Stack test with flag off shows the banner and the enroll response carries it.
 
-### A7 — Adapter interface completeness
+### Task 7 (A7) — Adapter interface completeness
 - **Do:** Add `markSeen(OutboundMessage|string $recipient, array $account)` and
   `typingIndicator(...)` to `ChannelAdapterInterface` with default "unsupported" results in
   `AbstractChannelAdapter`; implement for fb/ig (Send API `sender_action`) and WA Cloud (mark as read)
@@ -295,7 +295,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - **Accept:** Contract tests in `tests/channels/AdapterContractTest.php` with the fake transport;
   existing contract tests unchanged.
 
-### A8 — Docs
+### Task 8 (A8) — Docs
 - `docs/architecture/legacy-register.md`: every legacy module (controllers/modules list) classified
   KEEP / MODERNISE / REPLACE / DEPRECATE / REMOVE with one-line reason (§35). No code changes.
 - `docs/architecture/adr/ADR-005-framework-direction.md`: status **Proposed**, options, trade-offs,
@@ -305,7 +305,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   the local `config.php` diff, migrations first when code needs them, `/health` version check,
   rollback = previous commit). Mark it as owner-run.
 
-### B1 — General audit log (§40)
+### Task 9 (B1) — General audit log (§40)
 - **Do:** Migration: `audit_log(id, user_id, actor_id, actor_type ENUM('user','team_member','admin','system','ai'), action VARCHAR(64), entity_type VARCHAR(40), entity_id VARCHAR(64), before_json MEDIUMTEXT NULL, after_json MEDIUMTEXT NULL, ip VARCHAR(45), created_at)` + indexes `(user_id, created_at)`, `(entity_type, entity_id)`.
   `audit_helper.php` with `audit_record($action, $entity_type, $entity_id, $before = null, $after = null)`
   (never throws, strips secrets: any key matching `/token|secret|password|key/i` is replaced with `***`).
@@ -317,13 +317,13 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - **Accept:** Static wiring test (every listed call site has `audit_record(`); secret-stripping test;
   cross-tenant test on the list endpoint.
 
-### B2 — Per-tenant feature flags (§50)
+### Task 10 (B2) — Per-tenant feature flags (§50)
 - **Do:** Migration `feature_flags(user_id INT, flag VARCHAR(64), enabled TINYINT, updated_at, PRIMARY KEY(user_id, flag))`.
   `feature_flag_helper.php`: `feature_enabled($flag, $uid)` = tenant row if present, else global config
   item, else FALSE. Admin UI (Agency Control Center tab) to toggle per client. Seed nothing.
 - **Accept:** Unit tests for precedence. Existing global flags keep working unchanged.
 
-### B3 — Job queue (§42)
+### Task 11 (B3) — Job queue (§42)
 - **Do:** Migration `jobs(id, user_id, type, payload_json, status ENUM('queued','running','done','failed','dead'), attempts, max_attempts, run_after, locked_at, locked_by, last_error, created_at, updated_at)`.
   `job_helper.php` (`job_enqueue`, `job_claim` with `SELECT ... FOR UPDATE SKIP LOCKED` or an atomic
   UPDATE claim), `controllers/Job_worker.php` CLI (`is_cli()` gate, `GET_LOCK`, batch, exponential
@@ -333,13 +333,13 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - Add the cron line to `docker/cron/monkeybot` (host install is an OWNER step).
 - **Accept:** Unit tests for claim/retry/dead-letter; stack test enqueues and processes a KB source.
 
-### B4 — Pre-deploy check script (§8, §43)
+### Task 12 (B4) — Pre-deploy check script (§8, §43)
 - **Do:** `docker/scripts/predeploy_check.sh <ref>`: creates a temp worktree at `<ref>`, runs `php -l`
   on changed PHP files, all unit suites, the migration files' idempotency check (run twice on a
   throwaway DB), prints a pass/fail summary, cleans up. No deploy steps.
 - **Accept:** Runs green on current integration; fails if a suite fails (prove with a temp broken commit, then drop it).
 
-### B5 — Correlation id + failure dashboard (§39, §51)
+### Task 13 (B5) — Correlation id + failure dashboard (§39, §51)
 - **Do:** Generate a request id at each webhook entry (`Home::central_webhook_callback`, `Openwa_bot`,
   `Whatsapp_bot`, `Telegram_bot`, `Webchat`), store in a CI global (`$CI->mb_request_id`), forward it
   in `mb_internal_headers` for internal forwards, and write it into `events.correlation_id`,
@@ -349,7 +349,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   link to details.
 - **Accept:** Stack test: one web-chat message produces rows sharing one request id.
 
-### B6 — Offline adversarial AI-safety suite (§45)
+### Task 14 (B6) — Offline adversarial AI-safety suite (§45)
 - **Do:** `tests/ai_safety/adversarial.php` using the fake provider: prompt-injection in the customer
   message, "ignore your rules", attempts to change system rules, malicious URL request, asking for
   another client's data, fake availability claims, malformed tool output, price below list. Assert
@@ -358,12 +358,12 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - **Accept:** Suite green; each case documents which layer blocks it. Cases that no layer blocks are
   reported as findings, not "fixed" with prompt text.
 
-### B7 — Cross-tenant tests (§38)
+### Task 15 (B7) — Cross-tenant tests (§38)
 - **Do:** Staging-style HTTP suite: tenant A tries every `Crm::deal_*` endpoint, `Analytics_hub`
   endpoints and direct `upload/...` paths of tenant B. Fix any leak found (minimal, separate commit).
 - **Accept:** Suite green; list of endpoints covered in the report.
 
-### C1 — Customer 360 (read side) + Inbox profile panel (§16, §13)
+### Task 16 (C1) — Customer 360 (read side) + Inbox profile panel (§16, §13)
 - **Do:** `controllers/Customers.php` (module: new id 413 "Customers", migration for `modules` row +
   package grant like `2026-09-26-sequences.sql`). List (search, channel filter, paginated) and profile page:
   identities per channel, conversations (with state), CRM deals (via `subscriber_id` today), labels,
@@ -373,13 +373,13 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   one new endpoint `Inbox::customer_panel`.
 - **Accept:** Stack test with seeded data across 2 channels for one customer; cross-tenant test.
 
-### C2 — Teams + team inbox (§13)
+### Task 17 (C2) — Teams + team inbox (§13)
 - **Do:** Migration `teams(id, user_id, name, created_at)`, `team_memberships(team_id, team_member_id)`,
   nullable `conversations.assigned_team_id`. Inbox: assign to team, filter "My team", round-robin
   optional (off). Audit via B1.
 - **Accept:** Stack tests for assign/filter and cross-tenant.
 
-### C3 — Conversational CRM (§27)
+### Task 18 (C3) — Conversational CRM (§27)
 - **Do:** Migration on `crm_deals`: nullable `customer_id`, `conversation_id`, `intent VARCHAR(40)`,
   `next_action VARCHAR(255)`, `next_action_at DATETIME`. Fill on create where resolvable. Stage editor
   UI in `Crm` (add/rename/reorder/delete-empty). New pipelines (not existing ones) seed
@@ -387,21 +387,21 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   (score threshold config) that emits `lead.qualified` once.
 - **Accept:** Existing pipelines untouched (test); stage editor tenant-scoped.
 
-### C4 — Knowledge system (§19)
+### Task 19 (C4) — Knowledge system (§19)
 - **Do:** Migration on `ai_knowledge_sources`: `version INT DEFAULT 1`, `content_hash CHAR(40)`,
   nullable `agent_id`. `update_source_action` (new content → version+1, re-chunk via B3 job),
   `reindex_action` button, optional agent scope used by `ai_get_knowledge_context` (NULL = all agents).
   Log the chunk/source ids used into `ai_reply_audit` (new nullable column) for citations.
 - **Accept:** Unit tests for versioning and scope; reply path unchanged when no agent scope set.
 
-### C5 — AI Improvement Center signals (§20)
+### Task 20 (C5) — AI Improvement Center signals (§20)
 - **Do:** Add tabs/cards: tool failures (A4 table), repeated escalations (`conversation_events` to
   `WAITING_FOR_HUMAN` grouped by first customer message topic), human corrections (Inbox agent reply
   sent within N minutes after an AI reply in the same conversation), low-confidence (price guard
   'unknown' verdicts). Same grouping helper as today.
 - **Accept:** Stack test with seeded rows shows each card.
 
-### C6 — Analytics (§29, §41)
+### Task 21 (C6) — Analytics (§29, §41)
 - **Do:** Daily aggregate table `analytics_daily(user_id, day, channel, metric, value)` filled by a
   job (B3) or `cron_hub` step for the previous day + today incremental. KPIs: qualified leads,
   bookings, human takeover rate, AI resolution rate, avg resolution time, human first-response time,
@@ -410,7 +410,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   a price quote this week". Keep the current `Analytics_hub` numbers; move heavy queries to the aggregate.
 - **Accept:** Unit tests for each KPI formula on fixtures; page loads with aggregates only.
 
-### C7 — ⚠ Admin navigation regroup (§34)
+### Task 22 (C7) — ⚠ Admin navigation regroup (§34)
 - **Do:** Migration that updates only `serial`, `header_text`, `have_child`, parent links in `menu`
   to the brief's groups (Inbox / AI Sales / Automations / Customers / Insights / Settings) and moves
   legacy items under "Advanced / Legacy". Save the previous values in `menu_backup_20260924` (created by the
@@ -418,13 +418,13 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - **Gate:** screenshot/HTML of the sidebar before/after for admin and a member, attached to the
   report; owner approves before merge.
 
-### C8 — Industry templates (§33)
+### Task 23 (C8) — Industry templates (§33)
 - **Do:** Extend the template JSON schema (`application/data/industry_templates/*.json`) with optional
   `sequences`, `automation_rules`, `media` (placeholders), `appointments` settings. The Setup Guide
   offers them on a new optional step, created **disabled** so the owner switches them on.
 - **Accept:** Old templates still load; unit tests for the apply plan (like `industry_template_faq_plan`).
 
-### C9 — Events + automation triggers/actions (§22, §23)
+### Task 24 (C9) — Events + automation triggers/actions (§22, §23)
 - **Do:** Emit (guarded, never throws): `conversation.state_changed` in `conversation_transition`,
   `human.assigned` in `Inbox::assign`, `price.requested` in `Ai_tools::t_calculate_price`,
   `question.unanswered` where `ai_unanswered_questions` is inserted, `customer.created` in the
@@ -434,14 +434,14 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   `Automation_worker`; new actions assign_agent, update_field, notify_customer_email (reuse existing mailer).
 - **Accept:** Unit tests per emit (static wiring + payload shape); engine tests for new triggers/actions.
 
-### C10 — CRM connectors (§28)
+### Task 25 (C10) — CRM connectors (§28)
 - **Do:** `libraries/Crm_connectors/CrmConnectorInterface.php` (`pushLead`, `pushDealUpdate`,
   `testConnection`), adapters wrapping the existing 8xCRM (`external_crm_helper`) and Sheets
   (`crm_sheet_helper`) code without changing their behaviour; registry; one admin view listing
   outbox rows (both sources) with status and a retry button.
 - **Accept:** Existing 8xCRM/Sheets tests unchanged; retry endpoint tenant-scoped.
 
-### C11 — ⚠ Pricing extensions (§21)
+### Task 26 (C11) — ⚠ Pricing extensions (§21)
 - **Do:** Extend `pricing_config` JSON + `pricing_validate_config`: seasons (date ranges with price
   overrides), weekday/weekend rates, minimum stay, packages (bundle of items with a price), quantity
   discounts, coupons (code, %, fixed, validity). Calculators return an itemised breakdown that is
@@ -449,7 +449,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - **Gate:** existing configs must produce byte-identical results (golden tests on the current Byoot
   config `docs/byoot-pricing-config.json`). Owner reviews before merge.
 
-### C12 — ⚠ AI Employee Builder (§17)
+### Task 27 (C12) — ⚠ AI Employee Builder (§17)
 - **Do:** Migration adding structured columns to the agent profile table (role, goal, tone,
   capabilities_json, restrictions_json: max_discount, allowed_link_domains, forbidden_topics,
   escalation_rules). `Ai_agents` UI to edit them; per-tool enablement read by `Ai_tools` (a tool not
@@ -457,7 +457,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   discount ceiling, forbidden topic → handoff). New `t_create_booking` tool using the appointments module.
 - **Gate:** profiles with no structured fields behave exactly as today (test). Owner reviews.
 
-### C13 — API v2 read-only (§37)
+### Task 28 (C13) — API v2 read-only (§37)
 - **Do:** `controllers/api/v2/` with Conversations, Customers, Crm (deals), Analytics — GET only.
   Token auth: new `api_tokens(user_id, token_hash, name, scopes, last_used_at, revoked_at)` table,
   tokens shown once, stored hashed. Tenant scope from the token. JSON envelope, pagination, rate limit
@@ -465,13 +465,13 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   routes there; use the controller path `api/v2/...` that CI resolves without custom routes.
 - **Accept:** HTTP tests incl. cross-tenant and revoked token.
 
-### C14 — ⚠ Customer merge + verified identities (§16)
+### Task 29 (C14) — ⚠ Customer merge + verified identities (§16)
 - **Do:** `customer_merge($keep_id, $merge_id, $actor)` in a helper: moves identities and
   conversations, writes `customer_merge_log` and B1 audit, reversible (store the moved ids). Suggest
   merges when the same verified phone/email appears on two customers; never auto-merge.
 - **Gate:** owner reviews merge rules.
 
-### D1 — ⚠ Handoff through the state machine (§14)
+### Task 30 (D1) — ⚠ Handoff through the state machine (§14)
 - **Do:** `Ai_tools::t_handoff` and the Livechat pause toggle call `conversation_transition()` (which
   already mirrors `bot_paused_until`). Then, behind flag `bot_gate_uses_conversation_state` (OFF), make
   the bot gates in Messenger_bot / Instagram_reply / Openwa_bot / Whatsapp_bot / Telegram_bot / Webchat
@@ -479,7 +479,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - **Accept:** flag OFF: every gate decision identical to today (table-driven test over states and
   pause times). flag ON: WA Cloud / TG / Web can now be paused. Transition audit rows present.
 
-### D2 — ⚠ Automation modes (§15)
+### Task 31 (D2) — ⚠ Automation modes (§15)
 - **Do:** Modes: 24/7 AI, AI outside office hours, Human first + AI fallback after N minutes, AI first
   + human escalation, Manual only. Per tenant with per-channel override; tenant timezone (remove the
   hardcoded `Africa/Cairo` in `working_hours_helper.php:36` — default to Africa/Cairo only when the
@@ -488,14 +488,14 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   (B3). Behind flag `automation_modes_enabled` (OFF).
 - **Accept:** flag OFF identical; mapping tests; timezone tests incl. DST-free zones.
 
-### D3 — ⚠ Legacy senders through the policy engine (§26)
+### Task 32 (D3) — ⚠ Legacy senders through the policy engine (§26)
 - **Do:** `Cron_hub` follow-ups (~lines 408, 479), `reengage_helper`, `Livechat` sends,
   `Messenger_bot_broadcast`: ask `channel_policy_decide()` before sending, behind flag
   `legacy_senders_use_policy` (OFF). Move rate limits from `sequence_helper` into the policy helper
   (same numbers). Log would-block decisions while OFF (`policy: would block`).
 - **Accept:** OFF identical + would-block logging; ON blocks exactly what the policy says (tests).
 
-### D4 — ⚠ Inbound through adapters (§10, §11, §44)
+### Task 33 (D4) — ⚠ Inbound through adapters (§10, §11, §44)
 - **Do:** For one channel at a time (start with Webchat, then Telegram, WA Cloud, OpenWA, fb/ig),
   behind `inbound_adapter_<channel>` flags (OFF): parse with `normalizeInbound()`, then feed the same
   downstream code. Shadow mode first: when OFF, run `normalizeInbound()` in addition and log any
@@ -503,27 +503,27 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
   signature, unknown account, blocked user, opt-out, AI disabled, human takeover).
 - **Accept:** Shadow diff zero on the fixture corpus; OFF path unchanged.
 
-### D5 — ⚠ AI Orchestrator (§18)
+### Task 34 (D5) — ⚠ AI Orchestrator (§18)
 - **Do:** `libraries/Ai_orchestrator.php` with the brief's stages as separate methods, each unit
   testable. `Home::get_ai_reply_open_ai` delegates only when flag `new_ai_orchestrator` is ON. Shadow
   mode: with the flag OFF but `ai_orchestrator_shadow` ON, run the orchestrator's prompt assembly
   (no model call) and log differences in the assembled messages/tools vs legacy.
 - **Accept:** Shadow diff zero on recorded fixtures for every channel; flag OFF = legacy path untouched.
 
-### D6 — ⚠ Follow-ups and re-engage as sequences (§25)
+### Task 35 (D6) — ⚠ Follow-ups and re-engage as sequences (§25)
 - **Do:** Adapters so Sales_automation follow-ups and Reengage campaigns can be represented as
   sequence templates; a migration tool that converts a tenant's settings into a disabled sequence for
   review. Auto-enroll on events (C9). Nothing switches over automatically.
 - **Accept:** Converted sequences reproduce the legacy schedule on fixtures.
 
-### D7 — ⚠ Conversation core additions (§12)
+### Task 36 (D7) — ⚠ Conversation core additions (§12)
 - **Do:** `livechat_messages`: nullable `sender_type ENUM('customer','ai','human','system','automation')`,
   `ai_generated TINYINT` — filled by writers going forward (no backfill). `conversations`: platform
   value for tiktok, and a `channel_kind` column separating `wa_cloud` from `openwa` (the shared `wa`
   value collides). Hot table: `ADD COLUMN` must be instant (nullable, at end); measure on a restored backup.
 - **Accept:** Trigger still works; writers set the new columns; old readers unaffected.
 
-### D8 — ⚠ S-14 charset (prepare + rehearse only)
+### Task 37 (D8) — ⚠ S-14 charset (prepare + rehearse only)
 - **Findings so far (2026-09-23):** 105 tables are `utf8mb3_general_ci`, 29 `utf8mb4_general_ci`,
   57 `utf8mb4_unicode_ci`, plus some `latin1` columns. Switching only the connection to utf8mb4 makes
   queries with 4-byte characters against utf8mb3 columns fail ("Illegal mix of collations").
@@ -540,7 +540,7 @@ Legend — Size: S ≤ half day, M 1–2 days, L 3+ days. Risk = risk to live cu
 - **Accept:** Report with timing, collision check result, suite results. **Do not** apply anywhere
   else. The owner schedules production.
 
-### D9 — ⚠ Legacy cron jobs (§7)
+### Task 38 (D9) — ⚠ Legacy cron jobs (§7)
 - **Do:** For each unscheduled job (`subscriber_broadcaster`, `sequence_message_broadcast_hourly/daily`,
   `sms_sending_command`, `email_sending_command`, `publish_post`, `auto_like/share/comment`,
   `woo/ecommerce_abandoned_cart_reminder`, `membership_alert_delete_junk_data`,
