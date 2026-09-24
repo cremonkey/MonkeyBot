@@ -84,6 +84,8 @@ else
 <!-- Custom -->
 <link rel="stylesheet" href="<?php echo base_url(); ?>assets/css/custom.css">
 
+<link rel="stylesheet" href="<?php echo base_url(); ?>assets/css/design-tokens.css">
+
 <?php if($is_rtl) { ?>
 	<link rel="stylesheet" href="<?php echo base_url(); ?>assets/css/rtl.css">
 <?php } ?>

@@ -1,0 +1,196 @@
+/**
+ * Design tokens — MonkeyBot admin panel
+ *
+ * Three-layer architecture (primitive -> semantic -> component scaffolding).
+ * This file defines tokens only; it does not style anything by itself, so
+ * loading it changes no rendered pixel until later layers (design-system.css
+ * and view-level classes) consume these variables.
+ *
+ * Baseline values below were extracted from the theme as it exists today so
+ * this layer is a faithful restatement, not a redesign:
+ *   - Primary color: Bootstrap's --blue (#0D8BF1), the value in effect on
+ *     every .btn-primary / .bg-primary / .text-primary today
+ *     (assets/modules/bootstrap/css/bootstrap.min.css :root, consumed via
+ *     var(--blue) throughout assets/css/style.css, e.g. lines 66, 80, 104,
+ *     319, 377).
+ *   - Font stack: assets/css/style.css line 1983 (`body` rule).
+ *   - Border radius: assets/css/style.css uses 3px as the dominant base
+ *     radius on cards/inputs/buttons (e.g. lines 236, 302, 407, 433, 488,
+ *     606) and 30px/50px for pill-shaped controls (lines 331, 359, 641-690).
+ *   - Box shadow: assets/css/style.css uses 0 4px 8px rgba(0,0,0,.03) as the
+ *     dominant card shadow (lines 148, 604), 0 1px 2px rgba(0,0,0,.05) for a
+ *     lighter shadow (line 490), and 0 4px 15px rgba(0,0,0,.2) for a heavier
+ *     one (line 1003).
+ *
+ * Dark-skin toggle: NOT FOUND. Searched assets/js/*.js,
+ * application/views/admin/theme/*.php, application/views/include/*.php and
+ * assets/css/skins/ (which only holds an RTL "reverse.css", unrelated to
+ * dark mode) for skin-dark / data-theme / dark-mode / prefers-color-scheme
+ * / any body-class dark toggle. None exists in this codebase today — see
+ * task-1-report.md for the full search trail. No dark semantic block is
+ * defined below; per the plan's instruction ("do not invent a new
+ * dark-mode mechanism alongside an existing one"), inventing one was out of
+ * scope for this task. This is flagged as a blocker for the plan's Global
+ * Constraint 3 (dark mode) affecting Tasks 2-6, not something this task
+ * should decide unilaterally.
+ */
+
+:root {
+  /* ---------------------------------------------------------------- */
+  /* 1. Primitives — raw values, never used directly in components    */
+  /* ---------------------------------------------------------------- */
+
+  /* Brand blue ramp (50 lightest -> 900 darkest), anchored on today's
+     effective primary #0D8BF1 at step 600 */
+  --mb-blue-50:  #eaf6fe;
+  --mb-blue-100: #d2ecfd;
+  --mb-blue-200: #a6d9fb;
+  --mb-blue-300: #79c6f8;
+  --mb-blue-400: #3fadf4;
+  --mb-blue-500: #0d8bf1; /* today's --blue / current primary */
+  --mb-blue-600: #0b74c9;
+  --mb-blue-700: #095c9f;
+  --mb-blue-800: #074574;
+  --mb-blue-900: #052d4a;
+
+  /* Neutral gray ramp */
+  --mb-gray-50:  #f8f9fa;
+  --mb-gray-100: #f4f6f9; /* current body background, style.css line 1980 */
+  --mb-gray-200: #e3eaef; /* current .bg-light / .text-light, style.css */
+  --mb-gray-300: #cdd3d8; /* current .bg-secondary, style.css */
+  --mb-gray-400: #a9b4bd;
+  --mb-gray-500: #728394;
+  --mb-gray-600: #526170;
+  --mb-gray-700: #38434c;
+  --mb-gray-800: #191d21; /* current .bg-dark / .text-dark, style.css */
+  --mb-gray-900: #0e1012;
+
+  /* Success ramp (anchored on current .bg-success/.text-success #63ed7a) */
+  --mb-green-50:  #eafcf0;
+  --mb-green-300: #9ff5b8;
+  --mb-green-500: #63ed7a;
+  --mb-green-700: #1f9e3c;
+  --mb-green-900: #0f5220;
+
+  /* Warning ramp (anchored on current .bg-warning/.text-warning #ffa426) */
+  --mb-yellow-50:  #fff6e8;
+  --mb-yellow-300: #ffce8a;
+  --mb-yellow-500: #ffa426;
+  --mb-yellow-700: #b8730f;
+  --mb-yellow-900: #5c3a08;
+
+  /* Danger ramp (anchored on current .bg-danger/.text-danger #fc544b) */
+  --mb-red-50:  #ffeceb;
+  --mb-red-300: #fea19c;
+  --mb-red-500: #fc544b;
+  --mb-red-700: #c22a22;
+  --mb-red-900: #611511;
+
+  /* Info ramp (anchored on current .bg-info/.text-info #3abaf4) */
+  --mb-cyan-50:  #e9f7fe;
+  --mb-cyan-300: #93d8fa;
+  --mb-cyan-500: #3abaf4;
+  --mb-cyan-700: #1a86b8;
+  --mb-cyan-900: #0d435c;
+
+  /* Spacing scale, 4px base */
+  --mb-space-1: 4px;
+  --mb-space-2: 8px;
+  --mb-space-3: 12px;
+  --mb-space-4: 16px;
+  --mb-space-6: 24px;
+  --mb-space-8: 32px;
+  --mb-space-12: 48px;
+  --mb-space-16: 64px;
+
+  /* Radius scale */
+  --mb-radius-sm: 3px;   /* current dominant base radius, style.css e.g. line 236 */
+  --mb-radius-md: 6px;
+  --mb-radius-lg: 12px;
+  --mb-radius-full: 50px; /* current pill radius, style.css line 331/359 */
+
+  /* Shadow scale */
+  --mb-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);  /* style.css line 490 */
+  --mb-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.03);    /* style.css line 148/604 */
+  --mb-shadow-lg: 0 4px 15px rgba(0, 0, 0, 0.2);    /* style.css line 1003 */
+
+  /* Type scale */
+  --mb-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --mb-text-xs:   12px;
+  --mb-text-sm:   13px;
+  --mb-text-base: 14px; /* current body font-size, style.css line 1981 */
+  --mb-text-lg:   16px;
+  --mb-text-xl:   20px;
+  --mb-text-2xl:  24px;
+
+  /* ---------------------------------------------------------------- */
+  /* 2. Semantic — purpose, theme-switchable                          */
+  /* ---------------------------------------------------------------- */
+
+  --color-primary:       var(--mb-blue-500);
+  --color-primary-hover: var(--mb-blue-600);
+  --color-surface:       #ffffff;
+  --color-surface-alt:   var(--mb-gray-100);
+  --color-border:        var(--mb-gray-300);
+  --color-text:          #064663; /* current body color, style.css line 1984 */
+  --color-text-muted:    var(--mb-gray-500);
+  --color-danger:        var(--mb-red-500);
+  --color-success:       var(--mb-green-500);
+  --color-warning:       var(--mb-yellow-500);
+  --color-info:          var(--mb-cyan-500);
+
+  --space-1: var(--mb-space-1);
+  --space-2: var(--mb-space-2);
+  --space-3: var(--mb-space-3);
+  --space-4: var(--mb-space-4);
+  --space-6: var(--mb-space-6);
+  --space-8: var(--mb-space-8);
+  --space-12: var(--mb-space-12);
+  --space-16: var(--mb-space-16);
+
+  --radius-sm: var(--mb-radius-sm);
+  --radius-md: var(--mb-radius-md);
+  --radius-lg: var(--mb-radius-lg);
+  --radius-full: var(--mb-radius-full);
+
+  --shadow-sm: var(--mb-shadow-sm);
+  --shadow-md: var(--mb-shadow-md);
+  --shadow-lg: var(--mb-shadow-lg);
+
+  --font-sans: var(--mb-font-sans);
+  --text-xs: var(--mb-text-xs);
+  --text-sm: var(--mb-text-sm);
+  --text-base: var(--mb-text-base);
+  --text-lg: var(--mb-text-lg);
+  --text-xl: var(--mb-text-xl);
+  --text-2xl: var(--mb-text-2xl);
+
+  /* ---------------------------------------------------------------- */
+  /* 3. Component scaffolding — placeholders for Tasks 2-5             */
+  /* ---------------------------------------------------------------- */
+
+  --btn-radius: var(--radius-sm);
+  --btn-shadow: var(--shadow-sm);
+  --btn-padding-y: var(--space-2);
+  --btn-padding-x: var(--space-4);
+
+  --card-radius: var(--radius-md);
+  --card-shadow: var(--shadow-md);
+  --card-padding: var(--space-6);
+  --card-bg: var(--color-surface);
+  --card-border: var(--color-border);
+
+  --badge-radius: var(--radius-full);
+  --badge-padding-y: var(--space-1);
+  --badge-padding-x: var(--space-3);
+
+  --table-border: var(--color-border);
+  --table-stripe-bg: var(--color-surface-alt);
+  --table-cell-padding: var(--space-3);
+}
+
+/*
+ * Dark-skin semantic overrides go here once a dark-mode toggle mechanism
+ * exists in this codebase. None was found — see the note above the :root
+ * block and task-1-report.md. Do not add a selector here speculatively.
+ */
