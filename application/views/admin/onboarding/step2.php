@@ -21,19 +21,19 @@
                 $akey = ($c['kind'] === 'openwa' ? null : $c['channel'] . ':' . $c['target']);
                 $other = ($akey !== null && isset($assigned_to[$akey])) ? $assigned_to[$akey] : null; ?>
               <tr>
-                <td style="width:32px">
+                <td class="ob-col-check">
                   <input type="checkbox" class="ob-target" id="t_<?php echo md5($k); ?>" value="<?php echo htmlspecialchars($k); ?>" <?php echo isset($selected[$k]) ? 'checked' : ''; ?>>
                 </td>
-                <td style="width:28px"><i class="<?php echo htmlspecialchars($c['icon']); ?>"></i></td>
+                <td class="ob-col-icon"><i class="<?php echo htmlspecialchars($c['icon']); ?>"></i></td>
                 <td>
-                  <label for="t_<?php echo md5($k); ?>" class="mb-0" style="cursor:pointer"><?php echo htmlspecialchars($c['label']); ?></label>
+                  <label for="t_<?php echo md5($k); ?>" class="mb-0 ob-clickable"><?php echo htmlspecialchars($c['label']); ?></label>
                   <br><small class="text-muted"><?php echo htmlspecialchars($c['note']); ?></small>
                   <?php if ($other !== null): ?>
                     <br><small class="text-warning">Already answered by “<?php echo htmlspecialchars($other); ?>” — that stays as it is.
                       <span dir="rtl">عليها موظف تاني بالفعل وهيفضل زي ما هو.</span></small>
                   <?php endif; ?>
                 </td>
-                <td class="text-right" style="white-space:nowrap">
+                <td class="text-right ob-col-nowrap">
                   <a href="<?php echo base_url($manage[$c['kind']] ?? 'social_accounts'); ?>" target="_blank" class="btn btn-sm btn-outline-secondary" title="Disconnect or change this channel on its own page">
                     <i class="fas fa-cog"></i> Manage <span dir="rtl">إدارة</span></a>
                 </td>

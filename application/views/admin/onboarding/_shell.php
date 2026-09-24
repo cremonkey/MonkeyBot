@@ -23,8 +23,8 @@ $flags  = $progress['flags'];
       </div>
     <?php endif; ?>
 
-    <div class="card mb-3"><div class="card-body py-2" style="overflow-x:auto">
-      <ul class="nav nav-pills flex-nowrap" style="white-space:nowrap">
+    <div class="card mb-3"><div class="card-body py-2 ob-stepper-scroll">
+      <ul class="nav nav-pills flex-nowrap ob-stepper-nowrap">
         <?php foreach ($titles as $i => $t):
           $reachable = ($i == 1) || !empty($tpl);
           $cls = $i == $step ? 'active' : (!empty($flags[$i]) ? 'text-success' : 'text-muted');
