@@ -10,10 +10,43 @@
  */
 
 /* ------------------------------------------------------------------ */
+/* Task 6: visible keyboard-focus indicator for plain links inside the  */
+/* pages this plan restyled. style.css does not suppress outline on     */
+/* bare <a> (that !important suppression only targets .btn/.form-       */
+/* control), so a plain outline is enough - no fight needed.            */
+/* ------------------------------------------------------------------ */
+.ib-page a:focus-visible,
+.ob-page a:focus-visible,
+.pr-page a:focus-visible,
+.sq-page a:focus-visible,
+.ag-page a:focus-visible,
+.dash-page a:focus-visible,
+.an-page a:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset-tight);
+  border-radius: var(--radius-sm);
+}
+
+/* ------------------------------------------------------------------ */
 /* Inbox (application/views/admin/inbox/index.php)                    */
 /* ------------------------------------------------------------------ */
 .ib-page .ib-row-wrap { min-height: 70vh; }
 .ib-page .ib-panel { height: 78vh; display: flex; flex-direction: column; }
+
+/* Task 6: below the lg breakpoint the three panes (list/thread/detail) have
+   no col-md/col-sm override, so Bootstrap's grid already stacks them full-
+   width - that part works. What Task 4 made worse is each stacked pane
+   still claiming a fixed 78vh, so three stacked panes force ~234vh of
+   scrolling on a phone/tablet. Shrinking the per-pane height when stacked
+   is a token-only, page-scoped fix; the stacking behavior itself is
+   pre-existing Bootstrap grid behavior and is left alone. */
+@media (max-width: 991.98px) {
+  .ib-page .ib-panel { height: 60vh; }
+}
+@media (max-width: 575.98px) {
+  .ib-page .ib-panel { height: 50vh; }
+  .ib-page .ib-row-wrap { min-height: 0; }
+}
 .ib-page .ib-panel-header { display: block; }
 .ib-page .ib-filter-bar { gap: var(--space-1); }
 .ib-page .ib-filter-select { width: auto; }

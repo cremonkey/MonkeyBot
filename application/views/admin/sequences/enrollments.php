@@ -58,7 +58,7 @@
         <?php if (empty($enrollments)): ?>
           <div class="p-5 text-center text-muted">Nobody is enrolled yet.</div>
         <?php else: ?>
-        <table class="table table-striped mb-0">
+        <div class="table-responsive"><table class="table table-striped mb-0">
           <thead><tr>
             <th>Customer</th><?php if (!$sequence): ?><th>Sequence</th><?php endif; ?>
             <th>Channel</th><th class="sq-col-w90">Step</th><th class="sq-col-w110">Status</th>
@@ -80,7 +80,7 @@
             </tr>
           <?php endforeach; ?>
           </tbody>
-        </table>
+        </table></div>
         <?php endif; ?>
       </div>
     </div>

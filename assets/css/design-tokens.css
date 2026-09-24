@@ -74,14 +74,14 @@
   --mb-green-50:  #eafcf0;
   --mb-green-300: #9ff5b8;
   --mb-green-500: #63ed7a;
-  --mb-green-700: #1f9e3c;
+  --mb-green-700: #388645; /* Task 6: darkened from #1f9e3c for 4.5:1 vs white (was 3.49:1) */
   --mb-green-900: #0f5220;
 
   /* Warning ramp (anchored on current .bg-warning/.text-warning #ffa426) */
   --mb-yellow-50:  #fff6e8;
   --mb-yellow-300: #ffce8a;
   --mb-yellow-500: #ffa426;
-  --mb-yellow-700: #b8730f;
+  --mb-yellow-700: #a46a19; /* Task 6: darkened from #b8730f for 4.5:1 vs white (was 3.82:1) */
   --mb-yellow-900: #5c3a08;
 
   /* Danger ramp (anchored on current .bg-danger/.text-danger #fc544b) */
@@ -95,7 +95,7 @@
   --mb-cyan-50:  #e9f7fe;
   --mb-cyan-300: #93d8fa;
   --mb-cyan-500: #3abaf4;
-  --mb-cyan-700: #1a86b8;
+  --mb-cyan-700: #277ea6; /* Task 6: darkened from #1a86b8 for 4.5:1 vs white (was 4.08:1) */
   --mb-cyan-900: #0d435c;
 
   /* Spacing scale, 4px base */
@@ -163,17 +163,17 @@
   /* 2. Semantic — purpose, theme-switchable                          */
   /* ---------------------------------------------------------------- */
 
-  --color-primary:       var(--mb-blue-500);
-  --color-primary-hover: var(--mb-blue-600);
+  --color-primary:       var(--mb-blue-600); /* Task 6: was mb-blue-500 (#0d8bf1), 3.51:1 vs white; mb-blue-600 (#0b74c9) is 4.82:1 */
+  --color-primary-hover: var(--mb-blue-700); /* Task 6: was mb-blue-600, kept darker-than-primary for hover distinction */
   --color-surface:       var(--mb-white);
   --color-surface-alt:   var(--mb-gray-100);
   --color-border:        var(--mb-gray-300);
   --color-text:          var(--mb-navy-900);
   --color-text-muted:    var(--mb-gray-500);
-  --color-danger:        var(--mb-red-500);
-  --color-success:       var(--mb-green-500);
-  --color-warning:       var(--mb-yellow-500);
-  --color-info:          var(--mb-cyan-500);
+  --color-danger:        var(--mb-red-700);   /* Task 6: was mb-red-500 (#fc544b), 3.23:1; mb-red-700 (#c22a22) is 5.76:1 */
+  --color-success:       var(--mb-green-700); /* Task 6: was mb-green-500 (#63ed7a), 1.51:1; mb-green-700 is 4.50:1 */
+  --color-warning:       var(--mb-yellow-700);/* Task 6: was mb-yellow-500 (#ffa426), 1.98:1; mb-yellow-700 is 4.51:1 */
+  --color-info:          var(--mb-cyan-700);  /* Task 6: was mb-cyan-500 (#3abaf4), 2.21:1; mb-cyan-700 is 4.54:1 */
 
   --space-1: var(--mb-space-1);
   --space-2: var(--mb-space-2);
@@ -263,9 +263,9 @@
   --nav-item-color: var(--color-text);
   --nav-item-color-muted: var(--color-text-muted);
   --nav-item-hover-bg: var(--mb-blue-50);
-  --nav-item-hover-color: var(--color-primary);
+  --nav-item-hover-color: var(--mb-blue-700); /* Task 6: color-primary on nav-item-hover-bg (blue-50) was 4.39:1; blue-700 is 6.28:1 */
   --nav-item-active-bg: var(--mb-blue-50);
-  --nav-item-active-color: var(--color-primary);
+  --nav-item-active-color: var(--mb-blue-700); /* Task 6: same fix as nav-item-hover-color */
   --nav-item-radius: var(--radius-sm);
   --nav-item-gap-y: var(--space-1);
   --nav-section-gap: var(--space-4);

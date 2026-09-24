@@ -28,7 +28,7 @@
             <a href="<?php echo base_url('sequences/form'); ?>" class="btn btn-primary">Create your first one</a>
           </div>
         <?php else: ?>
-        <table class="table table-striped mb-0">
+        <div class="table-responsive"><table class="table table-striped mb-0">
           <thead><tr>
             <th>Name</th><th>Starts when</th><th class="sq-col-w90">Steps</th>
             <th class="sq-col-w260">Who is in it</th><th class="sq-col-w110">Status</th><th class="sq-col-w260"></th>
@@ -60,7 +60,7 @@
             </tr>
           <?php endforeach; ?>
           </tbody>
-        </table>
+        </table></div>
         <?php endif; ?>
       </div>
     </div>

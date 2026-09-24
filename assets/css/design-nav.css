@@ -54,6 +54,14 @@
   background-color: var(--nav-item-hover-bg);
 }
 
+/* Task 6: visible keyboard-focus indicator. style.css does not suppress
+   outline on these links (that suppression only targets .btn/.form-control),
+   so a plain outline is enough here - no !important fight needed. */
+.main-sidebar .sidebar-menu li a:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-offset-tight));
+}
+
 .main-sidebar .sidebar-menu li a span:hover {
   color: var(--nav-item-hover-color);
 }
@@ -135,6 +143,13 @@ body.sidebar-mini .main-sidebar .sidebar-menu > li ul.dropdown-menu {
   background-color: var(--topbar-icon-hover-bg);
 }
 
+.navbar .nav-link.notification-toggle:focus-visible,
+#collapse_me_plz:focus-visible,
+.navbar .nav-link.nav-link-user:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-offset-tight));
+}
+
 .navbar .nav-link.nav-link-user {
   border-radius: var(--nav-item-radius);
   transition: background-color .15s ease;
@@ -163,6 +178,13 @@ body.sidebar-mini .main-sidebar .sidebar-menu > li ul.dropdown-menu {
 
 .navbar .dropdown-menu .dropdown-item.has-icon:hover,
 .navbar .dropdown-menu .dropdown-item.account_switch:hover {
+  background-color: var(--usermenu-item-hover-bg);
+}
+
+.navbar .dropdown-menu .dropdown-item.has-icon:focus-visible,
+.navbar .dropdown-menu .dropdown-item.account_switch:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-offset-tight));
   background-color: var(--usermenu-item-hover-bg);
 }
 
