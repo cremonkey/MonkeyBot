@@ -28,6 +28,24 @@ interface ChannelAdapterInterface
     public function sendMedia(OutboundMessage $message): SendResult;
 
     /**
+     * Mark the customer's last inbound message as read/seen.
+     *
+     * $recipient is either an OutboundMessage (its ->recipient, ->account and
+     * ->metadata are used; a channel that needs the inbound message id reads it
+     * from metadata['message_id']) or a bare recipient id, in which case
+     * $account carries the credentials. An adapter that does not implement this
+     * returns SendResult::unsupported() and makes no HTTP call.
+     */
+    public function markSeen(OutboundMessage|string $recipient, array $account = array()): SendResult;
+
+    /**
+     * Turn the "typing…" indicator on ($on = true) or off ($on = false).
+     * Same $recipient/$account contract as markSeen(). An adapter that does not
+     * implement this returns SendResult::unsupported() and makes no HTTP call.
+     */
+    public function typingIndicator(OutboundMessage|string $recipient, array $account = array(), bool $on = true): SendResult;
+
+    /**
      * First inbound customer message in $raw, or NULL.
      *
      * @param array $raw     decoded webhook body (or the web widget's POST fields)
