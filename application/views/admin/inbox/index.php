@@ -129,7 +129,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
 </section>
 
 <!-- Canned responses: which channels each one is offered on -->
-<div class="modal fade" id="ib_canned_modal" tabindex="-1" role="dialog">
+<div class="modal fade ib-page" id="ib_canned_modal" tabindex="-1" role="dialog">
   <div class="modal-dialog modal-lg" role="document"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title"><i class="fas fa-comment-dots"></i> Canned responses</h5>
       <button type="button" class="close" data-dismiss="modal">&times;</button></div>
@@ -152,7 +152,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
 </div>
 
 <!-- Label manager: create / rename / recolour / delete this account's labels -->
-<div class="modal fade" id="ib_labels_modal" tabindex="-1" role="dialog">
+<div class="modal fade ib-page" id="ib_labels_modal" tabindex="-1" role="dialog">
   <div class="modal-dialog" role="document"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title"><i class="fas fa-tags"></i> Labels</h5>
       <button type="button" class="close" data-dismiss="modal">&times;</button></div>

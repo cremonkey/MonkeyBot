@@ -2,7 +2,7 @@
 $has_stays = !empty($cfg['accommodation']) || !empty($cfg['day_use']);
 $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); };
 ?>
-<section class="section">
+<section class="section pr-page">
   <div class="section-header"><h1><i class="fas fa-tags"></i> <?php echo $page_title; ?></h1>
     <div class="section-header-breadcrumb">
       <?php if ($has_own): ?>

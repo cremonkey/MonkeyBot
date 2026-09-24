@@ -1,4 +1,4 @@
-<section class="section">
+<section class="section sq-page">
   <div class="section-header">
     <h1><i class="fas fa-stream"></i> <?php echo $page_title; ?></h1>
     <div class="section-header-breadcrumb">

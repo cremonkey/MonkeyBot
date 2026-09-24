@@ -6,7 +6,7 @@
 $titles = $step_titles;
 $flags  = $progress['flags'];
 ?>
-<section class="section">
+<section class="section ob-page">
   <div class="section-header">
     <h1><i class="fas fa-rocket"></i> Setup Guide <small class="text-muted" dir="rtl">دليل التجهيز</small></h1>
     <div class="section-header-breadcrumb">

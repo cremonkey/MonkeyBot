@@ -85,9 +85,9 @@ else
 <link rel="stylesheet" href="<?php echo base_url(); ?>assets/css/custom.css">
 
 <link rel="stylesheet" href="<?php echo base_url(); ?>assets/css/design-tokens.css">
-<link rel="stylesheet" href="<?php echo base_url(); ?>assets/css/design-nav.css">
 <link rel="stylesheet" href="<?php echo base_url(); ?>assets/css/design-system.css">
 <link rel="stylesheet" href="<?php echo base_url(); ?>assets/css/design-pages.css">
+<link rel="stylesheet" href="<?php echo base_url(); ?>assets/css/design-nav.css">
 
 <?php if($is_rtl) { ?>
 	<link rel="stylesheet" href="<?php echo base_url(); ?>assets/css/rtl.css">

@@ -4,7 +4,7 @@ $ago = function ($t) { if (!$t) return '—'; $s = time() - strtotime($t); if ($
 $ch_icon = array('fb' => 'fab fa-facebook-messenger', 'ig' => 'fab fa-instagram', 'wa' => 'fab fa-whatsapp', 'tg' => 'fab fa-telegram', 'web' => 'fas fa-globe');
 $sched_ok = $cron_age !== null && $cron_age <= 900;
 ?>
-<section class="section">
+<section class="section ag-page">
   <div class="section-header"><h1><i class="fas fa-building"></i> <?php echo $page_title; ?></h1>
     <div class="section-header-breadcrumb">
       <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#new_client_modal"><i class="fas fa-plus"></i> New client</button>

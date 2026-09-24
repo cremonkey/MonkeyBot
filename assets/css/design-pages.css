@@ -38,47 +38,47 @@
 /* ------------------------------------------------------------------ */
 /* Onboarding / Setup Guide (application/views/admin/onboarding/*.php) */
 /* ------------------------------------------------------------------ */
-.ob-stepper-scroll { overflow-x: auto; }
-.ob-stepper-nowrap { white-space: nowrap; }
-.ob-col-num { width: var(--ob-col-num-width); }
-.ob-clickable { cursor: pointer; }
-.ob-col-check { width: var(--ob-col-check-width); }
-.ob-col-icon { width: var(--ob-col-icon-width); }
-.ob-col-nowrap { white-space: nowrap; }
-.ob-col-price { width: var(--ob-col-price-width); }
-.ob-col-per { width: var(--ob-col-per-width); }
-.ob-col-guests { width: var(--ob-col-guests-width); }
-.ob-col-pp { width: var(--ob-col-pp-width); }
-.ob-stage-dot { color: var(--mb-white); }
+.ob-page .ob-stepper-scroll { overflow-x: auto; }
+.ob-page .ob-stepper-nowrap { white-space: nowrap; }
+.ob-page .ob-col-num { width: var(--ob-col-num-width); }
+.ob-page .ob-clickable { cursor: pointer; }
+.ob-page .ob-col-check { width: var(--ob-col-check-width); }
+.ob-page .ob-col-icon { width: var(--ob-col-icon-width); }
+.ob-page .ob-col-nowrap { white-space: nowrap; }
+.ob-page .ob-col-price { width: var(--ob-col-price-width); }
+.ob-page .ob-col-per { width: var(--ob-col-per-width); }
+.ob-page .ob-col-guests { width: var(--ob-col-guests-width); }
+.ob-page .ob-col-pp { width: var(--ob-col-pp-width); }
+.ob-page .ob-stage-dot { color: var(--mb-white); }
 
 /* ------------------------------------------------------------------ */
 /* Pricing (application/views/admin/pricing/index.php)                */
 /* ------------------------------------------------------------------ */
-.pr-col-name { min-width: var(--pr-col-name-min-width); }
-.pr-col-wide { min-width: var(--pr-col-wide-min-width); }
-.pr-col-w90 { width: var(--pr-col-w90); }
-.pr-col-w120 { width: var(--pr-col-w120); }
-.pr-col-w150 { width: var(--pr-col-w150); }
-.pr-json-area { height: var(--pr-json-area-height); font-family: monospace; font-size: var(--text-sm); }
-.pr-summary-input { flex: 1; }
+.pr-page .pr-col-name { min-width: var(--pr-col-name-min-width); }
+.pr-page .pr-col-wide { min-width: var(--pr-col-wide-min-width); }
+.pr-page .pr-col-w90 { width: var(--pr-col-w90); }
+.pr-page .pr-col-w120 { width: var(--pr-col-w120); }
+.pr-page .pr-col-w150 { width: var(--pr-col-w150); }
+.pr-page .pr-json-area { height: var(--pr-json-area-height); font-family: monospace; font-size: var(--text-sm); }
+.pr-page .pr-summary-input { flex: 1; }
 
 /* ------------------------------------------------------------------ */
 /* Sequences (application/views/admin/sequences/*.php)                */
 /* ------------------------------------------------------------------ */
-.sq-col-w40 { width: var(--sq-col-w40); }
-.sq-col-w180 { width: var(--sq-col-w180); }
-.sq-search-input { min-width: var(--sq-search-min-width); }
-.sq-skip-badge { font-size: var(--text-sm); }
-.sq-col-w90 { width: var(--sq-col-w90); }
-.sq-col-w110 { width: var(--sq-col-w110); }
-.sq-col-w170 { width: var(--sq-col-w170); }
-.sq-col-w260 { width: var(--sq-col-w260); }
+.sq-page .sq-col-w40 { width: var(--sq-col-w40); }
+.sq-page .sq-col-w180 { width: var(--sq-col-w180); }
+.sq-page .sq-search-input { min-width: var(--sq-search-min-width); }
+.sq-page .sq-skip-badge { font-size: var(--text-sm); }
+.sq-page .sq-col-w90 { width: var(--sq-col-w90); }
+.sq-page .sq-col-w110 { width: var(--sq-col-w110); }
+.sq-page .sq-col-w170 { width: var(--sq-col-w170); }
+.sq-page .sq-col-w260 { width: var(--sq-col-w260); }
 
 /* ------------------------------------------------------------------ */
 /* Agency Control Center (application/views/admin/agency/index.php)   */
 /* ------------------------------------------------------------------ */
-.ag-sched-badge { font-size: var(--text-sm); }
-.ag-col-usage { min-width: var(--ag-col-usage-min-width); }
-.ag-usage-bar { height: var(--ag-usage-bar-height); }
-.ag-col-nowrap { white-space: nowrap; }
-.ag-password-code { font-size: var(--text-lg); }
+.ag-page .ag-sched-badge { font-size: var(--text-sm); }
+.ag-page .ag-col-usage { min-width: var(--ag-col-usage-min-width); }
+.ag-page .ag-usage-bar { height: var(--ag-usage-bar-height); }
+.ag-page .ag-col-nowrap { white-space: nowrap; }
+.ag-page .ag-password-code { font-size: var(--text-lg); }
