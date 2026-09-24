@@ -33,7 +33,7 @@
 
 .main-sidebar .sidebar-menu li.menu-header {
   color: var(--nav-header-color);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .main-sidebar .sidebar-menu li.menu-header:not(:first-child) {
@@ -101,7 +101,7 @@
   border-radius: var(--nav-badge-radius);
   background-color: var(--nav-badge-bg);
   color: var(--nav-badge-color);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 /* Collapsed (sidebar-mini) state: cosmetic only — background instead of the
