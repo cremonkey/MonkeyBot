@@ -129,7 +129,7 @@
 
 .card .card-header h4 {
   color: var(--card-title-color);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .card .card-footer {

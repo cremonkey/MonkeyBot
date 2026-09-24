@@ -128,6 +128,13 @@
   --mb-text-xl:   20px;
   --mb-text-2xl:  24px;
 
+  /* Border-width scale */
+  --mb-border-width-1: 1px;
+  --mb-border-width-2: 2px;
+
+  /* Font-weight scale */
+  --mb-font-weight-semibold: 600;
+
   /* ---------------------------------------------------------------- */
   /* 2. Semantic — purpose, theme-switchable                          */
   /* ---------------------------------------------------------------- */
@@ -170,6 +177,10 @@
   --text-xl: var(--mb-text-xl);
   --text-2xl: var(--mb-text-2xl);
 
+  --border-width-default: var(--mb-border-width-1);
+  --focus-ring-width-default: var(--mb-border-width-2);
+  --font-weight-semibold: var(--mb-font-weight-semibold);
+
   /* ---------------------------------------------------------------- */
   /* 3. Component scaffolding — placeholders for Tasks 2-5             */
   /* ---------------------------------------------------------------- */
@@ -189,25 +200,25 @@
   --badge-padding-y: var(--space-1);
   --badge-padding-x: var(--space-3);
 
-  --btn-font-weight: 600;
-  --btn-border-width: 1px;
+  --btn-font-weight: var(--font-weight-semibold);
+  --btn-border-width: var(--border-width-default);
 
   --card-title-color: var(--color-text);
-  --card-border-width: 1px;
+  --card-border-width: var(--border-width-default);
 
-  --badge-font-weight: 600;
+  --badge-font-weight: var(--font-weight-semibold);
 
   --alert-radius: var(--radius-md);
   --alert-padding-y: var(--space-3);
   --alert-padding-x: var(--space-4);
-  --alert-border-width: 1px;
+  --alert-border-width: var(--border-width-default);
 
   --form-radius: var(--radius-sm);
-  --form-border-width: 1px;
+  --form-border-width: var(--border-width-default);
   --form-border-color: var(--color-border);
   --form-border-color-focus: var(--color-primary);
   --form-label-color: var(--color-text-muted);
-  --form-label-weight: 600;
+  --form-label-weight: var(--font-weight-semibold);
 
   --table-border: var(--color-border);
   --table-stripe-bg: var(--color-surface-alt);
@@ -218,9 +229,9 @@
 
   /* Focus ring - shared by .btn, .form-control, .custom-select, nav links */
   --focus-ring-color: var(--color-primary);
-  --focus-ring-width: 2px;
-  --focus-ring-offset: 2px;
-  --focus-ring-offset-tight: 1px;
+  --focus-ring-width: var(--focus-ring-width-default);
+  --focus-ring-offset: var(--focus-ring-width-default);
+  --focus-ring-offset-tight: var(--border-width-default);
   --focus-ring: 0 0 0 var(--focus-ring-offset) var(--color-surface), 0 0 0 calc(var(--focus-ring-offset) + var(--focus-ring-width)) var(--focus-ring-color);
 
   /* Nav (sidebar / topbar / user menu) component tokens — Task 2 */
