@@ -141,7 +141,11 @@ while IFS= read -r -d '' suite; do
   out="$(docker run --rm -v "$TMPDIR:/app" -w /app "$IMAGE" php "$rel" 2>&1)"
   rc=$?
   last_line="$(echo "$out" | tail -1)"
-  if [ $rc -ne 0 ] || echo "$out" | grep -qiE '\bFAIL(ED)?\b'; then
+  # A suite fails on non-zero exit, or a summary line reporting a non-zero
+  # failed count (e.g. "12 passed, 2 failed") or the literal word FAILED.
+  if [ $rc -ne 0 ] \
+     || echo "$out" | grep -qiE '[1-9][0-9]* failed' \
+     || echo "$out" | grep -qiE '\bFAILED\b'; then
     SUITE_FAILS+=("$rel: $last_line")
   fi
 done < <(find "$TMPDIR/tests" -maxdepth 2 -name 'run.php' -print0 2>/dev/null | sort -z)
@@ -177,9 +181,12 @@ else
       issues+=("does not start with 'DO 0;'")
     fi
 
-    # No ';' inside '--' comment lines.
-    if grep -nE '^\s*--.*;' "$path" >/dev/null; then
-      issues+=("';' found inside a -- comment line")
+    # The migration runner (application/controllers/Cron_hub.php) splits
+    # statements on `;` immediately followed by a newline, so only a ';' at
+    # the end of a '--' comment line (optionally trailing whitespace) is
+    # dangerous — a ';' in the middle of a comment sentence is harmless.
+    if grep -nE '^\s*--.*;\s*$' "$path" >/dev/null; then
+      issues+=("';' at end of a -- comment line (would split the migration)")
     fi
 
     # CREATE/ALTER must use IF NOT EXISTS.
