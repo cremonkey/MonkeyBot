@@ -3060,12 +3060,24 @@ class Cron_job extends Home
     public function lead_score_decay($api_key="")
     {
         $this->api_key_check($api_key);
-        $cutoff = date("Y-m-d H:i:s", strtotime("-7 days"));
-        $this->db->set('lead_score', 'GREATEST(0, lead_score-1)', false)
-                 ->where('last_subscriber_interaction_time <', $cutoff)
-                 ->where('lead_score >', 0)
-                 ->update('messenger_bot_subscriber');
-        echo "lead_score_decay done: ".$this->db->affected_rows()." rows";
+        $this->load->helper('ops_health');
+        $started = microtime(true);
+        try {
+            $cutoff = date("Y-m-d H:i:s", strtotime("-7 days"));
+            $this->db->set('lead_score', 'GREATEST(0, lead_score-1)', false)
+                     ->where('last_subscriber_interaction_time <', $cutoff)
+                     ->where('lead_score >', 0)
+                     ->update('messenger_bot_subscriber');
+            $processed = (int) $this->db->affected_rows();
+            $detail = "processed {$processed}, failed 0";
+            ops_health_record('lead_score_decay', true, microtime(true) - $started, $detail);
+            echo "lead_score_decay done: ".$processed." rows";
+        } catch (Throwable $e) {
+            log_message('error', 'lead_score_decay: ' . $e->getMessage());
+            $detail = get_class($e) . ': ' . $e->getMessage() . ' (processed 0, failed 1)';
+            ops_health_record('lead_score_decay', false, microtime(true) - $started, $detail);
+            echo "lead_score_decay failed: " . $e->getMessage();
+        }
     }
 
     public function delete_junk_data($api_key="") //membership_alert_delete_junk_data
