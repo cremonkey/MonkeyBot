@@ -132,6 +132,30 @@
   --mb-border-width-1: 1px;
   --mb-border-width-2: 2px;
 
+  /* Fixed-size scale (raw px) — used only by Task 4 page-component column
+     widths / fixed heights that have no natural token-scale equivalent
+     (table column widths, a fixed JSON textarea height). Named by their
+     pixel value; consumed only through the component tokens in section 3
+     below, never referenced directly from view CSS. */
+  --mb-size-2:   2px;
+  --mb-size-28:  28px;
+  --mb-size-44:  44px;
+  --mb-size-52:  52px;
+  --mb-size-32:  32px;
+  --mb-size-36:  36px;
+  --mb-size-40:  40px;
+  --mb-size-90:  90px;
+  --mb-size-110: 110px;
+  --mb-size-120: 120px;
+  --mb-size-140: 140px;
+  --mb-size-150: 150px;
+  --mb-size-160: 160px;
+  --mb-size-170: 170px;
+  --mb-size-180: 180px;
+  --mb-size-220: 220px;
+  --mb-size-260: 260px;
+  --mb-size-360: 360px;
+
   /* Font-weight scale */
   --mb-font-weight-semibold: 600;
 
@@ -260,6 +284,43 @@
   --usermenu-shadow: var(--shadow-lg);
   --usermenu-item-hover-bg: var(--color-surface-alt);
   --usermenu-divider: var(--color-border);
+
+  /* Page-component tokens — Task 4 (Inbox, Onboarding, Pricing, Sequences,
+     Agency Control Center). Fixed sizes reference the raw scale above;
+     everything else references the existing semantic/primitive layers. */
+  --ib-swatch-width: var(--mb-size-52);
+  --ib-swatch-width-sm: var(--mb-size-44);
+  --ib-bubble-max-width: 80%;
+  --ib-notes-scroll-max-height: var(--mb-size-220);
+  --ib-attachment-image-max-size: var(--mb-size-220);
+  --ib-attachment-video-max-width: var(--mb-size-260);
+  --ib-actions-gap: var(--mb-size-2);
+
+  --ob-col-num-width: var(--mb-size-36);
+  --ob-col-check-width: var(--mb-size-32);
+  --ob-col-icon-width: var(--mb-size-28);
+  --ob-col-price-width: var(--mb-size-140);
+  --ob-col-per-width: var(--mb-size-150);
+  --ob-col-guests-width: var(--mb-size-110);
+  --ob-col-pp-width: var(--mb-size-170);
+
+  --pr-col-name-min-width: var(--mb-size-170);
+  --pr-col-wide-min-width: var(--mb-size-160);
+  --pr-col-w90: var(--mb-size-90);
+  --pr-col-w120: var(--mb-size-120);
+  --pr-col-w150: var(--mb-size-150);
+  --pr-json-area-height: var(--mb-size-360);
+
+  --sq-col-w40: var(--mb-size-40);
+  --sq-col-w90: var(--mb-size-90);
+  --sq-col-w110: var(--mb-size-110);
+  --sq-col-w170: var(--mb-size-170);
+  --sq-col-w180: var(--mb-size-180);
+  --sq-col-w260: var(--mb-size-260);
+  --sq-search-min-width: var(--mb-size-260);
+
+  --ag-col-usage-min-width: var(--mb-size-110);
+  --ag-usage-bar-height: var(--space-4);
 }
 
 /*

@@ -1,0 +1,84 @@
+/**
+ * Design-pages — page-level component classes for the newest admin features
+ * (Inbox, Onboarding/Setup Guide, Pricing, Sequences, Agency Control Center).
+ *
+ * Loaded after design-system.css and before rtl.css. Uses only var(--...)
+ * tokens from design-tokens.css (no raw hex/px/rem/numeric font-weight; 0 is
+ * fine). No directional properties (left/right, margin-left, padding-right,
+ * float, text-align:left/right) — rtl.css owns direction; logical properties
+ * (margin-inline-start etc.) are used where a direction-aware gap is needed.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Inbox (application/views/admin/inbox/index.php)                    */
+/* ------------------------------------------------------------------ */
+.ib-page .ib-row-wrap { min-height: 70vh; }
+.ib-page .ib-panel { height: 78vh; display: flex; flex-direction: column; }
+.ib-page .ib-panel-header { display: block; }
+.ib-page .ib-filter-bar { gap: var(--space-1); }
+.ib-page .ib-filter-select { width: auto; }
+.ib-page .ib-scroll-list { overflow-y: auto; flex: 1; }
+.ib-page .ib-thread-body { overflow-y: auto; flex: 1; background: var(--color-surface-alt); }
+.ib-page .ib-actions-vertical { gap: var(--ib-actions-gap); }
+.ib-page .ib-notes-scroll { max-height: var(--ib-notes-scroll-max-height); overflow-y: auto; }
+.ib-page .ib-canned-scroll { max-height: 40vh; overflow-y: auto; }
+.ib-page .ib-color-swatch { max-width: var(--ib-swatch-width); padding: var(--mb-border-width-2); }
+.ib-page .ib-color-swatch-sm { max-width: var(--ib-swatch-width-sm); padding: var(--mb-border-width-2); }
+.ib-page .ib-ai-draft-text { white-space: pre-wrap; background: var(--color-surface-alt); border: var(--mb-border-width-1) dashed var(--color-border); border-radius: var(--radius-sm); padding: var(--space-2); }
+.ib-page .ib-row { cursor: pointer; }
+.ib-page .ib-row.active-conv { background: var(--mb-blue-50); }
+.ib-page .ib-pre-wrap { white-space: pre-wrap; }
+.ib-page .ib-attachment-image { max-width: var(--ib-attachment-image-max-size); max-height: var(--ib-attachment-image-max-size); border-radius: var(--radius-sm); }
+.ib-page .ib-attachment-video { max-width: var(--ib-attachment-video-max-width); }
+.ib-page .ib-bubble { max-width: var(--ib-bubble-max-width); border: var(--mb-border-width-1) solid var(--color-border); }
+.ib-page .ib-bubble-mine { background: var(--color-primary); color: var(--mb-white); }
+.ib-page .ib-bubble-theirs { background: var(--color-surface); }
+.ib-page .ib-label-badge { color: var(--mb-white); }
+
+/* ------------------------------------------------------------------ */
+/* Onboarding / Setup Guide (application/views/admin/onboarding/*.php) */
+/* ------------------------------------------------------------------ */
+.ob-stepper-scroll { overflow-x: auto; }
+.ob-stepper-nowrap { white-space: nowrap; }
+.ob-col-num { width: var(--ob-col-num-width); }
+.ob-clickable { cursor: pointer; }
+.ob-col-check { width: var(--ob-col-check-width); }
+.ob-col-icon { width: var(--ob-col-icon-width); }
+.ob-col-nowrap { white-space: nowrap; }
+.ob-col-price { width: var(--ob-col-price-width); }
+.ob-col-per { width: var(--ob-col-per-width); }
+.ob-col-guests { width: var(--ob-col-guests-width); }
+.ob-col-pp { width: var(--ob-col-pp-width); }
+.ob-stage-dot { color: var(--mb-white); }
+
+/* ------------------------------------------------------------------ */
+/* Pricing (application/views/admin/pricing/index.php)                */
+/* ------------------------------------------------------------------ */
+.pr-col-name { min-width: var(--pr-col-name-min-width); }
+.pr-col-wide { min-width: var(--pr-col-wide-min-width); }
+.pr-col-w90 { width: var(--pr-col-w90); }
+.pr-col-w120 { width: var(--pr-col-w120); }
+.pr-col-w150 { width: var(--pr-col-w150); }
+.pr-json-area { height: var(--pr-json-area-height); font-family: monospace; font-size: var(--text-sm); }
+.pr-summary-input { flex: 1; }
+
+/* ------------------------------------------------------------------ */
+/* Sequences (application/views/admin/sequences/*.php)                */
+/* ------------------------------------------------------------------ */
+.sq-col-w40 { width: var(--sq-col-w40); }
+.sq-col-w180 { width: var(--sq-col-w180); }
+.sq-search-input { min-width: var(--sq-search-min-width); }
+.sq-skip-badge { font-size: var(--text-sm); }
+.sq-col-w90 { width: var(--sq-col-w90); }
+.sq-col-w110 { width: var(--sq-col-w110); }
+.sq-col-w170 { width: var(--sq-col-w170); }
+.sq-col-w260 { width: var(--sq-col-w260); }
+
+/* ------------------------------------------------------------------ */
+/* Agency Control Center (application/views/admin/agency/index.php)   */
+/* ------------------------------------------------------------------ */
+.ag-sched-badge { font-size: var(--text-sm); }
+.ag-col-usage { min-width: var(--ag-col-usage-min-width); }
+.ag-usage-bar { height: var(--ag-usage-bar-height); }
+.ag-col-nowrap { white-space: nowrap; }
+.ag-password-code { font-size: var(--text-lg); }
