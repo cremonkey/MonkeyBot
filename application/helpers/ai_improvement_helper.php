@@ -97,16 +97,33 @@ if (!function_exists('aii_similar')) {
 
 if (!function_exists('aii_is_ai_agent_name')) {
     /**
-     * livechat_messages.sender has no 'agent' value: an AI reply and a human agent's reply
-     * are both stored with sender='bot'; the human one is told apart by agent_name being
-     * the agent's session username instead of the literal "bot"/"Bot" the AI pipeline
-     * writes (Home.php:7933, :4853, :5476). Empty/null agent_name is treated as AI too
-     * (older rows predate agent_name being stamped).
+     * livechat_messages.sender has no 'agent' value: an AI reply, a human agent's reply, and
+     * an automated reply from another feature (comments auto-reply) are ALL stored with
+     * sender='bot'. There is no positive marker for "a human typed this" in the schema — the
+     * only place a real human name is written is a logged-in session: Inbox::write_agent_message()
+     * (agent_name = actor_name, the Inbox session username) and Home.php's
+     * insert_livechat_data() (agent_name = session username, gated on
+     * `$this->session->userdata('logged_in') == 1`, see Home.php:7933). Every other writer
+     * of sender='bot' rows is a fixed, known, non-human name:
+     *   - the AI pipeline: the literal "bot"/"Bot" (Home.php:4853/:4877/:5476/:5496/:326,
+     *     channel_send_helper.php:192, Openwa_bot.php/Telegram_bot.php/Webchat.php/
+     *     Whatsapp_bot.php's `$sender=='bot' ? 'Bot' : ''`)
+     *   - comment private-reply automation: CPR_AGENT_NAME ('Comment auto-reply',
+     *     comment_private_reply_helper.php:49/171)
+     * So this is a NEGATIVE list of known automation names, not a positive human check:
+     * anything matching one of them is automated; anything else (a real agent username) is
+     * human. Empty/null agent_name is treated as automated too (older rows predate agent_name
+     * being stamped). New automated senders that reuse sender='bot' must add their fixed name
+     * here or they will be miscounted as "human corrections".
      */
     function aii_is_ai_agent_name($agent_name)
     {
-        $n = trim((string) $agent_name);
-        return $n === '' || strtolower($n) === 'bot';
+        $n = strtolower(trim((string) $agent_name));
+        if ($n === '' || $n === 'bot') return true;
+        $automated = array('bot');
+        if (defined('CPR_AGENT_NAME')) $automated[] = strtolower(trim((string) CPR_AGENT_NAME));
+        $automated[] = 'comment auto-reply'; // CPR_AGENT_NAME's literal value, in case the constant is not loaded (e.g. this helper used standalone)
+        return in_array($n, $automated, true);
     }
 }
 

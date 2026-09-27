@@ -47,6 +47,18 @@ check('is_ai: null', aii_is_ai_agent_name(null));
 check('is_ai: whitespace only', aii_is_ai_agent_name('   '));
 check('is_ai: real username is NOT ai', !aii_is_ai_agent_name('sara_agent'));
 check('is_ai: "BOT " with padding still ai', aii_is_ai_agent_name(' BOT '));
+// Comment private-reply automation also writes sender='bot' with a fixed, non-"bot" name
+// (comment_private_reply_helper.php: CPR_AGENT_NAME = 'Comment auto-reply') — this must be
+// treated as automated, not as a human correction.
+check('is_ai: CPR_AGENT_NAME literal is automated, not human', aii_is_ai_agent_name('Comment auto-reply'));
+check('is_ai: CPR_AGENT_NAME is case-insensitive', aii_is_ai_agent_name('COMMENT AUTO-REPLY'));
+if (!defined('CPR_AGENT_NAME')) define('CPR_AGENT_NAME', 'Comment auto-reply');
+check('is_ai: CPR_AGENT_NAME constant (when loaded) is honoured', aii_is_ai_agent_name(CPR_AGENT_NAME));
+// The one real positive-human path: Inbox::write_agent_message() / Home.php's
+// insert_livechat_data() stamp agent_name = the logged-in session's username — any name
+// that is not one of the known automation names must still count as human.
+check('is_ai: Inbox agent session username is NOT ai', !aii_is_ai_agent_name('mostafa_support'));
+check('is_ai: Livechat logged-in agent username is NOT ai', !aii_is_ai_agent_name('admin'));
 
 // ------------------------------------------------------------ 2. aii_group_tool_failures
 
@@ -129,6 +141,14 @@ same('corrections: minutes computed correctly', 5.0, $corr[0]['minutes']);
 // widen the window to 30 minutes: conversation 2's correction now qualifies too
 $corr_wide = aii_find_corrections($bot_rows_conv1, 30);
 same('corrections: wider window picks up conv 2 as well -> 2 matches', 2, count($corr_wide));
+
+// comment-private-reply automation follows an AI reply with sender='bot' too, but it is not
+// a human correction: agent_name is CPR_AGENT_NAME, not a real username.
+$cpr_conv = array(
+    array('id' => 1, 'conversation_id' => 6, 'agent_name' => 'bot', 'message_content' => 'Price is 300.', 'conversation_time' => '2026-09-20 10:00:00'),
+    array('id' => 2, 'conversation_id' => 6, 'agent_name' => 'Comment auto-reply', 'message_content' => 'Thanks for your comment!', 'conversation_time' => '2026-09-20 10:02:00'),
+);
+same('corrections: an automated CPR reply after an AI reply is NOT a correction', 0, count(aii_find_corrections($cpr_conv, 10)));
 
 // one AI reply must not be matched to two different human replies
 $double = array(

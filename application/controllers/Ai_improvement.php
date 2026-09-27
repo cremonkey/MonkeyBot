@@ -74,7 +74,7 @@ class Ai_improvement extends Home
                 $first_ids = array_map(function ($r) { return (int) $r['first_id']; }, $firsts);
                 if (!empty($first_ids)) {
                     $msgs = $this->db->select('id, conversation_id, message_content')->from('livechat_messages')
-                        ->where_in('id', $first_ids)->get()->result_array();
+                        ->where('user_id', $this->uid)->where_in('id', $first_ids)->get()->result_array();
                     foreach ($msgs as $m) {
                         $cid = (int) $m['conversation_id'];
                         $first_by_conv[$cid] = array('question' => $m['message_content'], 'social_media' => $platform_by_conv[$cid] ?? '?');
