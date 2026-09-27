@@ -406,7 +406,9 @@ check('dedupe: another tenant\'s pending job for the same conversation_id does n
 $kb_src = file_get_contents(APPPATH . 'modules/ai_knowledge_base/controllers/Ai_knowledge_base.php');
 check('kb controller: checks jobs_enabled flag', strpos($kb_src, "config->item('jobs_enabled')") !== false);
 check('kb controller: still has the inline chunk loop for the flag-off path', strpos($kb_src, "ai_chunk_text_ai(\$text, \$this->user_id) : ai_chunk_text(\$text, 1000, 200)") !== false);
-check('kb controller: still calls ai_embed_source_chunks inline for the flag-off path', substr_count($kb_src, 'ai_embed_source_chunks($source_id, $this->user_id)') === 1);
+// Task 19 / C4 added a second flag-off call site (_kb_rechunk(), shared by
+// update_source_action()/reindex_action()), so this is now >= 1, not exactly 1.
+check('kb controller: still calls ai_embed_source_chunks inline for the flag-off path', substr_count($kb_src, 'ai_embed_source_chunks($source_id, $this->user_id)') >= 1);
 check('kb controller: enqueues kb_chunk_embed when flag is on', strpos($kb_src, "job_enqueue(\$this->user_id, 'kb_chunk_embed'") !== false);
 check('kb controller: checks the enqueue return and falls back to inline on failure', strpos($kb_src, 'if ($job_id > 0)') !== false);
 
