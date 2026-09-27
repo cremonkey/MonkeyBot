@@ -45,6 +45,18 @@ if (!function_exists('lead_add_score')) {
                 'created_at' => date('Y-m-d H:i:s'),
             ));
             $db->set('lead_score', 'lead_score + ' . $points, false)->where('id', $subscriber_row_id)->update('messenger_bot_subscriber');
+
+            // Task 18 (C3, brief §27): once the running score crosses the qualified threshold,
+            // emit lead.qualified once per open deal for this subscriber. Wrapped separately —
+            // a failure here must never roll back the score update above.
+            try {
+                $new_score = (int) $sub['lead_score'] + $points;
+                if (function_exists('crm_maybe_emit_qualified')) {
+                    crm_maybe_emit_qualified($user_id, $subscriber_row_id, $new_score);
+                }
+            } catch (Throwable $eq) {
+                log_message('error', 'lead_add_score crm_maybe_emit_qualified: ' . $eq->getMessage());
+            }
         } catch (Exception $e) {
             log_message('error', 'lead_add_score failed: ' . $e->getMessage());
         }

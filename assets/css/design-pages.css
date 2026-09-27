@@ -184,3 +184,26 @@
 .an-page .chart-card canvas {
   max-width: 100%;
 }
+
+/* ------------------------------------------------------------------ */
+/* CRM stage editor (Task 18, application/views/admin/crm/pipeline.php) */
+/* ------------------------------------------------------------------ */
+.crm-page .crm-stage-name {
+  cursor: text;
+  border-radius: var(--radius-sm);
+}
+.crm-page .crm-stage-name:hover {
+  text-decoration: underline dotted;
+}
+.crm-page .crm-stage-del {
+  color: var(--color-danger);
+  border-radius: var(--radius-sm);
+}
+.crm-page .crm-stage-del:focus-visible,
+.crm-page a:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset-tight);
+}
+.crm-page .crm-stage {
+  border-radius: var(--card-radius);
+}
