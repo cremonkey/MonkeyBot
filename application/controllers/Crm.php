@@ -488,6 +488,37 @@ class Crm extends Home
         echo json_encode(['status' => '1', 'message' => $queued . ' lead queued to the CRM (sent within a few minutes). ' . $skipped . ' skipped (already sent or no contact).']);
     }
 
+    /**
+     * Unified outbox (Task 25 / C10, brief §28): both connector queues
+     * (8xCRM + Google Sheet) share crm_external_log; this just lists the
+     * tenant's own rows with a retry button per row.
+     */
+    public function outbox()
+    {
+        $this->load->helper('crm_outbox');
+        $data['rows'] = crm_outbox_rows($this->uid, array(
+            'status'   => $this->input->get('status', true) ?: null,
+            'provider' => $this->input->get('provider', true) ?: null,
+        ));
+        $data['counts'] = crm_outbox_counts($this->uid);
+        $data['page_title'] = 'CRM Outbox';
+        $data['body'] = 'admin/crm/outbox';
+        $this->_viewcontroller($data);
+    }
+
+    /** AJAX POST — retry one outbox row. Tenant-scoped: crm_outbox_retry() re-checks ownership itself. */
+    public function outbox_retry()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        $this->load->helper('crm_outbox');
+        $log_id = (int) $this->input->post('id', true);
+        if ($log_id <= 0) { echo json_encode(array('status' => '0', 'message' => 'invalid id')); return; }
+        $result = crm_outbox_retry($this->uid, $log_id);
+        echo json_encode(array('status' => $result['ok'] ? '1' : '0', 'message' => $result['message']));
+    }
+
     public function create_deal_from_contact()
     {
         $this->csrf_token_check();
