@@ -184,3 +184,12 @@
 .an-page .chart-card canvas {
   max-width: 100%;
 }
+
+/* Customers (Task 16 / brief §16/§13) — Customer 360 read side + Inbox panel. Tokens only. */
+.cu-page .cu-filter-bar { gap: var(--space-2); }
+.cu-page .cu-filter-input { max-width: 260px; }
+.cu-page .cu-filter-select { width: auto; }
+.cu-page .cu-channel-badge { margin-right: var(--space-1); text-transform: uppercase; }
+.cu-page .cu-channel-dot { font-size: var(--mb-space-2); color: var(--mb-blue-500); margin-right: var(--space-1); }
+.cu-page .cu-score-badge { font-size: var(--text-lg); padding: var(--space-1) var(--space-3); }
+.cu-page .cu-label-badge { margin-right: var(--space-1); margin-bottom: var(--space-1); display: inline-block; color: var(--color-text); border: var(--mb-border-width-1) solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); }

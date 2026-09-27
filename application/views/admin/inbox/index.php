@@ -70,6 +70,16 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
             <p class="mb-0"><small class="text-muted">Channel</small><br><span id="ib_c_channel">—</span></p>
           </div></div>
 
+          <!-- Customer 360 (Task 16 / brief §16/§13): compact panel from Inbox::customer_panel -->
+          <div class="card mb-2" id="ib_cu_panel" style="display:none"><div class="card-body">
+            <p class="mb-1"><small class="text-muted">Lead score</small><br><span id="ib_cu_score">—</span></p>
+            <p class="mb-1"><small class="text-muted">Other channels</small><br><span id="ib_cu_channels">—</span></p>
+            <p class="mb-1"><small class="text-muted">Pipeline stage</small><br><span id="ib_cu_stage">—</span></p>
+            <p class="mb-1"><small class="text-muted">Other conversations</small><br><span id="ib_cu_other_convs">—</span></p>
+            <p class="mb-1"><small class="text-muted">Orders</small><br><span id="ib_cu_orders">—</span></p>
+            <a id="ib_cu_profile_link" href="#" class="btn btn-sm btn-outline-primary btn-block">Open full profile</a>
+          </div></div>
+
           <div class="card mb-2"><div class="card-body">
             <p class="mb-1"><b id="ib_handoff_badge" class="badge badge-secondary">—</b></p>
             <div class="btn-group-vertical btn-block ib-actions-vertical">
@@ -315,6 +325,25 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       loadSummary(false);
       loadCanned();
       loadList(true); // refresh unread badges
+      loadCustomerPanel(current.id);
+    });
+  }
+
+  /** Task 16 / brief §16/§13: compact Customer 360 panel. Hidden entirely when the
+   *  conversation has no linked customer row (customer_id NULL), same as an unresolved
+   *  legacy thread — nothing to show, no error either. */
+  function loadCustomerPanel(conversationId) {
+    $('#ib_cu_panel').hide();
+    post('customer_panel', {conversation_id: conversationId}, function (r) {
+      if (r.status !== '1') return; // no linked customer — leave the panel hidden
+      $('#ib_cu_score').text(r.customer.lead_score);
+      $('#ib_cu_channels').text((r.channels || []).map(function (c) { return PLAT_NAME[c] || c; }).join(', ') || '—');
+      var stage = r.lead_stage || {};
+      $('#ib_cu_stage').text(stage.open_deal ? stage.open_deal.title : ('Open: ' + (stage.open_count || 0) + ' · Won: ' + (stage.won_count || 0)));
+      $('#ib_cu_other_convs').text((r.other_conversations || []).length ? (r.other_conversations.length + ' other conversation(s)') : 'None');
+      $('#ib_cu_orders').text((r.orders || []).length ? (r.orders.length + ' order(s)') : 'None');
+      $('#ib_cu_profile_link').attr('href', r.profile_url || '#');
+      $('#ib_cu_panel').show();
     });
   }
 
