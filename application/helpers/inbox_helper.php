@@ -118,7 +118,10 @@ if (!function_exists('inbox_scope_conversations')) {
      * Expects the builder already has FROM conversations c (customers joined as cu when a
      * search is requested).
      *
-     * $filters: platform, status, handoff_state, assigned_user_id, unread_only (bool), label_id, search
+     * $filters: platform, status, handoff_state, assigned_user_id, unread_only (bool), label_id,
+     * search, assigned_team_id (Task 17, brief §13), my_team_ids (Task 17: array of teams.id the
+     * acting agent belongs to, resolved by the controller from team_memberships before this call —
+     * kept a plain int array here so this stays a pure/testable helper with no DB lookup of its own)
      */
     function inbox_scope_conversations($db, $user_id, array $filters = array())
     {
@@ -129,6 +132,18 @@ if (!function_exists('inbox_scope_conversations')) {
         if (!empty($filters['handoff_state'])) $db->where('c.handoff_state', (string) $filters['handoff_state']);
         if (array_key_exists('assigned_user_id', $filters) && $filters['assigned_user_id'] !== null && $filters['assigned_user_id'] !== '') {
             $db->where('c.assigned_user_id', (int) $filters['assigned_user_id']);
+        }
+        if (!empty($filters['assigned_team_id']) && (int) $filters['assigned_team_id'] > 0) {
+            $db->where('c.assigned_team_id', (int) $filters['assigned_team_id']);
+        }
+        if (array_key_exists('my_team_ids', $filters) && is_array($filters['my_team_ids'])) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', $filters['my_team_ids']), function ($v) { return $v > 0; })));
+            if ($ids) {
+                $db->where_in('c.assigned_team_id', $ids);
+            } else {
+                // No teams -> "My team" must show nothing, not silently ignore the filter.
+                $db->where('c.assigned_team_id', -1);
+            }
         }
         if (!empty($filters['unread_only'])) $db->where('c.unread_count >', 0);
         if (!empty($filters['label_id']) && (int) $filters['label_id'] > 0) {

@@ -61,6 +61,9 @@
 .ib-page .ib-row { cursor: pointer; }
 .ib-page .ib-row.active-conv { background: var(--mb-blue-50); }
 .ib-page .ib-pre-wrap { white-space: pre-wrap; }
+/* Task 17 (C2, brief §13): teams manager modal + team-inbox controls. */
+.ib-page #ib_team_members_list { max-height: 40vh; overflow-y: auto; }
+.ib-page #ib_teams_table { max-height: 30vh; overflow-y: auto; }
 .ib-page .ib-attachment-image { max-width: var(--ib-attachment-image-max-size); max-height: var(--ib-attachment-image-max-size); border-radius: var(--radius-sm); }
 .ib-page .ib-attachment-video { max-width: var(--ib-attachment-video-max-width); }
 .ib-page .ib-bubble { max-width: var(--ib-bubble-max-width); border: var(--mb-border-width-1) solid var(--color-border); }
@@ -215,4 +218,17 @@
 }
 .crm-page .crm-stage {
   border-radius: var(--card-radius);
+}
+
+/* ------------------------------------------------------------------ */
+/* Task 17 (C2, brief §13): teams + team inbox. The team assign select  */
+/* and "My team" filter reuse the Inbox controls' existing sizing; only */
+/* the teams manager modal's member checklist needs its own rule.       */
+/* ------------------------------------------------------------------ */
+.ib-page #ib_team_members_list {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: var(--space-2);
+  border: var(--mb-border-width-1) solid var(--color-border);
+  border-radius: var(--radius-sm);
 }

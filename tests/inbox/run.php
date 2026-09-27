@@ -39,6 +39,7 @@ class FakeQB
     public $calls = array();
     public function where($a, $b = null, $escape = null) { $this->calls[] = array('where', $a, $b); return $this; }
     public function or_where($a, $b = null, $escape = null) { $this->calls[] = $b === null ? array('or_where', $a) : array('or_where', $a, $b); return $this; }
+    public function where_in($a, $b) { $this->calls[] = array('where_in', $a, $b); return $this; }
     public function like($a, $b) { $this->calls[] = array('like', $a, $b); return $this; }
     public function or_like($a, $b) { $this->calls[] = array('or_like', $a, $b); return $this; }
     public function group_start() { $this->calls[] = array('group_start'); return $this; }
@@ -74,6 +75,62 @@ check('conversations list: an unrecognised "user_id" filter key cannot override 
 $q = new FakeQB();
 inbox_scope_conversation_owner($q, 555, 99);
 check('single conversation: id AND user_id both applied', $q->calls, array(array('where', 'id', 555), array('where', 'user_id', 99)));
+
+// ------------------------------------------------------------------------------------------
+// Task 17 (C2, brief §13): teams + team inbox. "Assign to team" is additive (assigned_team_id),
+// never touches assigned_user_id / the existing per-agent assign above. "My team" resolves to a
+// plain int array of team ids the controller passes in (team_helper.php's team_ids_for_member()),
+// so this stays a query-SHAPE test like every other filter here.
+echo "\n== Task 17: assigned_team_id / my_team_ids filter shape ==\n";
+
+$q = new FakeQB();
+inbox_scope_conversations($q, 4321, array('assigned_team_id' => 9));
+check('assigned_team_id filter: tenant guard first', $q->calls[0], array('where', 'c.user_id', 4321));
+check('assigned_team_id filter: exactly the guard + the team filter', $q->calls, array(
+    array('where', 'c.user_id', 4321), array('where', 'c.assigned_team_id', 9),
+));
+
+$q = new FakeQB();
+inbox_scope_conversations($q, 4321, array('my_team_ids' => array(3, 3, 5, '7')));
+check('my_team_ids filter: uses where_in, de-duplicated and cast to int', $q->calls, array(
+    array('where', 'c.user_id', 4321), array('where_in', 'c.assigned_team_id', array(3, 5, 7)),
+));
+
+$q = new FakeQB();
+inbox_scope_conversations($q, 4321, array('my_team_ids' => array()));
+check('my_team_ids filter: no teams -> matches nothing, does not fall back to "all conversations"', $q->calls, array(
+    array('where', 'c.user_id', 4321), array('where', 'c.assigned_team_id', -1),
+));
+
+$q = new FakeQB();
+inbox_scope_conversations($q, 4321, array('my_team_ids' => array(-1, 0, 'abc')));
+check('my_team_ids filter: only non-positive/garbage ids -> also matches nothing',
+    end($q->calls), array('where', 'c.assigned_team_id', -1));
+
+// A filter dict crafted to try to smuggle another tenant's team in: assigned_team_id alone
+// carries no tenant guard of its own (the controller only ever passes ids from own_team() /
+// my_team_ids(), both already tenant-scoped) — assert the query's user_id guard is still first
+// and unchanged, same as the assigned_user_id smuggle-attempt test above.
+$q = new FakeQB();
+inbox_scope_conversations($q, 99, array('assigned_team_id' => 4321, 'my_team_ids' => array(1)));
+check('team filters never override the tenant guard', $q->calls[0], array('where', 'c.user_id', 99));
+
+require __DIR__ . '/../../application/helpers/team_helper.php';
+
+check('team_ids_for_member(): distinct team ids for this member, others ignored',
+    team_ids_for_member(array(
+        array('team_id' => 1, 'team_member_id' => 55),
+        array('team_id' => 2, 'team_member_id' => 56),
+        array('team_id' => 1, 'team_member_id' => 55), // duplicate row
+        array('team_id' => 3, 'team_member_id' => 55),
+    ), 55),
+    array(1, 3));
+check('team_ids_for_member(): a member of no teams gets an empty array (not null/false)',
+    team_ids_for_member(array(array('team_id' => 1, 'team_member_id' => 55)), 999), array());
+
+check('team_normalize_name(): trims, collapses whitespace, strips tags', team_normalize_name("  <b>Sales  Team</b> \n"), 'Sales Team');
+check('team_normalize_name(): blank/whitespace-only -> null (reject, do not store an empty name)', team_normalize_name('   '), null);
+check('team_normalize_name(): truncates to 120 chars (the column width)', mb_strlen(team_normalize_name(str_repeat('x', 200))), 120);
 
 // ============================================================================================
 echo "\n== policy-denied reply path ==\n";
