@@ -649,6 +649,66 @@ class Inbox extends Home
         echo json_encode(array('status' => '1', 'summary' => $result['summary'], 'generated_at' => $now, 'cached' => false));
     }
 
+    // ------------------------------------------------------------------ customer panel
+
+    /**
+     * AJAX: compact Customer 360 panel for the Inbox right rail (Task 16 / brief §16/§13).
+     * Reuses the exact same aggregation functions (application/helpers/customer_helper.php)
+     * Customers::profile() calls for the full page — this endpoint just asks for a customer
+     * by the conversation it is opened from, tenant-scoped through conversation_get() first
+     * so another tenant's conversation id can never leak a customer row (IDOR-checked, same
+     * as conversation_thread()).
+     */
+    public function customer_panel()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+
+        $this->load->helper('customer');
+
+        $conversation_id = (int) $this->input->post('conversation_id');
+        $conv = conversation_get($conversation_id, $this->uid); // tenant guard: NULL for another tenant's id
+        if (empty($conv) || empty($conv['customer_id'])) {
+            echo json_encode(array('status' => '0', 'message' => 'No customer linked to this conversation')); return;
+        }
+
+        $customer = $this->db->select('id, display_name, phone, email, lead_score, source, legacy_subscriber_id, created_at')
+            ->from('customers');
+        customer_scope_owner($this->db, (int) $conv['customer_id'], $this->uid); // tenant guard again on the customer row itself
+        $customer = $customer->get()->row_array();
+        if (empty($customer)) {
+            echo json_encode(array('status' => '0', 'message' => 'Customer not found')); return;
+        }
+
+        $cid = (int) $customer['id'];
+        static $ready = array();
+
+        $identities = $this->db->select('platform, external_id, channel_account_id')
+            ->from('customer_identities')->where('customer_id', $cid)->where('user_id', $this->uid)
+            ->order_by('platform', 'ASC')->get()->result_array();
+        $deals = customer_deals_for($this->db, $this->uid, $customer, $ready);
+        $other_conversations = array_values(array_filter(
+            customer_conversations_for($this->db, $this->uid, $cid, 10),
+            function ($c) use ($conversation_id) { return (int) $c['id'] !== $conversation_id; }
+        ));
+
+        echo json_encode(array(
+            'status' => '1',
+            'customer' => array(
+                'id' => $cid, 'name' => customer_display_name($customer),
+                'phone' => $customer['phone'], 'email' => $customer['email'], 'lead_score' => (int) $customer['lead_score'],
+            ),
+            'channel_count'      => customer_channel_count($identities),
+            'channels'           => array_keys(customer_identities_by_channel($identities)),
+            'lead_stage'         => customer_lead_stage_summary($deals),
+            'labels'             => customer_labels_for($this->db, $this->uid, $cid, $ready),
+            'orders'             => customer_orders_for($this->db, $this->uid, $identities, $ready),
+            'other_conversations'=> $other_conversations,
+            'profile_url'        => site_url('customers/profile/' . $cid),
+        ));
+    }
+
     // ------------------------------------------------------------------ labels
 
     /** Both label tables exist (migration 2026-09-30-inbox-labels.sql has run). */
