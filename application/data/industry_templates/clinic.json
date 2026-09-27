@@ -87,5 +87,29 @@
     { "key": "preferred_time", "en": "What day and time suit you?", "ar": "أنهي يوم وميعاد يناسبك؟" },
     { "key": "first_visit", "en": "Is this a first visit or a follow-up?", "ar": "دي أول مرة ولا مراجعة؟" },
     { "key": "phone", "en": "What is the best number to confirm on?", "ar": "إيه أحسن رقم نأكدلك عليه؟" }
-  ]
+  ],
+  "sequences": [
+    {
+      "name": "Appointment reminder",
+      "steps": [
+        { "delay_hours": 2, "message_en": "Thanks for reaching out - would you like to book a visit?", "message_ar": "شكرًا لتواصلك - حابب نحجزلك ميعاد كشف؟" },
+        { "delay_hours": 48, "message_en": "Friendly reminder: we are here whenever you are ready to book.", "message_ar": "تذكير بسيط: إحنا موجودين لو حبيت تحجز الميعاد." }
+      ]
+    }
+  ],
+  "automation_rules": [
+    {
+      "name": "Missed appointment -> reschedule task",
+      "trigger": "appointment.no_show",
+      "conditions": [],
+      "actions": [
+        { "type": "create_task", "subject": "Call patient to reschedule" }
+      ]
+    }
+  ],
+  "media": [
+    { "key": "clinic_photo", "caption_en": "Clinic front photo for new chats", "caption_ar": "صورة واجهة العيادة تتبعت لأول مرة" },
+    { "key": "doctor_profile", "caption_en": "Doctor photo + short bio", "caption_ar": "صورة الدكتور ونبذة قصيرة" }
+  ],
+  "appointments": { "enabled": false, "default_duration_minutes": 20, "buffer_minutes": 10 }
 }

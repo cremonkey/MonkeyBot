@@ -296,5 +296,81 @@ foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/
 }
 check('no new files under application/config (they would never reach production)', empty($extra), implode(', ', $extra));
 
+echo "\n== task 23 / \xc2\xa733: optional extras (sequences, automation, media, appointments) ==\n";
+// Old templates without these keys must still validate and produce plans that do nothing --
+// this proves the extension is additive and byte-identical when a template opts out.
+$bare = $templates['hotel'];
+foreach (array('sequences', 'automation_rules', 'media', 'appointments') as $optional_key) unset($bare[$optional_key]);
+check('a template with none of the optional keys still validates', empty(industry_template_validate($bare)));
+same('no sequences key -> empty plan', array(), industry_template_sequences_plan($bare, array()));
+same('no automation_rules key -> empty plan', array(), industry_template_automation_plan($bare, array()));
+same('no media key -> empty plan', array(), industry_template_media_plan($bare));
+same('no appointments key -> skip (nothing offered)', 'skip', industry_template_appointments_plan($bare, false)['op']);
+
+foreach ($EXPECTED as $k) {
+    check("$k.json carries the new optional sections", isset($templates[$k]['sequences'], $templates[$k]['automation_rules'], $templates[$k]['media'], $templates[$k]['appointments']));
+}
+
+echo "\n-- sequences plan --\n";
+$hotel = $templates['hotel'];
+$seq_plan = industry_template_sequences_plan($hotel, array());
+check('one insert per template sequence', count($seq_plan) === count($hotel['sequences']));
+$first = $seq_plan[0];
+same('a fresh sequence is inserted', 'insert', $first['op']);
+same('a template sequence is NEVER created active -- status is always draft', 'draft', $first['status']);
+check('steps carry delay_seconds converted from delay_hours', $first['steps'][0]['delay_seconds'] === (int) round(((float) $hotel['sequences'][0]['steps'][0]['delay_hours']) * 3600));
+same('a step dispatches through the shared send_message action, same vocabulary as Automation Rules', 'send_message', $first['steps'][0]['action_type']);
+check('ar text flows into the step by default', trim($first['steps'][0]['action_params']['text']) === trim($hotel['sequences'][0]['steps'][0]['message_ar']));
+$seq_plan_en = industry_template_sequences_plan($hotel, array(), 'en');
+check('lang=en picks message_en instead', trim($seq_plan_en[0]['steps'][0]['action_params']['text']) === trim($hotel['sequences'][0]['steps'][0]['message_en']));
+
+// idempotency: a sequence already applied (by source_key) is never re-inserted
+$sk = industry_template_sequence_source_key($hotel['key'], $hotel['sequences'][0]['name']);
+$again = industry_template_sequences_plan($hotel, array($sk => array('id' => 9)));
+same('re-applying a sequence already on the tenant is a no-op', 'skip', $again[0]['op']);
+
+echo "\n-- automation rules plan --\n";
+$auto_plan = industry_template_automation_plan($hotel, array());
+check('one insert per template rule', count($auto_plan) === count($hotel['automation_rules']));
+same('a template rule is NEVER created active -- status is always draft', 'draft', $auto_plan[0]['status']);
+same('trigger_event carries the template trigger', $hotel['automation_rules'][0]['trigger'], $auto_plan[0]['trigger_event']);
+check('actions_json round-trips the template actions', json_decode($auto_plan[0]['actions_json'], true) === array_values($hotel['automation_rules'][0]['actions']));
+$ask = industry_template_automation_source_key($hotel['key'], $hotel['automation_rules'][0]['name']);
+$auto_again = industry_template_automation_plan($hotel, array($ask => array('id' => 3)));
+same('re-applying a rule already on the tenant is a no-op', 'skip', $auto_again[0]['op']);
+if (class_exists('Automation_engine', false)) {
+    $catalogue = array_keys(Automation_engine::action_catalogue());
+    foreach ($EXPECTED as $k) {
+        foreach ($templates[$k]['automation_rules'] as $ri => $rule) {
+            foreach ($rule['actions'] as $ai => $a) {
+                check("$k.automation_rules[$ri].actions[$ai].type is a known Automation_engine action", in_array($a['type'], $catalogue, true), $a['type']);
+            }
+        }
+    }
+}
+
+echo "\n-- media placeholders plan --\n";
+$media_plan = industry_template_media_plan($hotel);
+check('one row per template media placeholder, no files created', count($media_plan) === count($hotel['media']));
+check('nothing "uploaded" until the caller says so', $media_plan[0]['uploaded'] === false);
+$media_plan2 = industry_template_media_plan($hotel, array($hotel['media'][0]['key']));
+check('an existing key is reported uploaded', $media_plan2[0]['uploaded'] === true);
+foreach ($EXPECTED as $k) {
+    foreach ($templates[$k]['media'] as $mi => $m) {
+        check("$k.media[$mi] has no file/url/path -- placeholder only", !isset($m['file'], $m['url'], $m['path']));
+    }
+}
+
+echo "\n-- appointments plan --\n";
+$ap_plan = industry_template_appointments_plan($hotel, false);
+same('appointments.enabled is false in every shipped template -> nothing offered', 'skip', $ap_plan['op']);
+$enabled_tpl = $hotel; $enabled_tpl['appointments']['enabled'] = true;
+$ap_plan2 = industry_template_appointments_plan($enabled_tpl, false);
+same('an owner-enabled template with no existing service -> offer to create one', 'insert', $ap_plan2['op']);
+same('a template appointment service is NEVER created bookable -- status is always "0"', '0', $ap_plan2['status']);
+same('default_duration_minutes carries through', (int) $hotel['appointments']['default_duration_minutes'], $ap_plan2['duration_min']);
+$ap_plan3 = industry_template_appointments_plan($enabled_tpl, true);
+same('a tenant with an existing service is never touched', 'skip', $ap_plan3['op']);
+
 echo "\n$PASS passed, $FAIL failed\n";
 exit($FAIL === 0 && $PASS > 0 ? 0 : 1);

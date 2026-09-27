@@ -87,5 +87,29 @@
     { "key": "quantity", "en": "How many pieces?", "ar": "كام قطعة؟" },
     { "key": "city", "en": "Which city or governorate do we ship to?", "ar": "هنشحن لأنهي مدينة أو محافظة؟" },
     { "key": "phone", "en": "What is the best number for the delivery company?", "ar": "إيه أحسن رقم لشركة الشحن؟" }
-  ]
+  ],
+  "sequences": [
+    {
+      "name": "Abandoned cart nudge",
+      "steps": [
+        { "delay_hours": 1, "message_en": "You left something in your cart - need any help deciding?", "message_ar": "لسه فيه حاجة في العربة - محتاج مساعدة في الاختيار؟" },
+        { "delay_hours": 24, "message_en": "Still interested? Your items are still available.", "message_ar": "لسه مهتم؟ المنتجات لسه متاحة عندنا." }
+      ]
+    }
+  ],
+  "automation_rules": [
+    {
+      "name": "Order placed -> create CRM deal",
+      "trigger": "order.created",
+      "conditions": [],
+      "actions": [
+        { "type": "create_crm_deal", "title": "New order", "stage": "" }
+      ]
+    }
+  ],
+  "media": [
+    { "key": "product_catalog_cover", "caption_en": "Cover image shown when the AI shares the catalog", "caption_ar": "صورة غلاف تتبعت مع الكتالوج" },
+    { "key": "size_chart", "caption_en": "Size/measurement chart, if relevant", "caption_ar": "جدول المقاسات لو موجود" }
+  ],
+  "appointments": { "enabled": false, "default_duration_minutes": 30, "buffer_minutes": 0 }
 }

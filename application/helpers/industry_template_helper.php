@@ -226,6 +226,98 @@ if (!function_exists('industry_template_validate')) {
             $bi($q, "qualification_questions[$i]");
         }
 
+        // --- optional: sequences (Task 23 / brief §33) ---
+        // Every key here is OPTIONAL: a template with none of these keys validates and
+        // applies exactly as before. When present, each is checked so a broken vertical
+        // file cannot reach a tenant, but nothing here is ever auto-enabled — the apply
+        // plan functions below always create these rows disabled/paused, regardless of
+        // any "enabled"-looking flag in the JSON. The owner switches them on by hand.
+        if (array_key_exists('sequences', $tpl)) {
+            $seqs = $tpl['sequences'];
+            if (!is_array($seqs)) $e[] = 'sequences: must be an array when present.';
+            else foreach (array_values($seqs) as $i => $s) {
+                if (!is_array($s)) { $e[] = "sequences[$i]: must be an object."; continue; }
+                if (trim((string) ($s['name'] ?? '')) === '') $e[] = "sequences[$i].name: missing.";
+                $steps = $s['steps'] ?? null;
+                if (!is_array($steps) || count($steps) < 1) $e[] = "sequences[$i].steps: need at least 1 step.";
+                else foreach (array_values($steps) as $j => $st) {
+                    if (!is_array($st)) { $e[] = "sequences[$i].steps[$j]: must be an object."; continue; }
+                    if (!isset($st['delay_hours']) || !is_numeric($st['delay_hours']) || (float) $st['delay_hours'] < 0) {
+                        $e[] = "sequences[$i].steps[$j].delay_hours: must be a number >= 0.";
+                    }
+                    if (trim((string) ($st['message_en'] ?? '')) === '') $e[] = "sequences[$i].steps[$j].message_en: missing.";
+                    if (trim((string) ($st['message_ar'] ?? '')) === '') $e[] = "sequences[$i].steps[$j].message_ar: missing.";
+                }
+            }
+        }
+
+        // --- optional: automation_rules ---
+        if (array_key_exists('automation_rules', $tpl)) {
+            $rules = $tpl['automation_rules'];
+            if (!is_array($rules)) $e[] = 'automation_rules: must be an array when present.';
+            else {
+                if (!function_exists('class_exists') || !class_exists('Automation_engine', false)) {
+                    // library not loaded in this context (e.g. plain CLI test) — the catalogue
+                    // check below is skipped, action 'type' presence is still required.
+                }
+                foreach (array_values($rules) as $i => $r) {
+                    if (!is_array($r)) { $e[] = "automation_rules[$i]: must be an object."; continue; }
+                    if (trim((string) ($r['name'] ?? '')) === '') $e[] = "automation_rules[$i].name: missing.";
+                    if (trim((string) ($r['trigger'] ?? '')) === '') $e[] = "automation_rules[$i].trigger: missing.";
+                    $conditions = $r['conditions'] ?? array();
+                    if (!is_array($conditions)) $e[] = "automation_rules[$i].conditions: must be an array.";
+                    $actions = $r['actions'] ?? null;
+                    if (!is_array($actions) || count($actions) < 1) $e[] = "automation_rules[$i].actions: need at least 1.";
+                    else {
+                        $catalogue = class_exists('Automation_engine', false) ? array_keys(Automation_engine::action_catalogue()) : null;
+                        foreach (array_values($actions) as $j => $a) {
+                            if (!is_array($a) || empty($a['type'])) { $e[] = "automation_rules[$i].actions[$j]: missing type."; continue; }
+                            if ($catalogue !== null && !in_array($a['type'], $catalogue, true)) {
+                                $e[] = "automation_rules[$i].actions[$j].type: \"" . $a['type'] . "\" is not a known Automation_engine action.";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- optional: media placeholders ---
+        if (array_key_exists('media', $tpl)) {
+            $media = $tpl['media'];
+            if (!is_array($media)) $e[] = 'media: must be an array when present.';
+            else {
+                $seen = array();
+                foreach (array_values($media) as $i => $m) {
+                    if (!is_array($m)) { $e[] = "media[$i]: must be an object."; continue; }
+                    $k = trim((string) ($m['key'] ?? ''));
+                    if ($k === '' || !preg_match('/^[a-z0-9_]+$/', $k)) $e[] = "media[$i].key: must be lowercase a-z0-9_.";
+                    elseif (isset($seen[$k])) $e[] = "media[$i]: duplicate key \"$k\".";
+                    $seen[$k] = true;
+                    if (trim((string) ($m['caption_en'] ?? '')) === '') $e[] = "media[$i].caption_en: missing.";
+                    if (trim((string) ($m['caption_ar'] ?? '')) === '') $e[] = "media[$i].caption_ar: missing.";
+                    // placeholders only: no file/url ever belongs in template JSON, no real asset ships here
+                    foreach (array('file', 'url', 'path') as $forbidden) {
+                        if (isset($m[$forbidden])) $e[] = "media[$i].$forbidden: templates carry captions only, not files.";
+                    }
+                }
+            }
+        }
+
+        // --- optional: appointments ---
+        if (array_key_exists('appointments', $tpl)) {
+            $ap = $tpl['appointments'];
+            if (!is_array($ap)) $e[] = 'appointments: must be an object when present.';
+            else {
+                if (!array_key_exists('enabled', $ap) || !is_bool($ap['enabled'])) $e[] = 'appointments.enabled: must be true or false.';
+                if (!isset($ap['default_duration_minutes']) || !ctype_digit((string) $ap['default_duration_minutes']) || (int) $ap['default_duration_minutes'] < 5) {
+                    $e[] = 'appointments.default_duration_minutes: must be an integer >= 5.';
+                }
+                if (!isset($ap['buffer_minutes']) || !ctype_digit((string) $ap['buffer_minutes']) || (int) $ap['buffer_minutes'] < 0) {
+                    $e[] = 'appointments.buffer_minutes: must be an integer >= 0.';
+                }
+            }
+        }
+
         return $e;
     }
 }
@@ -454,5 +546,177 @@ if (!function_exists('industry_template_pricing_plan')) {
             else $out['write'][$k] = $scope;
         }
         return $out;
+    }
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Task 23 / brief §33 — optional extras (sequences, automation rules, media
+ * placeholders, appointment defaults). Offered on a new, separate Setup Guide step the
+ * owner can skip entirely; nothing here is reached by save_knowledge()/save_pricing()/etc.
+ * and none of these plans is invoked unless the owner opens that step and clicks apply.
+ *
+ * Golden rule enforced by every plan below: a row this creates is ALWAYS created in a
+ * disabled/paused state, no matter what the template JSON says — the owner is the only
+ * path to "on". This makes "apply extras" safe to offer to an existing tenant who already
+ * applied the base template (idempotent, additive, and never flips a live switch).
+ * ---------------------------------------------------------------------------
+ */
+
+if (!function_exists('industry_template_sequence_source_key')) {
+    /** Stable per-tenant marker for a template-provided sequence, mirrors the FAQ pattern. */
+    function industry_template_sequence_source_key($template_key, $seq_name)
+    {
+        return 'tpl:' . $template_key . ':' . preg_replace('/[^a-z0-9_]/', '_', mb_strtolower($seq_name));
+    }
+}
+
+if (!function_exists('industry_template_sequences_plan')) {
+    /**
+     * Decide what "apply the template's starter sequences" should do. Pure, no DB.
+     *
+     * Rules (mirrors industry_template_faq_plan):
+     *  - a starter sequence not yet on the tenant (by source_key) -> insert, status 'draft'
+     *    (sequences have no 'paused' status; 'draft' is the never-runs state — see
+     *    Sequences.php's status column) and its steps, in order, delay_seconds = delay_hours*3600
+     *  - a starter sequence already applied (same source_key)     -> skip (never re-insert,
+     *    never touch what the owner has since edited)
+     *  - lang picks message_en/message_ar for the send_message action text
+     *
+     * @param array  $template          a loaded template
+     * @param array  $existing_by_key   source_key => sequence row already on the tenant
+     * @param string $lang              'ar' or 'en' — which starter text becomes the step message
+     * @return array[] {op:'insert'|'skip', source_key, name, status, steps:[{delay_seconds, action_type, action_params}]}
+     */
+    function industry_template_sequences_plan($template, $existing_by_key, $lang = 'ar')
+    {
+        $plan = array();
+        foreach (($template['sequences'] ?? array()) as $s) {
+            $name = (string) ($s['name'] ?? '');
+            $sk = industry_template_sequence_source_key($template['key'], $name);
+            if (isset($existing_by_key[$sk])) {
+                $plan[] = array('op' => 'skip', 'source_key' => $sk, 'name' => $name, 'status' => null, 'steps' => array());
+                continue;
+            }
+            $steps = array();
+            foreach (($s['steps'] ?? array()) as $st) {
+                $text = $lang === 'en' ? (string) ($st['message_en'] ?? '') : (string) ($st['message_ar'] ?? '');
+                $steps[] = array(
+                    'delay_seconds' => (int) round(((float) ($st['delay_hours'] ?? 0)) * 3600),
+                    'action_type' => 'send_message',
+                    'action_params' => array('text' => $text),
+                );
+            }
+            // ALWAYS 'draft': a template extra is never live until the owner publishes it.
+            $plan[] = array('op' => 'insert', 'source_key' => $sk, 'name' => $name, 'status' => 'draft', 'steps' => $steps);
+        }
+        return $plan;
+    }
+}
+
+if (!function_exists('industry_template_automation_source_key')) {
+    /** Stable per-tenant marker for a template-provided automation rule. */
+    function industry_template_automation_source_key($template_key, $rule_name)
+    {
+        return 'tpl:' . $template_key . ':' . preg_replace('/[^a-z0-9_]/', '_', mb_strtolower($rule_name));
+    }
+}
+
+if (!function_exists('industry_template_automation_plan')) {
+    /**
+     * Decide what "apply the template's starter automation rules" should do. Pure, no DB.
+     * Same insert-or-skip shape as the sequences plan above.
+     *
+     * @param array $template         a loaded template
+     * @param array $existing_by_key  source_key => automation_rules row already on the tenant
+     * @return array[] {op:'insert'|'skip', source_key, name, trigger_event, conditions_json, actions_json, status}
+     */
+    function industry_template_automation_plan($template, $existing_by_key)
+    {
+        $plan = array();
+        foreach (($template['automation_rules'] ?? array()) as $r) {
+            $name = (string) ($r['name'] ?? '');
+            $sk = industry_template_automation_source_key($template['key'], $name);
+            if (isset($existing_by_key[$sk])) {
+                $plan[] = array('op' => 'skip', 'source_key' => $sk, 'name' => $name, 'trigger_event' => '', 'conditions_json' => '[]', 'actions_json' => '[]', 'status' => null);
+                continue;
+            }
+            $plan[] = array(
+                'op' => 'insert',
+                'source_key' => $sk,
+                'name' => $name,
+                'trigger_event' => (string) ($r['trigger'] ?? ''),
+                'conditions_json' => json_encode(array_values((array) ($r['conditions'] ?? array())), JSON_UNESCAPED_UNICODE),
+                'actions_json' => json_encode(array_values((array) ($r['actions'] ?? array())), JSON_UNESCAPED_UNICODE),
+                // ALWAYS 'draft' (not 'active'): a template rule never fires on its own.
+                'status' => 'draft',
+            );
+        }
+        return $plan;
+    }
+}
+
+if (!function_exists('industry_template_media_plan')) {
+    /**
+     * Decide what "list the template's media placeholders" should show the owner. No file
+     * is ever created — this only tells the wizard which named slots (e.g. "hero_photo")
+     * the vertical expects, with bilingual captions, so the owner knows what to upload
+     * through the existing media library. Pure, no DB.
+     *
+     * @param array $template a loaded template
+     * @param array $existing_keys media keys already uploaded/attached for this tenant
+     * @param string $lang 'ar' or 'en' — which caption text to surface
+     * @return array[] {key, caption, uploaded:bool}
+     */
+    function industry_template_media_plan($template, $existing_keys = array(), $lang = 'ar')
+    {
+        $plan = array();
+        foreach (($template['media'] ?? array()) as $m) {
+            $key = (string) ($m['key'] ?? '');
+            $caption = $lang === 'en' ? (string) ($m['caption_en'] ?? '') : (string) ($m['caption_ar'] ?? '');
+            $plan[] = array(
+                'key' => $key,
+                'caption' => $caption,
+                'uploaded' => in_array($key, $existing_keys, true),
+            );
+        }
+        return $plan;
+    }
+}
+
+if (!function_exists('industry_template_appointments_plan')) {
+    /**
+     * Decide what "apply the template's appointment defaults" should do. Pure, no DB.
+     *
+     *  - appointments missing, or appointments.enabled === false -> no-op (nothing offered)
+     *  - a tenant with an existing ab_services row               -> no-op (never touch what
+     *    the owner already configured)
+     *  - otherwise                                                -> offer to create ONE
+     *    starter service, status '0' (disabled — see Appointment_booking::save_service,
+     *    where status '1' means bookable). The owner enables it from Appointments like any
+     *    other service; buffer_minutes has no engine support yet (SPEC-17 has no buffer
+     *    column) so it is carried through only as informational metadata, never applied.
+     *
+     * @param array $template          a loaded template
+     * @param bool  $has_existing_service  the tenant already has at least one ab_services row
+     * @return array {op:'insert'|'skip', name, duration_min, buffer_minutes_note, status}
+     */
+    function industry_template_appointments_plan($template, $has_existing_service)
+    {
+        $ap = $template['appointments'] ?? null;
+        if (!is_array($ap) || empty($ap['enabled'])) {
+            return array('op' => 'skip', 'name' => '', 'duration_min' => 0, 'buffer_minutes_note' => 0, 'status' => null);
+        }
+        if ($has_existing_service) {
+            return array('op' => 'skip', 'name' => '', 'duration_min' => 0, 'buffer_minutes_note' => 0, 'status' => null);
+        }
+        return array(
+            'op' => 'insert',
+            'name' => industry_template_text($template['display_name'] ?? null, 'ar') . ' — ' . 'الحجز الافتراضي',
+            'duration_min' => (int) ($ap['default_duration_minutes'] ?? 30),
+            'buffer_minutes_note' => (int) ($ap['buffer_minutes'] ?? 0),
+            // ALWAYS '0' (disabled): matches ab_services.status semantics, owner flips it on.
+            'status' => '0',
+        );
     }
 }
