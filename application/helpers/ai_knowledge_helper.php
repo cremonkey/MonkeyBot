@@ -606,6 +606,71 @@ if (!function_exists('ai_knowledge_has_embeddings')) {
     }
 }
 
+if (!function_exists('ai_knowledge_has_agent_scope')) {
+    /**
+     * Whether ai_knowledge_sources.agent_id exists (Task 19 / C4 migration
+     * 2026-10-04d-kb-versioning.sql). Lets retrieval skip agent scoping entirely on installs
+     * where that migration has not run yet, so the JOIN/WHERE stays exactly what it is today.
+     *
+     * @return bool
+     */
+    function ai_knowledge_has_agent_scope()
+    {
+        static $has = null;
+        if ($has !== null) {
+            return $has;
+        }
+        $ci = &get_instance();
+        $has = is_object($ci) && $ci->db->field_exists('agent_id', 'ai_knowledge_sources');
+        return $has;
+    }
+}
+
+if (!function_exists('ai_kb_agent_scope_sql')) {
+    /**
+     * SQL fragment scoping ai_knowledge_sources rows (aliased `s`) to a requested agent.
+     *
+     * A source with agent_id NULL is visible to every agent (current, pre-Task-19
+     * behaviour). A source with agent_id set is only visible when it matches the resolved
+     * agent. $agent_id <= 0 means "no agent resolved for this reply" (no per-channel AI
+     * agent profile assigned) -- only account-wide (agent_id IS NULL) sources apply, same as
+     * every source does today since none of them have agent_id set until an owner opts a
+     * source into a specific agent.
+     *
+     * Pure string builder, no DB access, so it is covered by a dependency-free unit test.
+     *
+     * @param int $agent_id ai_agent_profiles.id, or 0/negative for "no agent resolved".
+     * @return string
+     */
+    function ai_kb_agent_scope_sql($agent_id)
+    {
+        $agent_id = (int) $agent_id;
+        return $agent_id > 0
+            ? "(s.agent_id IS NULL OR s.agent_id = {$agent_id})"
+            : "(s.agent_id IS NULL)";
+    }
+}
+
+if (!function_exists('ai_kb_agent_scope_matches')) {
+    /**
+     * Pure PHP mirror of ai_kb_agent_scope_sql(), for a single source's agent_id column
+     * value. Used by unit tests to prove the scoping rule against fake rows without a
+     * database, and available to any future in-PHP filtering path.
+     *
+     * @param int|null $source_agent_id ai_knowledge_sources.agent_id, or NULL.
+     * @param int      $agent_id        Resolved agent id for this reply, or 0/negative.
+     * @return bool
+     */
+    function ai_kb_agent_scope_matches($source_agent_id, $agent_id)
+    {
+        if ($source_agent_id === null || $source_agent_id === '' || (int) $source_agent_id === 0) {
+            return true;
+        }
+        $agent_id = (int) $agent_id;
+        return $agent_id > 0 && (int) $source_agent_id === $agent_id;
+    }
+}
+
 if (!function_exists('ai_vector_search')) {
     /**
      * Semantic search: cosine similarity between the query vector and every
@@ -620,7 +685,7 @@ if (!function_exists('ai_vector_search')) {
      * @param int   $limit     Maximum chunks to return.
      * @return array Rows of ['chunk_text' => ..., 'score' => ...], best first.
      */
-    function ai_vector_search($user_id = 0, $query_vec = array(), $page_id = 0, $limit = 5)
+    function ai_vector_search($user_id = 0, $query_vec = array(), $page_id = 0, $limit = 5, $agent_id = 0)
     {
         $ci = &get_instance();
         if (empty($user_id) || empty($query_vec) || !is_object($ci)) {
@@ -638,13 +703,18 @@ if (!function_exists('ai_vector_search')) {
             ? "s.page_id = {$page_id}"
             : "(s.page_id IS NULL OR s.page_id = 0)";
 
-        $sql = "SELECT c.chunk_text, c.embedding
+        // Task 19 / C4: agent scoping only applies once the column exists, so retrieval on an
+        // unmigrated install stays byte-for-byte what it is today.
+        $agent_scope = ai_knowledge_has_agent_scope() ? (' AND ' . ai_kb_agent_scope_sql($agent_id)) : '';
+
+        $sql = "SELECT c.chunk_text, c.source_id, c.embedding
                 FROM ai_knowledge_chunks c
                 INNER JOIN ai_knowledge_sources s ON s.id = c.source_id
                 WHERE s.user_id = {$user_id}
                   AND {$scope}
                   AND s.status = 'active'
-                  AND c.embedding IS NOT NULL";
+                  AND c.embedding IS NOT NULL"
+                . $agent_scope;
 
         $rows = $ci->db->query($sql)->result_array();
         if (empty($rows)) {
@@ -659,7 +729,7 @@ if (!function_exists('ai_vector_search')) {
             }
             $score = ai_cosine_similarity($query_vec, $vector);
             if ($score >= AI_VECTOR_MIN_SCORE) {
-                $scored[] = array('chunk_text' => $row['chunk_text'], 'score' => $score);
+                $scored[] = array('chunk_text' => $row['chunk_text'], 'source_id' => (int) $row['source_id'], 'score' => $score);
             }
         }
 
@@ -687,7 +757,7 @@ if (!function_exists('ai_fulltext_search')) {
      * @param int    $limit   Maximum chunks to return.
      * @return array Rows of ['chunk_text' => ..., 'score' => ...].
      */
-    function ai_fulltext_search($user_id = 0, $query = '', $page_id = 0, $limit = 5)
+    function ai_fulltext_search($user_id = 0, $query = '', $page_id = 0, $limit = 5, $agent_id = 0)
     {
         $ci = &get_instance();
         if (empty($user_id) || empty($query) || !is_object($ci)) {
@@ -726,18 +796,26 @@ if (!function_exists('ai_fulltext_search')) {
             ? "s.page_id = {$page_id}"
             : "(s.page_id IS NULL OR s.page_id = 0)";
 
-        $sql = "SELECT c.chunk_text,
+        $agent_scope = ai_knowledge_has_agent_scope() ? (' AND ' . ai_kb_agent_scope_sql($agent_id)) : '';
+
+        $sql = "SELECT c.chunk_text, c.source_id,
                     MATCH(c.chunk_text) AGAINST (" . $against . " IN BOOLEAN MODE) AS score
                 FROM ai_knowledge_chunks c
                 INNER JOIN ai_knowledge_sources s ON s.id = c.source_id
                 WHERE s.user_id = {$user_id}
                   AND {$scope}
                   AND s.status = 'active'
-                  AND MATCH(c.chunk_text) AGAINST (" . $against . " IN BOOLEAN MODE)
+                  AND MATCH(c.chunk_text) AGAINST (" . $against . " IN BOOLEAN MODE)"
+                  . $agent_scope . "
                 ORDER BY score DESC
                 LIMIT {$limit}";
 
-        return $ci->db->query($sql)->result_array();
+        $rows = $ci->db->query($sql)->result_array();
+        foreach ($rows as &$row) {
+            if (isset($row['source_id'])) $row['source_id'] = (int) $row['source_id'];
+        }
+        unset($row);
+        return $rows;
     }
 }
 
@@ -790,14 +868,25 @@ if (!function_exists('ai_get_knowledge_context')) {
      * Falls back to lexical-only whenever embedding is unavailable, so an
      * OpenAI outage cannot degrade the bot below its pre-SPEC-20 behaviour.
      *
-     * @param int    $user_id Owner user ID.
-     * @param string $query   Customer message.
-     * @param int    $page_id Optional page auto ID for page-scoped sources.
-     * @param int    $limit   Maximum chunks to return.
+     * @param int      $user_id   Owner user ID.
+     * @param string   $query     Customer message.
+     * @param int      $page_id   Optional page auto ID for page-scoped sources.
+     * @param int      $limit     Maximum chunks to return.
+     * @param int      $agent_id  Task 19 / C4: resolved ai_agent_profiles.id for this reply, or
+     *                            0 when no per-channel agent is assigned. Omitting this argument
+     *                            (existing callers) is identical to passing 0: no caller today
+     *                            passes an agent id, so retrieval is unchanged unless a source
+     *                            was deliberately scoped to an agent.
+     * @param array|null &$source_ids Optional out-param: filled with the unique
+     *                            ai_knowledge_sources.id values whose chunks made it into the
+     *                            returned context, in the order first used (for citations).
+     *                            Callers that don't need citations simply don't pass it.
      * @return string Concatenated excerpts or empty string.
      */
-    function ai_get_knowledge_context($user_id = 0, $query = '', $page_id = 0, $limit = 5)
+    function ai_get_knowledge_context($user_id = 0, $query = '', $page_id = 0, $limit = 5, $agent_id = 0, &$source_ids = null)
     {
+        $source_ids = array();
+
         $ci = &get_instance();
         if (empty($user_id) || empty($query) || !is_object($ci)) {
             return '';
@@ -809,6 +898,7 @@ if (!function_exists('ai_get_knowledge_context')) {
 
         $limit = (int) $limit;
         $page_id = (int) $page_id;
+        $agent_id = (int) $agent_id;
 
         // One embedding call per customer message, reused for both scopes.
         // false (outage, no key, no column) simply disables the semantic half.
@@ -820,23 +910,50 @@ if (!function_exists('ai_get_knowledge_context')) {
         // Page-scoped sources first.
         if ($page_id > 0) {
             $rows = ai_merge_search_results(
-                ai_vector_search($user_id, $query_vec, $page_id, $limit),
-                ai_fulltext_search($user_id, $query, $page_id, $limit),
+                ai_vector_search($user_id, $query_vec, $page_id, $limit, $agent_id),
+                ai_fulltext_search($user_id, $query, $page_id, $limit, $agent_id),
                 $limit
             );
             if (!empty($rows)) {
+                $source_ids = ai_kb_unique_source_ids($rows);
                 return ai_build_knowledge_context($rows);
             }
         }
 
         // Fall back to user-level sources (page_id IS NULL or 0).
         $rows = ai_merge_search_results(
-            ai_vector_search($user_id, $query_vec, 0, $limit),
-            ai_fulltext_search($user_id, $query, 0, $limit),
+            ai_vector_search($user_id, $query_vec, 0, $limit, $agent_id),
+            ai_fulltext_search($user_id, $query, 0, $limit, $agent_id),
             $limit
         );
 
+        $source_ids = ai_kb_unique_source_ids($rows);
         return ai_build_knowledge_context($rows);
+    }
+}
+
+if (!function_exists('ai_kb_unique_source_ids')) {
+    /**
+     * Unique, ordered ai_knowledge_sources.id values referenced by a set of chunk rows
+     * (Task 19 / C4 citations). Rows without a source_id (older code paths, or a row a test
+     * built by hand) are simply skipped.
+     *
+     * @param array $rows Rows as returned by ai_merge_search_results().
+     * @return array<int>
+     */
+    function ai_kb_unique_source_ids($rows = array())
+    {
+        $ids = array();
+        foreach ($rows as $row) {
+            if (empty($row['source_id'])) {
+                continue;
+            }
+            $sid = (int) $row['source_id'];
+            if ($sid > 0 && !in_array($sid, $ids, true)) {
+                $ids[] = $sid;
+            }
+        }
+        return $ids;
     }
 }
 
@@ -1558,5 +1675,69 @@ if (!function_exists('ai_delete_knowledge_chunks')) {
         $ci->db->where('source_id', (int) $source_id);
         $ci->db->delete('ai_knowledge_chunks');
         return true;
+    }
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Versioning (Task 19 / C4, brief §19).
+ *
+ * update_source_action() re-extracts a source's text and only re-chunks (and bumps
+ * ai_knowledge_sources.version) when the content actually changed, so pointing "update" at an
+ * unchanged URL is a cheap no-op instead of silently re-embedding identical chunks.
+ * ---------------------------------------------------------------------------
+ */
+
+if (!function_exists('ai_kb_content_hash')) {
+    /**
+     * Fingerprint of a source's extracted text, used to detect real content changes.
+     * sha1(), not md5(): matches the CHAR(40) column added by
+     * 2026-10-04d-kb-versioning.sql.
+     *
+     * @param string $text
+     * @return string 40-char hex sha1, or '' for empty/whitespace-only text.
+     */
+    function ai_kb_content_hash($text)
+    {
+        $text = trim((string) $text);
+        return $text === '' ? '' : sha1($text);
+    }
+}
+
+if (!function_exists('ai_kb_content_changed')) {
+    /**
+     * Whether new content differs from the last-indexed hash.
+     *
+     * A NULL/empty stored hash (every source added before this migration, or before its first
+     * update/reindex) is always treated as "changed": there is nothing to compare against, and
+     * update_source_action() re-chunking once to start tracking the hash is the safe default.
+     *
+     * @param string|null $old_hash Stored ai_knowledge_sources.content_hash, or NULL.
+     * @param string      $new_hash Freshly computed hash of the re-extracted text.
+     * @return bool
+     */
+    function ai_kb_content_changed($old_hash, $new_hash)
+    {
+        $old_hash = is_string($old_hash) ? trim($old_hash) : '';
+        $new_hash = trim((string) $new_hash);
+        if ($old_hash === '') {
+            return true;
+        }
+        return $old_hash !== $new_hash;
+    }
+}
+
+if (!function_exists('ai_kb_next_version')) {
+    /**
+     * The version a source should carry after an update.
+     *
+     * @param int  $current_version Current ai_knowledge_sources.version (defaults to 1).
+     * @param bool $content_changed Result of ai_kb_content_changed().
+     * @return int
+     */
+    function ai_kb_next_version($current_version, $content_changed)
+    {
+        $current_version = max(1, (int) $current_version);
+        return $content_changed ? ($current_version + 1) : $current_version;
     }
 }
