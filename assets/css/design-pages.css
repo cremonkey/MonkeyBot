@@ -193,3 +193,26 @@
 .cu-page .cu-channel-dot { font-size: var(--mb-space-2); color: var(--mb-blue-500); margin-right: var(--space-1); }
 .cu-page .cu-score-badge { font-size: var(--text-lg); padding: var(--space-1) var(--space-3); }
 .cu-page .cu-label-badge { margin-right: var(--space-1); margin-bottom: var(--space-1); display: inline-block; color: var(--color-text); border: var(--mb-border-width-1) solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); }
+
+/* ------------------------------------------------------------------ */
+/* CRM stage editor (Task 18, application/views/admin/crm/pipeline.php) */
+/* ------------------------------------------------------------------ */
+.crm-page .crm-stage-name {
+  cursor: text;
+  border-radius: var(--radius-sm);
+}
+.crm-page .crm-stage-name:hover {
+  text-decoration: underline dotted;
+}
+.crm-page .crm-stage-del {
+  color: var(--color-danger);
+  border-radius: var(--radius-sm);
+}
+.crm-page .crm-stage-del:focus-visible,
+.crm-page a:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset-tight);
+}
+.crm-page .crm-stage {
+  border-radius: var(--card-radius);
+}

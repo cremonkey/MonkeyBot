@@ -125,6 +125,73 @@ class Crm extends Home
         echo json_encode(['status'=>'1']);
     }
 
+    /**
+     * Stage editor (Task 18, brief §27): add/rename/reorder/delete-empty-only. Every write is
+     * CSRF-checked, AJAX-only, and re-derives ownership through crm_owns_pipeline()/
+     * crm_owns_stage() (pipeline.user_id = $this->uid) before touching a row — same
+     * `real_user_id ?: user_id` uid as the rest of this controller.
+     */
+    public function stage_add()
+    {
+        $this->csrf_token_check();
+        if (!$this->input->is_ajax_request()) { show_404(); return; }
+        header('Content-Type: application/json');
+        $pid = $this->pipeline_id();
+        $name = (string) $this->input->post('name', true);
+        $stage_type = (string) $this->input->post('stage_type', true) ?: 'open';
+        $id = crm_stage_add($this->uid, $pid, $name, $stage_type);
+        if (!$id) { echo json_encode(['status'=>'0']); return; }
+        $this->load->helper('audit');
+        audit_record($this->uid, 'crm.stage_add', 'crm_stage', $id, null, array('name'=>$name,'stage_type'=>$stage_type,'pipeline_id'=>$pid));
+        echo json_encode(['status'=>'1','id'=>$id]);
+    }
+
+    public function stage_rename()
+    {
+        $this->csrf_token_check();
+        if (!$this->input->is_ajax_request()) { show_404(); return; }
+        header('Content-Type: application/json');
+        $id = (int) $this->input->post('id', true);
+        $name = (string) $this->input->post('name', true);
+        $before = crm_owns_stage($this->uid, $id);
+        if (!$before) { echo json_encode(['status'=>'0']); return; }
+        $ok = crm_stage_rename($this->uid, $id, $name);
+        if (!$ok) { echo json_encode(['status'=>'0']); return; }
+        $this->load->helper('audit');
+        audit_record($this->uid, 'crm.stage_rename', 'crm_stage', $id, array('name'=>$before['name']), array('name'=>$name));
+        echo json_encode(['status'=>'1']);
+    }
+
+    public function stage_reorder()
+    {
+        $this->csrf_token_check();
+        if (!$this->input->is_ajax_request()) { show_404(); return; }
+        header('Content-Type: application/json');
+        $pid = $this->pipeline_id();
+        $ids = $this->input->post('stage_ids', true);
+        $ids = is_array($ids) ? array_map('intval', $ids) : array();
+        $ok = crm_stage_reorder($this->uid, $pid, $ids);
+        if (!$ok) { echo json_encode(['status'=>'0']); return; }
+        $this->load->helper('audit');
+        audit_record($this->uid, 'crm.stage_reorder', 'crm_pipeline', $pid, null, array('stage_ids'=>$ids));
+        echo json_encode(['status'=>'1']);
+    }
+
+    public function stage_delete()
+    {
+        $this->csrf_token_check();
+        if (!$this->input->is_ajax_request()) { show_404(); return; }
+        header('Content-Type: application/json');
+        $id = (int) $this->input->post('id', true);
+        $before = crm_owns_stage($this->uid, $id);
+        if (!$before) { echo json_encode(['status'=>'0']); return; }
+        list($ok, $reason) = crm_stage_delete($this->uid, $id);
+        if (!$ok) { echo json_encode(['status'=>'0','message'=>$reason==='not_empty' ? 'Move or delete its deals first.' : 'Not found.']); return; }
+        $this->load->helper('audit');
+        audit_record($this->uid, 'crm.stage_delete', 'crm_stage', $id, array('name'=>$before['name']), null);
+        echo json_encode(['status'=>'1']);
+    }
+
     public function deal_detail($id=0)
     {
         $deal = $this->owns_deal($id);

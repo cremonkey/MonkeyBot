@@ -1,16 +1,23 @@
-<section class="section">
+<section class="section crm-page">
   <div class="section-header"><h1><i class="fas fa-columns"></i> Pipeline</h1>
     <div class="section-header-breadcrumb">
+      <button class="btn btn-outline-primary" onclick="crmStageAdd()"><i class="fas fa-plus"></i> Stage</button>
       <button class="btn btn-primary" onclick="crmNewDeal()"><i class="fas fa-plus"></i> New Deal</button>
       <a href="<?php echo base_url('crm'); ?>" class="btn btn-outline-primary">Dashboard</a>
     </div>
   </div>
   <div class="section-body">
-    <div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:10px">
+    <div class="crm-stage-row" style="display:flex;gap:12px;overflow-x:auto;padding-bottom:10px">
       <?php foreach($stages as $s): ?>
-      <div style="min-width:260px;flex:0 0 260px" data-stage="<?php echo $s['id']; ?>">
+      <div class="crm-stage" draggable="true" style="min-width:260px;flex:0 0 260px" data-stage="<?php echo $s['id']; ?>">
         <div style="border-top:3px solid <?php echo $s['color']; ?>;background:#f8f9fa;border-radius:8px;padding:10px;min-height:400px">
-          <h6 style="font-weight:700"><?php echo htmlspecialchars($s['name']); ?> <span class="badge badge-light"><?php echo count($s['deals']); ?></span></h6>
+          <h6 style="font-weight:700;display:flex;justify-content:space-between;align-items:center">
+            <span class="crm-stage-name" ondblclick="crmStageRename(<?php echo $s['id']; ?>, this)"><?php echo htmlspecialchars($s['name']); ?></span>
+            <span>
+              <span class="badge badge-light"><?php echo count($s['deals']); ?></span>
+              <a href="#" class="crm-stage-del" title="Delete stage" onclick="crmStageDelete(<?php echo $s['id']; ?>, <?php echo count($s['deals']); ?>); return false;"><i class="fas fa-times"></i></a>
+            </span>
+          </h6>
           <div class="crm-col" data-stage="<?php echo $s['id']; ?>">
             <?php foreach($s['deals'] as $d): ?>
             <div class="card crm-deal" draggable="true" data-id="<?php echo $d['id']; ?>" style="margin-bottom:8px;cursor:grab">
@@ -54,5 +61,43 @@ document.querySelectorAll('.crm-col').forEach(function(col){
   col.addEventListener('dragover',function(e){e.preventDefault();});
   col.addEventListener('drop',function(e){e.preventDefault();if(!dragId)return;var stage=col.dataset.stage;
     $.post(CRM_BASE+'crm/deal_move',{csrf_token:CRM_TOKEN,id:dragId,stage_id:stage},function(){location.reload();},'json');});
+});
+
+// Stage editor (Task 18, brief §27): add / rename / reorder (drag columns) / delete-empty-only.
+function crmStageAdd(){
+  var name = prompt('New stage name:');
+  if(!name) return;
+  $.post(CRM_BASE+'crm/stage_add',{csrf_token:CRM_TOKEN,name:name,stage_type:'open'},function(r){
+    if(r && r.status==='1') location.reload(); else alert('Could not add stage.');
+  },'json');
+}
+function crmStageRename(id, el){
+  var name = prompt('Rename stage:', el.textContent.trim());
+  if(!name) return;
+  $.post(CRM_BASE+'crm/stage_rename',{csrf_token:CRM_TOKEN,id:id,name:name},function(r){
+    if(r && r.status==='1') location.reload(); else alert('Could not rename stage.');
+  },'json');
+}
+function crmStageDelete(id, dealCount){
+  if(dealCount > 0){ alert('Move or delete its deals first.'); return; }
+  if(!confirm('Delete this empty stage?')) return;
+  $.post(CRM_BASE+'crm/stage_delete',{csrf_token:CRM_TOKEN,id:id},function(r){
+    if(r && r.status==='1') location.reload(); else alert((r && r.message) || 'Could not delete stage.');
+  },'json');
+}
+var stageDragId=null;
+document.querySelectorAll('.crm-stage').forEach(function(col){
+  col.addEventListener('dragstart',function(e){ if(e.target!==col) return; stageDragId=col.dataset.stage; e.stopPropagation(); });
+  col.addEventListener('dragover',function(e){ e.preventDefault(); });
+  col.addEventListener('drop',function(e){
+    if(!stageDragId || stageDragId===col.dataset.stage) return;
+    var ids=[]; document.querySelectorAll('.crm-stage').forEach(function(c){ ids.push(c===col ? stageDragId : c.dataset.stage); });
+    // de-dup: drop target's own id was pushed once for itself above and once implicitly via stageDragId's original slot removal
+    var seen={}, ordered=[];
+    ids.forEach(function(i){ if(!seen[i]){ seen[i]=true; ordered.push(i); } });
+    $.post(CRM_BASE+'crm/stage_reorder',{csrf_token:CRM_TOKEN,'stage_ids[]':ordered},function(r){
+      if(r && r.status==='1') location.reload();
+    },'json');
+  });
 });
 </script>
