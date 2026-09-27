@@ -86,3 +86,147 @@ if (!function_exists('aii_similar')) {
         return $u > 0 && count(array_intersect_key($ta, $tb)) / $u >= $threshold;
     }
 }
+
+/*
+ | Remaining-work Task 20 (C5, brief §20): four more signal cards for the AI Improvement
+ | Center — tool failures, repeated escalations, human corrections, low-confidence guard
+ | verdicts. Aggregation/grouping logic lives here so it is testable without a database
+ | (tests/ai_improvement/run.php); the controller only runs the guarded queries and hands
+ | the rows to these functions.
+ */
+
+if (!function_exists('aii_is_ai_agent_name')) {
+    /**
+     * livechat_messages.sender has no 'agent' value: an AI reply and a human agent's reply
+     * are both stored with sender='bot'; the human one is told apart by agent_name being
+     * the agent's session username instead of the literal "bot"/"Bot" the AI pipeline
+     * writes (Home.php:7933, :4853, :5476). Empty/null agent_name is treated as AI too
+     * (older rows predate agent_name being stamped).
+     */
+    function aii_is_ai_agent_name($agent_name)
+    {
+        $n = trim((string) $agent_name);
+        return $n === '' || strtolower($n) === 'bot';
+    }
+}
+
+if (!function_exists('aii_group_tool_failures')) {
+    /**
+     * @param array $rows each with tool_name, error_class, error_message, created_at
+     * @return array sorted by count desc: tool_name, error_class, sample, count, last_at
+     */
+    function aii_group_tool_failures(array $rows)
+    {
+        $groups = array();
+        foreach ($rows as $r) {
+            $tool = (string) ($r['tool_name'] ?? '');
+            $class = (string) ($r['error_class'] ?? '');
+            $key = $tool . "\0" . $class;
+            if (!isset($groups[$key])) {
+                $groups[$key] = array('tool_name' => $tool, 'error_class' => $class,
+                    'sample' => (string) ($r['error_message'] ?? ''), 'count' => 0, 'last_at' => (string) ($r['created_at'] ?? ''));
+            }
+            $groups[$key]['count']++;
+            if ((string) ($r['created_at'] ?? '') > $groups[$key]['last_at']) $groups[$key]['last_at'] = $r['created_at'];
+        }
+        $out = array_values($groups);
+        usort($out, function ($a, $b) { return ($b['count'] <=> $a['count']) ?: strcmp($b['last_at'], $a['last_at']); });
+        return $out;
+    }
+}
+
+if (!function_exists('aii_escalation_rows')) {
+    /**
+     * Turns raw state-transition events (conversation_events.to_state = WAITING_FOR_HUMAN)
+     * into aii_group()-ready rows, one row per escalation (not deduped per conversation), so
+     * the token-similarity grouping counts total escalations per topic, not per conversation.
+     * Conversations that escalated only once are dropped: a repeated escalation needs >= 2
+     * on the SAME conversation.
+     *
+     * @param array $events   each with id, conversation_id, created_at (already filtered to
+     *                        this tenant + to_state=WAITING_FOR_HUMAN by the caller's query)
+     * @param array $first_by_conversation  conversation_id => array(question, social_media)
+     *                                      (the first customer message of that conversation)
+     * @param int   $min_count minimum escalations on one conversation to count as "repeated"
+     * @return array rows shaped for aii_group(): id, question, social_media, created_at
+     */
+    function aii_escalation_rows(array $events, array $first_by_conversation, $min_count = 2)
+    {
+        $per_conv = array();
+        foreach ($events as $e) {
+            $cid = (int) ($e['conversation_id'] ?? 0);
+            if ($cid <= 0) continue;
+            $per_conv[$cid][] = $e;
+        }
+        $rows = array();
+        foreach ($per_conv as $cid => $evts) {
+            if (count($evts) < $min_count) continue;
+            $first = $first_by_conversation[$cid] ?? null;
+            if ($first === null || trim((string) ($first['question'] ?? '')) === '') continue;
+            foreach ($evts as $e) {
+                $rows[] = array(
+                    'id'           => $cid,
+                    'question'     => $first['question'],
+                    'social_media' => $first['social_media'] ?? '?',
+                    'created_at'   => (string) ($e['created_at'] ?? ''),
+                );
+            }
+        }
+        return $rows;
+    }
+}
+
+if (!function_exists('aii_find_corrections')) {
+    /**
+     * A "human correction": a human agent's reply (sender='bot', agent_name != bot) sent
+     * within $window_minutes of an AI reply (sender='bot', agent_name = bot/empty) in the
+     * SAME conversation, with the human reply strictly after the AI one. Each AI reply is
+     * matched to at most one (the nearest) human reply, so a long back-and-forth is not
+     * over-counted.
+     *
+     * @param array $rows each with id, conversation_id, agent_name, message_content,
+     *                    conversation_time — sender='bot' rows only, any order
+     * @param int   $window_minutes
+     * @return array correction records sorted by human_at desc: conversation_id, ai_id,
+     *               ai_message, ai_at, human_id, human_agent, human_message, human_at, minutes
+     */
+    function aii_find_corrections(array $rows, $window_minutes = 10)
+    {
+        $per_conv = array();
+        foreach ($rows as $r) {
+            $cid = (int) ($r['conversation_id'] ?? 0);
+            if ($cid <= 0) continue;
+            $per_conv[$cid][] = $r;
+        }
+        $out = array();
+        foreach ($per_conv as $cid => $msgs) {
+            usort($msgs, function ($a, $b) { return strcmp((string) $a['conversation_time'], (string) $b['conversation_time']) ?: (($a['id'] ?? 0) <=> ($b['id'] ?? 0)); });
+            $pending_ai = null;
+            foreach ($msgs as $m) {
+                if (aii_is_ai_agent_name($m['agent_name'] ?? '')) {
+                    $pending_ai = $m; // latest AI reply waiting for a possible correction
+                    continue;
+                }
+                // human agent reply
+                if ($pending_ai === null) continue;
+                $mins = (strtotime((string) $m['conversation_time']) - strtotime((string) $pending_ai['conversation_time'])) / 60;
+                if ($mins >= 0 && $mins <= $window_minutes) {
+                    $out[] = array(
+                        'conversation_id' => $cid,
+                        'ai_id'           => (int) $pending_ai['id'],
+                        'ai_message'      => (string) $pending_ai['message_content'],
+                        'ai_at'           => (string) $pending_ai['conversation_time'],
+                        'human_id'        => (int) $m['id'],
+                        'human_agent'     => (string) ($m['agent_name'] ?? ''),
+                        'human_message'   => (string) $m['message_content'],
+                        'human_at'        => (string) $m['conversation_time'],
+                        'minutes'         => round($mins, 1),
+                    );
+                    $pending_ai = null; // this AI reply is now accounted for
+                }
+            }
+        }
+        usort($out, function ($a, $b) { return strcmp($b['human_at'], $a['human_at']); });
+        return $out;
+    }
+}

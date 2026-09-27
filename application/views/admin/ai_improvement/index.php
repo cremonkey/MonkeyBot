@@ -9,6 +9,10 @@
       <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#t_gaps">Knowledge gaps <span class="badge badge-white"><?php echo count($gaps); ?></span></a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#t_guard">Price guard <span class="badge badge-white"><?php echo array_sum($guard_verdicts ?? array()); ?></span></a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#t_faq">Answers &amp; impact <span class="badge badge-white"><?php echo count($faqs); ?></span></a></li>
+      <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#t_tool_failures">Tool failures <span class="badge badge-white"><?php echo count($tool_failures ?? array()); ?></span></a></li>
+      <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#t_escalations">Repeated escalations <span class="badge badge-white"><?php echo count($escalations ?? array()); ?></span></a></li>
+      <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#t_corrections">Human corrections <span class="badge badge-white"><?php echo count($corrections ?? array()); ?></span></a></li>
+      <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#t_low_confidence">Low confidence <span class="badge badge-white"><?php echo count($low_confidence ?? array()); ?></span></a></li>
     </ul>
     <div class="tab-content">
       <div class="tab-pane fade show active" id="t_gaps">
@@ -56,6 +60,55 @@
               <td><button class="btn btn-sm btn-outline-primary aii-faq-save">Save</button></td></tr>
           <?php endforeach; ?></tbody></table><?php endif; ?>
         </div></div>
+      <div class="tab-pane fade" id="t_tool_failures">
+        <div class="card"><div class="card-body">
+          <p class="text-muted mb-2">Tool calls the AI made that failed (last 90 days). Recorded so an admin can see them, never shown to the customer.</p>
+          <?php if (empty($tool_failures)): ?><p class="text-success mb-0">No tool failures recorded.</p><?php else: ?>
+          <table class="table table-sm mb-0"><thead><tr><th>Times</th><th>Tool</th><th>Error</th><th>Last</th></tr></thead><tbody>
+            <?php foreach ($tool_failures as $t): ?><tr><td><?php echo (int) $t['count']; ?>&times;</td>
+              <td><code><?php echo htmlspecialchars($t['tool_name']); ?></code></td>
+              <td><small><?php echo htmlspecialchars($t['error_class']); ?></small></td>
+              <td><small><?php echo htmlspecialchars($t['last_at']); ?></small></td></tr><?php endforeach; ?>
+          </tbody></table><?php endif; ?>
+        </div></div>
+      </div>
+      <div class="tab-pane fade" id="t_escalations">
+        <div class="card"><div class="card-body">
+          <p class="text-muted mb-2">Conversations that were handed to a human agent more than once, grouped by what the customer first asked. Frequent groups usually mean the bot needs a better answer before it hands off.</p>
+          <?php if (empty($escalations)): ?><p class="text-success mb-0">No repeated escalations in the last 90 days.</p><?php else: ?>
+          <table class="table table-sm mb-0"><thead><tr><th>Times</th><th>Customer first asked</th><th>Channels</th><th>Last</th></tr></thead><tbody>
+            <?php foreach ($escalations as $g): ?><tr><td><?php echo (int) $g['count']; ?>&times;</td>
+              <td><?php echo htmlspecialchars($g['sample']); ?></td>
+              <td><small><?php foreach ($g['channels'] as $c) echo htmlspecialchars($ch[$c] ?? $c) . ' '; ?></small></td>
+              <td><small><?php echo htmlspecialchars($g['last_at']); ?></small></td></tr><?php endforeach; ?>
+          </tbody></table><?php endif; ?>
+        </div></div>
+      </div>
+      <div class="tab-pane fade" id="t_corrections">
+        <div class="card"><div class="card-body">
+          <p class="text-muted mb-2">A human agent replied within <?php echo (int) ($corrections_window_minutes ?? 10); ?> minutes after the bot, in the same conversation &mdash; usually a sign the bot's reply needed fixing.</p>
+          <?php if (empty($corrections)): ?><p class="text-success mb-0">No corrections in the last 90 days.</p><?php else: ?>
+          <table class="table table-sm mb-0"><thead><tr><th>Bot said</th><th>Agent corrected to</th><th>Minutes later</th><th>When</th></tr></thead><tbody>
+            <?php foreach ($corrections as $c): ?><tr>
+              <td><?php echo htmlspecialchars(mb_strimwidth($c['ai_message'], 0, 120, '…')); ?></td>
+              <td><?php echo htmlspecialchars(mb_strimwidth($c['human_message'], 0, 120, '…')); ?> <small class="text-muted">(<?php echo htmlspecialchars($c['human_agent']); ?>)</small></td>
+              <td><?php echo htmlspecialchars((string) $c['minutes']); ?></td>
+              <td><small><?php echo htmlspecialchars($c['human_at']); ?></small></td></tr><?php endforeach; ?>
+          </tbody></table><?php endif; ?>
+        </div></div>
+      </div>
+      <div class="tab-pane fade" id="t_low_confidence">
+        <div class="card"><div class="card-body">
+          <p class="text-muted mb-2">The price guard could not tell if the bot's answer was grounded (verdict "unknown"), so it is worth checking manually.</p>
+          <?php if (empty($low_confidence)): ?><p class="text-success mb-0">No low-confidence verdicts in the last 90 days.</p><?php else: ?>
+          <table class="table table-sm mb-0"><thead><tr><th>Times</th><th>Customer asked</th><th>Channels</th><th>Last</th></tr></thead><tbody>
+            <?php foreach ($low_confidence as $g): ?><tr><td><?php echo (int) $g['count']; ?>&times;</td>
+              <td><?php echo htmlspecialchars($g['sample']); ?></td>
+              <td><small><?php foreach ($g['channels'] as $c) echo htmlspecialchars($ch[$c] ?? $c) . ' '; ?></small></td>
+              <td><small><?php echo htmlspecialchars($g['last_at']); ?></small></td></tr><?php endforeach; ?>
+          </tbody></table><?php endif; ?>
+        </div></div>
+      </div>
       </div>
     </div>
   </div>

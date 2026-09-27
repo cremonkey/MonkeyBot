@@ -28,6 +28,7 @@ class Ai_improvement extends Home
         $data['gaps'] = aii_group($open);
 
         $data['guard'] = array();
+        $data['low_confidence'] = array();
         if ($this->db->table_exists('ai_price_guard_log')) {
             $g = $this->db->select('id, question, social_media, verdict, created_at')->from('ai_price_guard_log')
                 ->where('user_id', $this->uid)->where('created_at >=', $since)->order_by('id', 'DESC')->limit(2000)->get()->result_array();
@@ -35,6 +36,64 @@ class Ai_improvement extends Home
             $verdicts = array();
             foreach ($g as $r) $verdicts[$r['verdict']] = ($verdicts[$r['verdict']] ?? 0) + 1;
             $data['guard_verdicts'] = $verdicts;
+
+            // Low-confidence: the guard could not tell (verdict='unknown'), as opposed to a
+            // clear block (ungrounded/availability/media). Same grouping, filtered subset.
+            $unknown = array_values(array_filter($g, function ($r) { return ($r['verdict'] ?? '') === 'unknown'; }));
+            $data['low_confidence'] = array_slice(aii_group($unknown), 0, 30);
+        }
+
+        // Tool failures (Task 4's ai_failure_log, kind='tool'): grouped by tool + error class,
+        // not by question text (these are categorical, not free-text customer questions).
+        $data['tool_failures'] = array();
+        if ($this->db->table_exists('ai_failure_log')) {
+            $tf = $this->db->select('tool_name, error_class, error_message, created_at')->from('ai_failure_log')
+                ->where('user_id', $this->uid)->where('kind', 'tool')->where('created_at >=', $since)
+                ->order_by('id', 'DESC')->limit(2000)->get()->result_array();
+            $data['tool_failures'] = array_slice(aii_group_tool_failures($tf), 0, 30);
+        }
+
+        // Repeated escalations: a conversation that flipped to WAITING_FOR_HUMAN more than
+        // once, grouped by the topic of its first customer message (same grouping helper).
+        $data['escalations'] = array();
+        if ($this->db->table_exists('conversation_events') && $this->db->table_exists('conversations')
+            && $this->db->field_exists('conversation_id', 'livechat_messages')) {
+            $events = $this->db->select('conversation_id, created_at')->from('conversation_events')
+                ->where('user_id', $this->uid)->where('to_state', 'WAITING_FOR_HUMAN')->where('created_at >=', $since)
+                ->order_by('id', 'ASC')->limit(5000)->get()->result_array();
+            $conv_ids = array_values(array_unique(array_map(function ($e) { return (int) $e['conversation_id']; }, $events)));
+            $first_by_conv = array();
+            if (!empty($conv_ids)) {
+                $convs = $this->db->select('id, platform')->from('conversations')
+                    ->where('user_id', $this->uid)->where_in('id', $conv_ids)->get()->result_array();
+                $platform_by_conv = array();
+                foreach ($convs as $c) $platform_by_conv[(int) $c['id']] = $c['platform'];
+                $firsts = $this->db->select('conversation_id, MIN(id) AS first_id')->from('livechat_messages')
+                    ->where('user_id', $this->uid)->where('sender', 'user')->where_in('conversation_id', $conv_ids)
+                    ->group_by('conversation_id')->get()->result_array();
+                $first_ids = array_map(function ($r) { return (int) $r['first_id']; }, $firsts);
+                if (!empty($first_ids)) {
+                    $msgs = $this->db->select('id, conversation_id, message_content')->from('livechat_messages')
+                        ->where_in('id', $first_ids)->get()->result_array();
+                    foreach ($msgs as $m) {
+                        $cid = (int) $m['conversation_id'];
+                        $first_by_conv[$cid] = array('question' => $m['message_content'], 'social_media' => $platform_by_conv[$cid] ?? '?');
+                    }
+                }
+            }
+            $esc_rows = aii_escalation_rows($events, $first_by_conv, 2);
+            $data['escalations'] = array_slice(aii_group($esc_rows), 0, 30);
+        }
+
+        // Human corrections: an Inbox agent reply sent within N minutes after an AI reply in
+        // the same conversation (both stored as sender='bot'; told apart by agent_name).
+        $data['corrections'] = array();
+        $data['corrections_window_minutes'] = 10;
+        if ($this->db->field_exists('conversation_id', 'livechat_messages')) {
+            $bot_rows = $this->db->select('id, conversation_id, agent_name, message_content, conversation_time')->from('livechat_messages')
+                ->where('user_id', $this->uid)->where('sender', 'bot')->where('conversation_time >=', $since)
+                ->where('conversation_id IS NOT NULL', null, false)->order_by('id', 'ASC')->limit(5000)->get()->result_array();
+            $data['corrections'] = array_slice(aii_find_corrections($bot_rows, $data['corrections_window_minutes']), 0, 30);
         }
 
         // answers and their effect: similar questions that still came in after the answer
