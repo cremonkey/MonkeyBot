@@ -31,6 +31,70 @@
 
     <div class="row">
       <div class="col-12">
+        <div class="card chart-card">
+          <div class="card-header"><h4><i class="fas fa-bullseye"></i> Business KPIs (7d)</h4></div>
+          <div class="card-body">
+            <?php if (!empty($business_kpis['collecting'])): ?>
+              <p class="text-muted mb-0">
+                Collecting data — <span lang="ar" dir="rtl">بنجمع البيانات</span>. These KPIs fill in once the daily
+                aggregate has run for a few days.
+              </p>
+            <?php else: $bk = $business_kpis['kpis'];
+              $fmt = function ($v, $suffix = '%') { return $v === null ? '—' : $v . $suffix; };
+              $rows = array(
+                array('Qualified lead rate', $fmt($bk['qualified_lead_rate']), 'fas fa-user-check'),
+                array('Booking rate', $fmt($bk['booking_rate']), 'fas fa-calendar-check'),
+                array('Human takeover rate', $fmt($bk['human_takeover_rate']), 'fas fa-headset'),
+                array('AI resolution rate', $fmt($bk['ai_resolution_rate']), 'fas fa-robot'),
+                array('Avg resolution time', $fmt($bk['avg_resolution_minutes'], 'm'), 'fas fa-hourglass-half'),
+                array('Human first response', $fmt($bk['human_first_response_secs'], 's'), 'fas fa-stopwatch'),
+                array('Follow-up success', $fmt($bk['followup_success_rate']), 'fas fa-paper-plane'),
+                array('Re-engagement success', $fmt($bk['reengage_success_rate']), 'fas fa-redo'),
+                array('Unanswered-question rate', $fmt($bk['unanswered_rate']), 'fas fa-question-circle'),
+                array('Cost / conversation', $fmt($bk['cost_per_conversation'], ' USD'), 'fas fa-dollar-sign'),
+                array('Cost / qualified lead', $fmt($bk['cost_per_qualified_lead'], ' USD'), 'fas fa-coins'),
+              ); ?>
+              <div class="row">
+                <?php foreach ($rows as $r): ?>
+                <div class="col-lg-4 col-md-6 col-12 mb-2">
+                  <div class="d-flex align-items-center">
+                    <i class="<?php echo $r[2]; ?> mr-2 text-muted"></i>
+                    <span class="mr-auto"><?php echo $r[0]; ?></span>
+                    <strong><?php echo $r[1]; ?></strong>
+                  </div>
+                </div>
+                <?php endforeach; ?>
+              </div>
+            <?php endif; ?>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <?php if (!empty($insights)): ?>
+    <div class="row">
+      <div class="col-12">
+        <div class="card chart-card">
+          <div class="card-header"><h4><i class="fas fa-lightbulb"></i> Insights</h4></div>
+          <div class="card-body">
+            <ul class="list-unstyled mb-0">
+              <?php foreach ($insights as $ins):
+                $cls = ($ins['severity'] ?? 'info') === 'warn' ? 'text-warning' : 'text-info'; ?>
+              <li class="mb-2">
+                <i class="fas fa-circle <?php echo $cls; ?>" style="font-size:.5em;vertical-align:middle"></i>
+                <?php echo htmlspecialchars($ins['en']); ?>
+                <div class="text-muted" lang="ar" dir="rtl"><?php echo htmlspecialchars($ins['ar']); ?></div>
+              </li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <div class="row">
+      <div class="col-12">
         <div class="card">
           <div class="card-header"><h4><i class="fas fa-filter"></i> Sales Funnel (30d): Conversations &rarr; Leads &rarr; Won</h4></div>
           <div class="card-body">

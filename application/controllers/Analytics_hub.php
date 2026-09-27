@@ -12,7 +12,7 @@ class Analytics_hub extends Home
     {
         parent::__construct();
         if ($this->session->userdata('logged_in') != 1) redirect('home/login_page', 'location');
-        $this->load->helper('entitlement');
+        $this->load->helper(array('entitlement', 'analytics_kpi'));
         entitlement_require('analytics_hub');
         $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
     }
@@ -33,6 +33,8 @@ class Analytics_hub extends Home
         $data['top_missed'] = $this->top_missed($since);
         $data['deflection'] = $this->deflection($since);
         $data['sales_kpis'] = $this->sales_kpis($since);
+        $data['business_kpis'] = $this->business_kpis(7);
+        $data['insights'] = $this->insights(7);
         $data['page_title'] = 'Analytics Hub';
         $data['body'] = 'admin/analytics_hub/index';
         $this->_viewcontroller($data);
@@ -244,5 +246,51 @@ class Analytics_hub extends Home
             $total += ($r['i']/1000000*$pin) + ($r['o']/1000000*$pout);
         }
         return round($total, 2);
+    }
+
+    /**
+     * Business-first KPIs (remaining-work Task 21 / C6, brief SPEC-13/29/41), read from the
+     * pre-computed `analytics_daily` table (Cron_hub.php's analytics_daily step) - never a live
+     * scan on page load. Before the migration runs, or before the aggregator has written
+     * anything for this tenant yet, this returns collecting=>true and the page shows
+     * "collecting data" instead of numbers.
+     */
+    private function business_kpis($days = 7)
+    {
+        if (!$this->db->table_exists('analytics_daily')) {
+            return array('collecting' => true, 'kpis' => array());
+        }
+        $totals = $this->analytics_daily_totals($days, 0);
+        if (empty($totals)) return array('collecting' => true, 'kpis' => array());
+        return array('collecting' => false, 'kpis' => analytics_kpi_from_totals($totals));
+    }
+
+    /** Rule-based insight sentences (no AI) comparing this period to the equal-length prior one. */
+    private function insights($days = 7)
+    {
+        if (!$this->db->table_exists('analytics_daily')) return array();
+        $current = $this->analytics_daily_totals($days, 0);
+        if (empty($current)) return array();
+        $previous = $this->analytics_daily_totals($days, $days);
+        return analytics_insight_sentences($current, $previous);
+    }
+
+    /**
+     * Sum every analytics_daily metric (channel='all' rows only, so per-channel breakdowns
+     * aren't double-counted) for the $days ending $offset_days ago. offset_days=0 -> the most
+     * recent $days days including today; offset_days=$days -> the equal-length period before
+     * that, for trend comparisons.
+     */
+    private function analytics_daily_totals($days, $offset_days)
+    {
+        $end = date('Y-m-d', strtotime('-' . (int) $offset_days . ' days'));
+        $start = date('Y-m-d', strtotime($end . ' -' . ((int) $days - 1) . ' days'));
+        $rows = $this->db->query(
+            "SELECT metric, SUM(value) v FROM analytics_daily
+             WHERE user_id=? AND channel='all' AND day BETWEEN ? AND ? GROUP BY metric",
+            array($this->uid, $start, $end))->result_array();
+        $out = array();
+        foreach ($rows as $r) $out[$r['metric']] = (float) $r['v'];
+        return $out;
     }
 }
