@@ -256,14 +256,24 @@ if (!function_exists('industry_template_validate')) {
             $rules = $tpl['automation_rules'];
             if (!is_array($rules)) $e[] = 'automation_rules: must be an array when present.';
             else {
-                if (!function_exists('class_exists') || !class_exists('Automation_engine', false)) {
-                    // library not loaded in this context (e.g. plain CLI test) — the catalogue
-                    // check below is skipped, action 'type' presence is still required.
+                // event_catalogue() is a plain helper function (not a class), so it is
+                // safe to pull in here the same way pricing_validate_config() is pulled in
+                // above: the REAL trigger list, not a copy that can drift out of sync.
+                if (!function_exists('event_catalogue')) {
+                    $ev = APPPATH . 'helpers/event_helper.php';
+                    if (is_file($ev)) require_once $ev;
                 }
+                $triggers = function_exists('event_catalogue') ? array_keys(event_catalogue()) : null;
                 foreach (array_values($rules) as $i => $r) {
                     if (!is_array($r)) { $e[] = "automation_rules[$i]: must be an object."; continue; }
                     if (trim((string) ($r['name'] ?? '')) === '') $e[] = "automation_rules[$i].name: missing.";
-                    if (trim((string) ($r['trigger'] ?? '')) === '') $e[] = "automation_rules[$i].trigger: missing.";
+                    $trigger = trim((string) ($r['trigger'] ?? ''));
+                    if ($trigger === '') $e[] = "automation_rules[$i].trigger: missing.";
+                    elseif ($triggers !== null && !in_array($trigger, $triggers, true)) {
+                        $e[] = "automation_rules[$i].trigger: \"$trigger\" is not a known event_catalogue() trigger — it would never fire.";
+                    } elseif ($triggers === null) {
+                        $e[] = 'automation_rules: event_catalogue() unavailable, cannot verify the trigger.';
+                    }
                     $conditions = $r['conditions'] ?? array();
                     if (!is_array($conditions)) $e[] = "automation_rules[$i].conditions: must be an array.";
                     $actions = $r['actions'] ?? null;

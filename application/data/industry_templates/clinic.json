@@ -99,11 +99,11 @@
   ],
   "automation_rules": [
     {
-      "name": "Missed appointment -> reschedule task",
-      "trigger": "appointment.no_show",
+      "name": "Appointment booked -> confirmation task",
+      "trigger": "appointment.created",
       "conditions": [],
       "actions": [
-        { "type": "create_task", "subject": "Call patient to reschedule" }
+        { "type": "create_task", "subject": "Confirm appointment with patient" }
       ]
     }
   ],

@@ -349,6 +349,32 @@ if (class_exists('Automation_engine', false)) {
     }
 }
 
+// every shipped template's trigger must be a real, emitted event — a trigger not in
+// event_catalogue() would sit permanently dead even once the owner enables the rule.
+require_once APPPATH . 'helpers/event_helper.php';
+$event_triggers = array_keys(event_catalogue());
+foreach ($EXPECTED as $k) {
+    foreach ($templates[$k]['automation_rules'] as $ri => $rule) {
+        check("$k.automation_rules[$ri].trigger \"" . $rule['trigger'] . "\" is in event_catalogue()", in_array($rule['trigger'], $event_triggers, true), $rule['trigger']);
+    }
+}
+$bad_trigger_tpl = $hotel;
+$bad_trigger_tpl['automation_rules'][0]['trigger'] = 'appointment.no_show';
+check('an unknown trigger is rejected by the validator', !empty(industry_template_validate($bad_trigger_tpl)));
+require_once APPPATH . 'helpers/event_helper.php';
+$event_triggers = array_keys(event_catalogue());
+foreach ($EXPECTED as $k) {
+    foreach ($templates[$k]['automation_rules'] as $ri => $rule) {
+        check("$k.automation_rules[$ri].trigger is a known event_catalogue() trigger", in_array($rule['trigger'], $event_triggers, true), $rule['trigger']);
+    }
+}
+// a dead trigger (nothing in event_catalogue() would ever fire it) must fail validation
+$dead_trigger_tpl = $hotel;
+$dead_trigger_tpl['automation_rules'][0]['trigger'] = 'appointment.no_show';
+$dead_errors = industry_template_validate($dead_trigger_tpl);
+check('an unknown/dead automation trigger is rejected by the validator', !empty($dead_errors) && strpos(implode(' ', $dead_errors), 'appointment.no_show') !== false, implode('; ', $dead_errors));
+check('every shipped template still passes with its real triggers', empty(industry_template_validate($hotel)));
+
 echo "\n-- media placeholders plan --\n";
 $media_plan = industry_template_media_plan($hotel);
 check('one row per template media placeholder, no files created', count($media_plan) === count($hotel['media']));
