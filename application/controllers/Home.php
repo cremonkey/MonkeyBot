@@ -7495,6 +7495,15 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                         'status'       => 'new',
                         'created_at'   => date('Y-m-d H:i:s'),
                     ));
+                    // Task 24 (brief 22): guarded, never throws (event_helper.php).
+                    $this->load->helper('event');
+                    if (function_exists('event_emit')) {
+                        event_emit($user_id, 'question.unanswered', 'subscriber', (string) $subscribe_id, array(
+                            'question'  => $human,
+                            'platform'  => $social_media,
+                            'page_id'   => (string) $page_id,
+                        ));
+                    }
                 }
             }
         }

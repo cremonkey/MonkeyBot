@@ -5465,6 +5465,11 @@ public function proceed_checkout()
             "contact_name"=>$ls_sub[0]["full_name"], "contact_email"=>$ls_sub[0]["email"],
             "contact_phone"=>$ls_sub[0]["phone_number"], "source"=>$ls_sub[0]["social_media"] ?: "manual", "cart_id"=>$cart_id,
           ));
+          // Task 24 (brief 22): guarded, never throws (event_helper.php).
+          $this->load->helper("event");
+          event_emit($ls_sub[0]["user_id"], "checkout.started", "cart", (string) $cart_id, array(
+            "total" => $val, "currency" => $cur, "platform" => $ls_sub[0]["social_media"] ?: "",
+          ));
         }
       }
     }
@@ -9445,6 +9450,20 @@ private function confirmation_message_sender($cart_id=0,$subscriber_id="")
 
 
   $cart_data = $cart_data_2d[0];      
+
+  // Task 24 (brief 22): a paid order confirmed, whichever of the 14 payment methods
+  // got it here. Guarded, never throws (event_helper.php).
+  $this->load->helper("event");
+  event_emit(
+    isset($cart_data['user_id']) ? $cart_data['user_id'] : 0,
+    "order.created", "order", (string) $cart_id,
+    array(
+      "order_id"  => $cart_id,
+      "total"     => isset($cart_data['payment_amount']) && $cart_data['payment_amount'] > 0 ? $cart_data['payment_amount'] : (isset($cart_data['subtotal']) ? $cart_data['subtotal'] : 0),
+      "currency"  => isset($cart_data['currency']) ? $cart_data['currency'] : '',
+      "subscriber_id" => $subscriber_id,
+    )
+  );
 
 
 
