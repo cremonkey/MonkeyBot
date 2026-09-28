@@ -455,5 +455,75 @@ $conv_other = array('id' => 502, 'last_inbound_at' => '2026-09-27 00:00:00');
 $mix = Automation_engine::inactivity_emit_targets(array($conv, $conv_other), $events_after_first_scan, 24, $now + 60);
 is_same('a DIFFERENT idle conversation with no prior event is still a target', array('502'), $mix);
 
+
+echo "-- Task 24 review round 2: no starvation -- real query, SQLite -------\n";
+// Round 1 moved the "already flagged" exclusion into PHP, AFTER the SQL's LIMIT had already
+// been filled by already-flagged rows -- a tenant with >= $per_tenant flagged idle
+// conversations would starve every newer idle conversation forever. The fix puts the
+// exclusion inside Automation_engine::inactivity_candidate_sql()'s WHERE clause, before
+// LIMIT. This runs that EXACT SQL string (the same one production sends to MariaDB) against
+// an in-memory SQLite database, so it is a real query-execution test, not a hand-built-array
+// stand-in for one.
+$sql_shape = Automation_engine::inactivity_candidate_sql();
+$not_exists_pos = strpos($sql_shape, 'NOT EXISTS');
+$limit_pos = strpos($sql_shape, 'LIMIT');
+is_true('inactivity_candidate_sql() has a NOT EXISTS exclusion', $not_exists_pos !== false);
+is_true('...and it sits BEFORE LIMIT (inside WHERE, not a post-filter)', $not_exists_pos !== false && $limit_pos !== false && $not_exists_pos < $limit_pos);
+
+if (!extension_loaded('pdo_sqlite')) {
+    bad('inactivity SQL: no starvation (SQLite-backed)', 'pdo_sqlite extension not available in this PHP -- cannot run a real query test');
+} else {
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->exec("CREATE TABLE conversations (id INTEGER PRIMARY KEY, user_id INTEGER, platform TEXT, status TEXT, last_inbound_at TEXT)");
+    $pdo->exec("CREATE TABLE events (id INTEGER PRIMARY KEY, user_id INTEGER, event_type TEXT, subject_type TEXT, subject_id TEXT, created_at TEXT)");
+
+    $per_tenant = 3; // small on purpose: exactly the LIMIT round 1's bug filled with junk
+    $user_id = 11;
+    $now_ts = strtotime('2026-09-28 12:00:00');
+    $cutoff = date('Y-m-d H:i:s', $now_ts - (24 * 3600));
+
+    // 3 conversations that are idle AND already flagged for this idle spell (event created
+    // after their last_inbound_at) -- exactly $per_tenant of them, the round-1 starvation case.
+    $flagged_last_inbound = date('Y-m-d H:i:s', $now_ts - (48 * 3600));
+    $flagged_event_created = date('Y-m-d H:i:s', $now_ts - (47 * 3600));
+    for ($i = 1; $i <= $per_tenant; $i++) {
+        $pdo->exec("INSERT INTO conversations (id, user_id, platform, status, last_inbound_at) VALUES ($i, $user_id, 'wa', 'open', '$flagged_last_inbound')");
+        $pdo->exec("INSERT INTO events (user_id, event_type, subject_type, subject_id, created_at) VALUES ($user_id, 'inactivity', 'conversation', '$i', '$flagged_event_created')");
+    }
+    // ...plus ONE genuinely new-idle conversation for the SAME tenant, never flagged.
+    $new_conv_id = 999;
+    $new_last_inbound = date('Y-m-d H:i:s', $now_ts - (30 * 3600));
+    $pdo->exec("INSERT INTO conversations (id, user_id, platform, status, last_inbound_at) VALUES ($new_conv_id, $user_id, 'wa', 'open', '$new_last_inbound')");
+
+    $sql = Automation_engine::inactivity_candidate_sql();
+    $run_query = function () use ($pdo, $sql, $user_id, $cutoff, $per_tenant) {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute(array($user_id, $cutoff, $per_tenant));
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    };
+
+    $tick1 = $run_query();
+    $ids1 = array_map(function ($r) { return (int) $r['id']; }, $tick1);
+    is_same('tick 1: the LIMIT is not filled by already-flagged rows', array($new_conv_id), $ids1);
+    is_true('tick 1: the new conversation got exactly one row back (not zero, not starved)', count($tick1) === 1);
+
+    // Simulate the worker's own emit for what tick 1 found.
+    foreach ($tick1 as $row) {
+        $pdo->exec("INSERT INTO events (user_id, event_type, subject_type, subject_id, created_at) VALUES ({$row['user_id']}, 'inactivity', 'conversation', '{$row['id']}', '" . date('Y-m-d H:i:s', $now_ts) . "')");
+    }
+
+    $tick2 = $run_query();
+    is_same('tick 2 (same idle spell, one minute later): nothing left to emit -- no re-fire', array(), $tick2);
+
+    // A real inbound message re-arms the same conversation for its NEXT idle spell.
+    $pdo->exec("UPDATE conversations SET last_inbound_at = '" . date('Y-m-d H:i:s', $now_ts) . "' WHERE id = $new_conv_id");
+    $cutoff_later = date('Y-m-d H:i:s', $now_ts + (25 * 3600) - (24 * 3600));
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(array($user_id, $cutoff_later, $per_tenant));
+    $tick3 = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    is_same('once idle again after a fresh inbound message, it is a candidate again', array($new_conv_id), array_map(function ($r) { return (int) $r['id']; }, $tick3));
+}
+
 echo "\n== $PASS passed, $FAIL failed ==\n";
 exit($FAIL === 0 && $PASS > 0 ? 0 : 1);

@@ -127,18 +127,24 @@ class Automation_worker extends Home
      * pipeline as every other trigger (no second engine). Threshold: config item
      * 'automation_inactivity_hours' (default 24).
      *
-     * Two guarantees the first version of this method got wrong (caught in review):
+     * Guarantees (the first version of this method got #2 wrong twice — see history):
      *  1. Only tenants with an ACTIVE rule whose trigger_event is 'inactivity' are scanned
      *     at all — a tenant with no such rule never has its conversations touched or an
-     *     event written for it.
-     *  2. Exactly one `inactivity` event per idle SPELL per conversation, not one per tick.
-     *     The decision is Automation_engine::inactivity_emit_targets() (pure, unit-tested):
-     *     a conversation is skipped once it already has an `inactivity` event newer than its
-     *     current last_inbound_at, and becomes eligible again only after a real inbound
-     *     message moves last_inbound_at forward.
-     * Oldest-idle-first (ORDER BY last_inbound_at ASC) plus that per-spell dedup means the
-     * same handful of conversations can never starve the rest of a tenant's queue: once
-     * flagged they drop out of every subsequent scan until they go quiet again.
+     *     event written for it. (Automation_engine::inactivity_tenants(), pure.)
+     *  2. Exactly one `inactivity` event per idle SPELL per conversation, not one per tick,
+     *     AND an already-flagged conversation can never starve the rest of the tenant's
+     *     queue. Automation_engine::inactivity_candidate_sql() puts the "already has a newer
+     *     inactivity event than last_inbound_at" exclusion INSIDE the WHERE clause, before
+     *     LIMIT is applied — a flagged row is excluded from the result set entirely, so it
+     *     never occupies a LIMIT slot that a genuinely new-idle conversation needed.
+     *     (Round 1's bug: that exclusion ran in PHP AFTER the LIMIT had already been filled
+     *     by rows that were flagged, which is starvation, not just a missed test case.)
+     * Oldest-`last_inbound_at`-first (ORDER BY, also inside that same query) means that once
+     * the currently-oldest idle conversations are flagged, the NEXT tick's query naturally
+     * surfaces the next-oldest ones — no separate pagination bookkeeping needed.
+     * Automation_engine::inactivity_emit_targets() is kept as a second, pure, defense-in-depth
+     * check on the rows the query returns (belt-and-braces, brief 51: no silent failure from
+     * a single layer's mistake) — with the SQL fix, it should now be a no-op in practice.
      */
     public function scan_inactivity($limit = 200)
     {
@@ -160,17 +166,17 @@ class Automation_worker extends Home
             if (empty($tenants)) return array('scanned' => 0, 'emitted' => 0, 'tenants' => 0);
 
             $per_tenant = max(1, (int) floor(max(1, (int) $limit) / count($tenants)));
+            $sql = Automation_engine::inactivity_candidate_sql();
 
             foreach ($tenants as $user_id) {
-                $candidates = $this->db->select('id, user_id, platform, last_inbound_at')
-                    ->from('conversations')
-                    ->where('user_id', $user_id)->where('status', 'open')
-                    ->where('last_inbound_at IS NOT NULL', null, false)
-                    ->where('last_inbound_at <', $cutoff)
-                    ->order_by('last_inbound_at', 'ASC')->limit($per_tenant)->get()->result_array();
+                $candidates = $this->db->query($sql, array($user_id, $cutoff, $per_tenant))->result_array();
                 if (empty($candidates)) continue;
                 $scanned += count($candidates);
 
+                // Defense-in-depth (see docblock): the SQL above already excludes flagged
+                // rows via its own NOT EXISTS, so re-checking against a fresh read of the
+                // same events is expected to change nothing in practice — it is a second,
+                // independently-implemented layer, not a second copy of the same bug.
                 $ids = array();
                 foreach ($candidates as $c) $ids[] = (int) $c['id'];
                 $existing = $this->db->select('subject_id, created_at')->from('events')

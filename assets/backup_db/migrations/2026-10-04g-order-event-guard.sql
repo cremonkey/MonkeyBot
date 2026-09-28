@@ -21,3 +21,12 @@ DO 0;
 ALTER TABLE `ecommerce_cart`
   ADD COLUMN IF NOT EXISTS `order_event_emitted_at` DATETIME NULL DEFAULT NULL
     COMMENT 'Task 24: set once, atomically, the first time order.created is emitted for this cart/order row';
+
+-- Backfill: already-paid carts (action_type='checkout') never emitted order.created because
+-- the event/automation engine didn't exist yet when they were paid. Mark them as already
+-- emitted so the FIRST post-migration reload of an old confirmation page doesn't fire one
+-- late order.created for an order that may be weeks old. Idempotent: only touches rows the
+-- column is still NULL on, so re-running this migration (or a partial prior run) is a no-op.
+UPDATE `ecommerce_cart`
+   SET `order_event_emitted_at` = `ordered_at`
+ WHERE `action_type` = 'checkout' AND `order_event_emitted_at` IS NULL;

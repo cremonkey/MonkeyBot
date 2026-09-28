@@ -67,6 +67,41 @@ class Automation_engine
     }
 
     /**
+     * Task 24 review-round-2 fix (brief 23): the exact SQL Automation_worker::scan_inactivity()
+     * runs per tenant. Single source of truth so the "already flagged for this idle spell"
+     * exclusion is INSIDE the WHERE clause, before LIMIT — a flagged conversation can never
+     * occupy a LIMIT slot, so it can never starve the rest of the tenant's queue out of being
+     * scanned. (Round 1's bug: the exclusion was applied in PHP AFTER the LIMIT had already
+     * been filled by already-flagged rows.)
+     *
+     * Portable SQL (runs unmodified against MariaDB in production and against SQLite in
+     * tests/automation/run.php's behavioural test — same string, two engines, one proof).
+     * Binds, in order: user_id, cutoff datetime, limit.
+     */
+    public static function inactivity_candidate_sql()
+    {
+        return "SELECT c.id, c.user_id, c.platform, c.last_inbound_at
+"
+             . "  FROM conversations c
+"
+             . " WHERE c.user_id = ? AND c.status = 'open' AND c.last_inbound_at IS NOT NULL AND c.last_inbound_at < ?
+"
+             . "   AND NOT EXISTS (
+"
+             . "     SELECT 1 FROM events e
+"
+             . "      WHERE e.user_id = c.user_id AND e.event_type = 'inactivity' AND e.subject_type = 'conversation'
+"
+             . "        AND e.subject_id = c.id AND e.created_at > c.last_inbound_at
+"
+             . "   )
+"
+             . " ORDER BY c.last_inbound_at ASC
+"
+             . " LIMIT ?";
+    }
+
+    /**
      * Task 24 review fix (brief 23): which idle conversations should get a NEW `inactivity`
      * event this tick. A conversation is skipped when it already has an `inactivity` event
      * whose created_at is newer than its CURRENT last_inbound_at — i.e. one that already

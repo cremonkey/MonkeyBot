@@ -102,6 +102,8 @@ is_true('the emit only runs when the UPDATE actually changed a row',
 $migration = file_get_contents($root . '/assets/backup_db/migrations/2026-10-04g-order-event-guard.sql');
 is_true('the guard column migration exists and is idempotent (ADD COLUMN IF NOT EXISTS)',
     strpos($migration, 'ADD COLUMN IF NOT EXISTS `order_event_emitted_at`') !== false);
+is_true('the migration backfills already-paid carts (no late order.created on first post-migration replay)',
+    strpos($migration, "action_type") !== false && strpos($migration, "'checkout'") !== false && strpos($migration, 'order_event_emitted_at') > 0);
 
 // ---------------------------------------------------------------------------------------
 echo "-- message.* is intentionally NOT built --------------------------------------------\n";
