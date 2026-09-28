@@ -275,6 +275,26 @@ class Cron_hub extends Home
     }
 
     /**
+     * Daily analytics aggregates (remaining-work Task 21 / C6, brief SPEC-13/29/41): fills
+     * analytics_daily for every tenant with recent activity - yesterday in full, today
+     * incrementally - so Analytics_hub.php can read pre-computed KPIs instead of scanning
+     * conversations/livechat_messages/crm_deals live on every page load. Runs unconditionally
+     * (no flag): before the migration lands, analytics_aggregate_run() no-ops per tenant/day
+     * because table_exists('analytics_daily') is false, exactly like every other guarded step.
+     */
+    protected function _run_analytics_daily()
+    {
+        if (!$this->db->table_exists('analytics_daily')) return array('skipped' => 'table missing, run cron_hub migrate');
+        $this->load->helper('analytics_aggregate');
+        try {
+            return analytics_aggregate_run($this->db);
+        } catch (Throwable $e) {
+            log_message('error', 'cron_hub analytics_daily failed: ' . $e->getMessage());
+            return array('error' => $e->getMessage());
+        }
+    }
+
+    /**
      * CLI (the host cron) is always allowed. Over HTTP a shared secret is required:
      * config 'cron_secret' + ?key=... . No secret configured -> HTTP is refused, because an
      * open run() lets anyone on the internet trigger real customer sends.
@@ -309,6 +329,7 @@ class Cron_hub extends Home
             $out['external_crm'] = $this->_run_external_crm();
             $out['deflect_alerts'] = $this->_run_deflect_alerts();
             $out['retention'] = $this->_run_retention();
+            $out['analytics_daily'] = $this->_run_analytics_daily();
             ops_health_record('cron_hub', true, microtime(true) - $t0, $out);
             echo json_encode($out) . "\n";
         } catch (Throwable $e) {

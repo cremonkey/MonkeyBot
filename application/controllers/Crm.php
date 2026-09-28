@@ -125,6 +125,73 @@ class Crm extends Home
         echo json_encode(['status'=>'1']);
     }
 
+    /**
+     * Stage editor (Task 18, brief §27): add/rename/reorder/delete-empty-only. Every write is
+     * CSRF-checked, AJAX-only, and re-derives ownership through crm_owns_pipeline()/
+     * crm_owns_stage() (pipeline.user_id = $this->uid) before touching a row — same
+     * `real_user_id ?: user_id` uid as the rest of this controller.
+     */
+    public function stage_add()
+    {
+        $this->csrf_token_check();
+        if (!$this->input->is_ajax_request()) { show_404(); return; }
+        header('Content-Type: application/json');
+        $pid = $this->pipeline_id();
+        $name = (string) $this->input->post('name', true);
+        $stage_type = (string) $this->input->post('stage_type', true) ?: 'open';
+        $id = crm_stage_add($this->uid, $pid, $name, $stage_type);
+        if (!$id) { echo json_encode(['status'=>'0']); return; }
+        $this->load->helper('audit');
+        audit_record($this->uid, 'crm.stage_add', 'crm_stage', $id, null, array('name'=>$name,'stage_type'=>$stage_type,'pipeline_id'=>$pid));
+        echo json_encode(['status'=>'1','id'=>$id]);
+    }
+
+    public function stage_rename()
+    {
+        $this->csrf_token_check();
+        if (!$this->input->is_ajax_request()) { show_404(); return; }
+        header('Content-Type: application/json');
+        $id = (int) $this->input->post('id', true);
+        $name = (string) $this->input->post('name', true);
+        $before = crm_owns_stage($this->uid, $id);
+        if (!$before) { echo json_encode(['status'=>'0']); return; }
+        $ok = crm_stage_rename($this->uid, $id, $name);
+        if (!$ok) { echo json_encode(['status'=>'0']); return; }
+        $this->load->helper('audit');
+        audit_record($this->uid, 'crm.stage_rename', 'crm_stage', $id, array('name'=>$before['name']), array('name'=>$name));
+        echo json_encode(['status'=>'1']);
+    }
+
+    public function stage_reorder()
+    {
+        $this->csrf_token_check();
+        if (!$this->input->is_ajax_request()) { show_404(); return; }
+        header('Content-Type: application/json');
+        $pid = $this->pipeline_id();
+        $ids = $this->input->post('stage_ids', true);
+        $ids = is_array($ids) ? array_map('intval', $ids) : array();
+        $ok = crm_stage_reorder($this->uid, $pid, $ids);
+        if (!$ok) { echo json_encode(['status'=>'0']); return; }
+        $this->load->helper('audit');
+        audit_record($this->uid, 'crm.stage_reorder', 'crm_pipeline', $pid, null, array('stage_ids'=>$ids));
+        echo json_encode(['status'=>'1']);
+    }
+
+    public function stage_delete()
+    {
+        $this->csrf_token_check();
+        if (!$this->input->is_ajax_request()) { show_404(); return; }
+        header('Content-Type: application/json');
+        $id = (int) $this->input->post('id', true);
+        $before = crm_owns_stage($this->uid, $id);
+        if (!$before) { echo json_encode(['status'=>'0']); return; }
+        list($ok, $reason) = crm_stage_delete($this->uid, $id);
+        if (!$ok) { echo json_encode(['status'=>'0','message'=>$reason==='not_empty' ? 'Move or delete its deals first.' : 'Not found.']); return; }
+        $this->load->helper('audit');
+        audit_record($this->uid, 'crm.stage_delete', 'crm_stage', $id, array('name'=>$before['name']), null);
+        echo json_encode(['status'=>'1']);
+    }
+
     public function deal_detail($id=0)
     {
         $deal = $this->owns_deal($id);
@@ -419,6 +486,37 @@ class Crm extends Home
             if ($ok) $queued++; else $skipped++;   // skipped includes already-queued/sent
         }
         echo json_encode(['status' => '1', 'message' => $queued . ' lead queued to the CRM (sent within a few minutes). ' . $skipped . ' skipped (already sent or no contact).']);
+    }
+
+    /**
+     * Unified outbox (Task 25 / C10, brief §28): both connector queues
+     * (8xCRM + Google Sheet) share crm_external_log; this just lists the
+     * tenant's own rows with a retry button per row.
+     */
+    public function outbox()
+    {
+        $this->load->helper('crm_outbox');
+        $data['rows'] = crm_outbox_rows($this->uid, array(
+            'status'   => $this->input->get('status', true) ?: null,
+            'provider' => $this->input->get('provider', true) ?: null,
+        ));
+        $data['counts'] = crm_outbox_counts($this->uid);
+        $data['page_title'] = 'CRM Outbox';
+        $data['body'] = 'admin/crm/outbox';
+        $this->_viewcontroller($data);
+    }
+
+    /** AJAX POST — retry one outbox row. Tenant-scoped: crm_outbox_retry() re-checks ownership itself. */
+    public function outbox_retry()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        $this->load->helper('crm_outbox');
+        $log_id = (int) $this->input->post('id', true);
+        if ($log_id <= 0) { echo json_encode(array('status' => '0', 'message' => 'invalid id')); return; }
+        $result = crm_outbox_retry($this->uid, $log_id);
+        echo json_encode(array('status' => $result['ok'] ? '1' : '0', 'message' => $result['message']));
     }
 
     public function create_deal_from_contact()

@@ -112,5 +112,30 @@
     { "key": "children_ages", "en": "How many children, and what are their ages?", "ar": "فيه أطفال؟ كام طفل وسنهم كام؟" },
     { "key": "room_type", "en": "Which room type do you prefer?", "ar": "تفضلوا نوع غرفة إيه؟" },
     { "key": "phone", "en": "What is the best WhatsApp number to reach you on?", "ar": "إيه أحسن رقم واتساب نكلمك عليه؟" }
-  ]
+  ],
+  "sequences": [
+    {
+      "name": "Booking follow-up",
+      "steps": [
+        { "delay_hours": 1, "message_en": "Hi! Still thinking about your stay with us? Happy to help you pick the right room.", "message_ar": "أهلاً! لسه بتفكر في الحجز؟ اتفضل اسألني في أي حاجة عن الأوض والأسعار." },
+        { "delay_hours": 24, "message_en": "Just checking in - would you like us to hold a room for your dates?", "message_ar": "حابين نأكد معاك - تحب نحجزلك أوضة في التواريخ اللي بتفكر فيها؟" }
+      ]
+    }
+  ],
+  "automation_rules": [
+    {
+      "name": "New booking inquiry -> notify team",
+      "trigger": "lead.qualified",
+      "conditions": [],
+      "actions": [
+        { "type": "add_label", "label": "booking_lead" },
+        { "type": "notify_team", "to": "reservations", "channel": "email" }
+      ]
+    }
+  ],
+  "media": [
+    { "key": "hero_photo", "caption_en": "Main exterior/lobby photo shown to new chats", "caption_ar": "صورة رئيسية للفندق/الاستقبال تتبعت لأول مرة" },
+    { "key": "room_gallery", "caption_en": "A few room photos for the AI to share when asked", "caption_ar": "صور للأوض يبعتها الموظف الذكي لما حد يسأل" }
+  ],
+  "appointments": { "enabled": false, "default_duration_minutes": 30, "buffer_minutes": 15 }
 }

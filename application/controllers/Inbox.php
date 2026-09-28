@@ -23,7 +23,7 @@ class Inbox extends Home
     {
         parent::__construct();
         if ($this->session->userdata('logged_in') != 1) redirect('home/login_page', 'location');
-        $this->load->helper(array('entitlement', 'conversation', 'inbox', 'channel_policy', 'channel_adapter', 'secret', 'inbox_realtime'));
+        $this->load->helper(array('entitlement', 'conversation', 'inbox', 'channel_policy', 'channel_adapter', 'secret', 'inbox_realtime', 'team'));
         entitlement_require('inbox');
         // Tenant guard used by every query in this controller (brief: "user_id = $this->uid always").
         $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
@@ -38,6 +38,12 @@ class Inbox extends Home
     {
         $data['team_members'] = $this->db->table_exists('team_members')
             ? $this->db->select('id, name')->where('user_id', $this->uid)->order_by('name', 'ASC')->get('team_members')->result_array()
+            : array();
+        // Task 17 (C2, brief §13): teams this tenant has created, for the "assign to team" /
+        // "My team" controls. Empty (not an error) before the migration runs.
+        $data['teams_ready'] = team_tables_ready($this->db);
+        $data['teams'] = $data['teams_ready']
+            ? $this->db->select('id, name')->where('user_id', $this->uid)->order_by('name', 'ASC')->get('teams')->result_array()
             : array();
         $data['platforms'] = conversation_platforms();
         $data['states'] = conversation_states();
@@ -58,29 +64,45 @@ class Inbox extends Home
         $this->ajax_check();
         header('Content-Type: application/json');
 
+        // Task 17 (C2): both the column and the two team tables must exist before any of the
+        // team behaviour switches on — exactly the labels_ready() pattern above.
+        $team_col_ready = $this->db->field_exists('assigned_team_id', 'conversations');
+        $team_ready = $team_col_ready && team_tables_ready($this->db);
+
         $filters = array(
             'platform'          => $this->input->post('platform', true),
             'status'            => $this->input->post('status', true),
             'handoff_state'     => $this->input->post('handoff_state', true),
             'assigned_user_id'  => $this->input->post('assigned_user_id', true),
+            'assigned_team_id'  => $team_ready ? (int) $this->input->post('assigned_team_id') : 0,
             'unread_only'       => (bool) $this->input->post('unread_only'),
             'label_id'          => $this->labels_ready() ? (int) $this->input->post('label_id') : 0,
             'search'            => $this->input->post('search', true),
         );
+        // "My team" (Task 17): only when explicitly requested and teams exist. Resolved here (not
+        // inside the pure helper) because it needs a team_memberships lookup for the acting agent.
+        if ($team_ready && (bool) $this->input->post('my_team')) {
+            $filters['my_team_ids'] = $this->my_team_ids();
+        }
         $start = max(0, (int) $this->input->post('start'));
         $length = (int) $this->input->post('length');
         if ($length <= 0 || $length > 100) $length = 20;
 
         $this->db->select(
             "c.id, c.platform, c.channel_account_id, c.external_thread_id, c.status, c.handoff_state,
-             c.assigned_user_id, c.last_message_at, c.last_inbound_at, c.unread_count, c.message_count,
+             c.assigned_user_id, " . ($team_col_ready ? 'c.assigned_team_id' : '0 AS assigned_team_id') . ",
+             c.last_message_at, c.last_inbound_at, c.unread_count, c.message_count,
              cu.id AS customer_id, cu.display_name, cu.phone, cu.email,
-             tm.name AS assigned_name,
+             tm.name AS assigned_name, " . ($team_ready ? 't.name' : 'NULL') . " AS assigned_team_name,
              (SELECT lm.message_content FROM livechat_messages lm WHERE lm.conversation_id = c.id ORDER BY lm.id DESC LIMIT 1) AS last_message_preview"
         );
         $this->db->from('conversations c');
         $this->db->join('customers cu', 'cu.id = c.customer_id', 'left');
         $this->db->join('team_members tm', 'tm.id = c.assigned_user_id', 'left');
+        // Task 17: the team name shown alongside the individual-agent name, additive only —
+        // c.assigned_user_id / tm above are untouched. Only joined once both the column and the
+        // teams table exist, so the query still works before the migration runs.
+        if ($team_ready) $this->db->join('teams t', 't.id = c.assigned_team_id', 'left');
         inbox_scope_conversations($this->db, $this->uid, $filters);
 
         $total = $this->db->count_all_results('', false); // keeps WHERE/JOIN, drops SELECT/ORDER/LIMIT for the count
@@ -443,6 +465,168 @@ class Inbox extends Home
         echo json_encode(array('status' => '1', 'message' => 'Assignment updated'));
     }
 
+    // ------------------------------------------------------------------ teams (Task 17, C2, brief §13)
+
+    private function team_not_ready()
+    {
+        echo json_encode(array('status' => '0', 'message' => 'Teams are not set up on this server yet'));
+    }
+
+    /** A team row of this tenant, or NULL (another tenant's id answers "not found"). */
+    private function own_team($team_id)
+    {
+        if ((int) $team_id <= 0 || !team_tables_ready($this->db)) return null;
+        team_scope_owner($this->db->from('teams'), $team_id, $this->uid);
+        $row = $this->db->limit(1)->get()->row_array();
+        return $row ?: null;
+    }
+
+    /** team ids (of THIS tenant's teams only) the acting agent belongs to, for "My team". */
+    private function my_team_ids()
+    {
+        if (!team_tables_ready($this->db) || (int) $this->actor_id <= 0) return array();
+        $rows = $this->db->select('tm2.team_id, tm2.team_member_id')
+            ->from('team_memberships tm2')
+            ->join('teams t2', 't2.id = tm2.team_id', 'inner')
+            ->where('t2.user_id', $this->uid) // tenant guard: only teams this tenant owns
+            ->get()->result_array();
+        return team_ids_for_member($rows, $this->actor_id);
+    }
+
+    /** AJAX: this tenant's teams, with member count. */
+    public function teams_list()
+    {
+        $this->ajax_check();
+        header('Content-Type: application/json');
+        if (!team_tables_ready($this->db)) { echo json_encode(array('status' => '1', 'rows' => array(), 'ready' => false)); return; }
+
+        $rows = $this->db->select('t.id, t.name, COUNT(m.id) AS members', false)
+            ->from('teams t')
+            ->join('team_memberships m', 'm.team_id = t.id', 'left')
+            ->where('t.user_id', $this->uid)
+            ->group_by('t.id')->order_by('t.name', 'ASC')->get()->result_array();
+        foreach ($rows as &$r) { $r['id'] = (int) $r['id']; $r['members'] = (int) $r['members']; }
+        unset($r);
+        echo json_encode(array('status' => '1', 'rows' => $rows, 'ready' => true));
+    }
+
+    /** AJAX POST: create a team (no team_id) or rename one of this tenant's teams. */
+    public function team_save()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        if (!team_tables_ready($this->db)) { $this->team_not_ready(); return; }
+
+        $team_id = (int) $this->input->post('team_id');
+        $name = team_normalize_name((string) $this->input->post('name'));
+        if ($name === null) { echo json_encode(array('status' => '0', 'message' => 'Give the team a name')); return; }
+
+        if ($team_id > 0) {
+            if ($this->own_team($team_id) === null) { echo json_encode(array('status' => '0', 'message' => 'Team not found')); return; }
+            $this->db->where('id', $team_id)->where('user_id', $this->uid)->update('teams', array('name' => $name));
+            echo json_encode(array('status' => '1', 'message' => 'Team updated', 'team' => array('id' => $team_id, 'name' => $name)));
+            return;
+        }
+
+        $this->db->insert('teams', array('user_id' => $this->uid, 'name' => $name, 'created_at' => date('Y-m-d H:i:s')));
+        $new_id = (int) $this->db->insert_id();
+        if ($new_id <= 0) { echo json_encode(array('status' => '0', 'message' => 'Could not save the team')); return; }
+        $this->load->helper('audit'); audit_record($this->uid, 'team.create', 'team', $new_id, null, array('name' => $name), $this->actor_id, 'user');
+        echo json_encode(array('status' => '1', 'message' => 'Team created', 'team' => array('id' => $new_id, 'name' => $name)));
+    }
+
+    /** AJAX POST: delete one of this tenant's teams; unassigns it from every conversation first. */
+    public function team_delete()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        if (!team_tables_ready($this->db)) { $this->team_not_ready(); return; }
+
+        $team = $this->own_team((int) $this->input->post('team_id'));
+        if ($team === null) { echo json_encode(array('status' => '0', 'message' => 'Team not found')); return; }
+
+        $this->db->trans_start();
+        if ($this->db->field_exists('assigned_team_id', 'conversations')) {
+            $this->db->where('assigned_team_id', $team['id'])->where('user_id', $this->uid)
+                ->update('conversations', array('assigned_team_id' => null));
+        }
+        $this->db->where('team_id', $team['id'])->delete('team_memberships');
+        $this->db->where('id', $team['id'])->where('user_id', $this->uid)->delete('teams');
+        $this->db->trans_complete();
+        if ($this->db->trans_status() === false) { echo json_encode(array('status' => '0', 'message' => 'Could not delete the team')); return; }
+        echo json_encode(array('status' => '1', 'message' => 'Team deleted'));
+    }
+
+    /** AJAX POST: replace a team's membership with the given team_member ids (tenant-owned only). */
+    public function team_membership_set()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        if (!team_tables_ready($this->db)) { $this->team_not_ready(); return; }
+
+        $team = $this->own_team((int) $this->input->post('team_id'));
+        if ($team === null) { echo json_encode(array('status' => '0', 'message' => 'Team not found')); return; }
+
+        $member_ids = $this->input->post('team_member_ids');
+        $member_ids = is_array($member_ids) ? array_values(array_unique(array_map('intval', $member_ids))) : array();
+        if (!empty($member_ids) && $this->db->table_exists('team_members')) {
+            $owned = $this->db->select('id')->from('team_members')->where('user_id', $this->uid)
+                ->where_in('id', $member_ids)->get()->result_array();
+            $member_ids = array_map('intval', array_column($owned, 'id')); // drop ids not owned by this tenant
+        } else {
+            $member_ids = array();
+        }
+
+        $this->db->trans_start();
+        $this->db->where('team_id', $team['id'])->delete('team_memberships');
+        foreach ($member_ids as $mid) {
+            $this->db->insert('team_memberships', array('team_id' => $team['id'], 'team_member_id' => $mid));
+        }
+        $this->db->trans_complete();
+        if ($this->db->trans_status() === false) { echo json_encode(array('status' => '0', 'message' => 'Could not save membership')); return; }
+        echo json_encode(array('status' => '1', 'message' => 'Membership updated', 'team_member_ids' => $member_ids));
+    }
+
+    /**
+     * AJAX POST: assign (team_id > 0) or unassign (0 / empty) a conversation to a TEAM. Additive
+     * and independent of assign() above — a conversation can carry an individual assignment
+     * (assigned_user_id) and a team assignment (assigned_team_id) at the same time; this never
+     * reads or changes assigned_user_id.
+     */
+    public function assign_team()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+        if (!$this->db->field_exists('assigned_team_id', 'conversations') || !team_tables_ready($this->db)) {
+            $this->team_not_ready(); return;
+        }
+
+        $conversation_id = (int) $this->input->post('conversation_id');
+        $team_id = (int) $this->input->post('team_id');
+
+        $conv = conversation_get($conversation_id, $this->uid);
+        if (empty($conv)) { echo json_encode(array('status' => '0', 'message' => 'Conversation not found')); return; }
+
+        if ($team_id > 0) {
+            if ($this->own_team($team_id) === null) { echo json_encode(array('status' => '0', 'message' => 'Team not found')); return; }
+        } else {
+            $team_id = null;
+        }
+
+        $before = $this->db->select('assigned_team_id')->from('conversations')->where('id', $conv['id'])->get()->row_array();
+        $this->db->where('id', $conv['id'])->where('user_id', $this->uid)
+            ->update('conversations', array('assigned_team_id' => $team_id, 'updated_at' => date('Y-m-d H:i:s')));
+        $this->load->helper('audit');
+        audit_record($this->uid, 'inbox.assign_team', 'conversation', $conv['id'],
+            array('assigned_team_id' => $before['assigned_team_id'] ?? null), array('assigned_team_id' => $team_id),
+            $this->actor_id, 'user');
+        echo json_encode(array('status' => '1', 'message' => 'Team assignment updated'));
+    }
+
     // ------------------------------------------------------------------ handoff state
 
     /** AJAX POST action=resolve|reopen — walks the shortest valid path to the target state
@@ -647,6 +831,66 @@ class Inbox extends Home
             ->update('conversations', array('last_summary' => $result['summary'], 'last_summary_at' => $now, 'updated_at' => $now));
 
         echo json_encode(array('status' => '1', 'summary' => $result['summary'], 'generated_at' => $now, 'cached' => false));
+    }
+
+    // ------------------------------------------------------------------ customer panel
+
+    /**
+     * AJAX: compact Customer 360 panel for the Inbox right rail (Task 16 / brief §16/§13).
+     * Reuses the exact same aggregation functions (application/helpers/customer_helper.php)
+     * Customers::profile() calls for the full page — this endpoint just asks for a customer
+     * by the conversation it is opened from, tenant-scoped through conversation_get() first
+     * so another tenant's conversation id can never leak a customer row (IDOR-checked, same
+     * as conversation_thread()).
+     */
+    public function customer_panel()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+
+        $this->load->helper('customer');
+
+        $conversation_id = (int) $this->input->post('conversation_id');
+        $conv = conversation_get($conversation_id, $this->uid); // tenant guard: NULL for another tenant's id
+        if (empty($conv) || empty($conv['customer_id'])) {
+            echo json_encode(array('status' => '0', 'message' => 'No customer linked to this conversation')); return;
+        }
+
+        $customer = $this->db->select('id, display_name, phone, email, lead_score, source, legacy_subscriber_id, created_at')
+            ->from('customers');
+        customer_scope_owner($this->db, (int) $conv['customer_id'], $this->uid); // tenant guard again on the customer row itself
+        $customer = $customer->get()->row_array();
+        if (empty($customer)) {
+            echo json_encode(array('status' => '0', 'message' => 'Customer not found')); return;
+        }
+
+        $cid = (int) $customer['id'];
+        static $ready = array();
+
+        $identities = $this->db->select('platform, external_id, channel_account_id')
+            ->from('customer_identities')->where('customer_id', $cid)->where('user_id', $this->uid)
+            ->order_by('platform', 'ASC')->get()->result_array();
+        $deals = customer_deals_for($this->db, $this->uid, $customer, $ready);
+        $other_conversations = array_values(array_filter(
+            customer_conversations_for($this->db, $this->uid, $cid, 10),
+            function ($c) use ($conversation_id) { return (int) $c['id'] !== $conversation_id; }
+        ));
+
+        echo json_encode(array(
+            'status' => '1',
+            'customer' => array(
+                'id' => $cid, 'name' => customer_display_name($customer),
+                'phone' => $customer['phone'], 'email' => $customer['email'], 'lead_score' => (int) $customer['lead_score'],
+            ),
+            'channel_count'      => customer_channel_count($identities),
+            'channels'           => array_keys(customer_identities_by_channel($identities)),
+            'lead_stage'         => customer_lead_stage_summary($deals),
+            'labels'             => customer_labels_for($this->db, $this->uid, $cid, $ready),
+            'orders'             => customer_orders_for($this->db, $this->uid, $identities, $ready),
+            'other_conversations'=> $other_conversations,
+            'profile_url'        => site_url('customers/profile/' . $cid),
+        ));
     }
 
     // ------------------------------------------------------------------ labels

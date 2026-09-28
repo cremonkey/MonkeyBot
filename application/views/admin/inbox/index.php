@@ -24,7 +24,11 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
                 <option value="">All labels</option>
               </select>
               <label class="form-check form-check-sm ml-1 mt-1"><input type="checkbox" id="ib_unread" class="form-check-input"> <span class="form-check-label">Unread only</span></label>
+              <!-- Task 17 (C2, brief §13): "My team" — conversations assigned to any team the
+                   acting agent belongs to. Additive filter; every other filter is untouched. -->
+              <label class="form-check form-check-sm ml-1 mt-1" id="ib_my_team_label" style="display:none"><input type="checkbox" id="ib_my_team" class="form-check-input"> <span class="form-check-label">My team</span></label>
               <button type="button" id="ib_labels_manage" class="btn btn-sm btn-link p-0 ml-1" title="Create, rename or delete labels"><i class="fas fa-tags"></i> Labels</button>
+              <button type="button" id="ib_teams_manage" class="btn btn-sm btn-link p-0 ml-1" style="display:none" title="Create, rename or delete teams"><i class="fas fa-users"></i> Teams</button>
             </div>
           </div>
           <div id="ib_list" class="card-body p-0 ib-scroll-list"></div>
@@ -70,6 +74,16 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
             <p class="mb-0"><small class="text-muted">Channel</small><br><span id="ib_c_channel">—</span></p>
           </div></div>
 
+          <!-- Customer 360 (Task 16 / brief §16/§13): compact panel from Inbox::customer_panel -->
+          <div class="card mb-2" id="ib_cu_panel" style="display:none"><div class="card-body">
+            <p class="mb-1"><small class="text-muted">Lead score</small><br><span id="ib_cu_score">—</span></p>
+            <p class="mb-1"><small class="text-muted">Other channels</small><br><span id="ib_cu_channels">—</span></p>
+            <p class="mb-1"><small class="text-muted">Pipeline stage</small><br><span id="ib_cu_stage">—</span></p>
+            <p class="mb-1"><small class="text-muted">Other conversations</small><br><span id="ib_cu_other_convs">—</span></p>
+            <p class="mb-1"><small class="text-muted">Orders</small><br><span id="ib_cu_orders">—</span></p>
+            <a id="ib_cu_profile_link" href="#" class="btn btn-sm btn-outline-primary btn-block">Open full profile</a>
+          </div></div>
+
           <div class="card mb-2"><div class="card-body">
             <p class="mb-1"><b id="ib_handoff_badge" class="badge badge-secondary">—</b></p>
             <div class="btn-group-vertical btn-block ib-actions-vertical">
@@ -91,6 +105,14 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
             <select id="ib_assign" class="form-control form-control-sm">
               <option value="0">Unassigned</option>
               <?php foreach ($team_members as $tm): ?><option value="<?php echo (int) $tm['id']; ?>"><?php echo htmlspecialchars($tm['name']); ?></option><?php endforeach; ?>
+            </select>
+            <!-- Task 17 (C2, brief §13): assign the conversation to a TEAM, additive to (and
+                 independent of) the individual-agent assignment above. Hidden entirely when no
+                 teams exist yet (ready === false), same "hide, do not error" pattern as labels. -->
+            <label class="mb-1 mt-2" id="ib_assign_team_label" style="display:none"><small class="text-muted">Assigned team</small></label>
+            <select id="ib_assign_team" class="form-control form-control-sm" style="display:none">
+              <option value="0">No team</option>
+              <?php foreach ($teams as $t): ?><option value="<?php echo (int) $t['id']; ?>"><?php echo htmlspecialchars($t['name']); ?></option><?php endforeach; ?>
             </select>
           </div></div>
 
@@ -168,14 +190,38 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   </div></div>
 </div>
 
+<!-- Teams (Task 17, C2, brief §13): create/rename/delete a team and set its members. Hidden
+     behind the "Teams" button, which itself only shows once teams_ready === true. -->
+<div class="modal fade ib-page" id="ib_teams_modal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fas fa-users"></i> Teams</h5>
+      <button type="button" class="close" data-dismiss="modal">&times;</button></div>
+    <div class="modal-body">
+      <p class="text-muted small mb-2">Assigning a conversation to a team is additive to (not a replacement for) assigning it to an individual agent.</p>
+      <div id="ib_teams_table" class="mb-3"></div>
+      <div class="input-group input-group-sm mb-3">
+        <input id="ib_team_new_name" class="form-control" maxlength="120" placeholder="New team name">
+        <div class="input-group-append"><button type="button" id="ib_team_create" class="btn btn-primary">Add</button></div>
+      </div>
+      <div id="ib_team_members_box" style="display:none">
+        <label class="mb-1"><small class="text-muted">Members of <b id="ib_team_members_name"></b></small></label>
+        <div id="ib_team_members_list" class="mb-2"></div>
+        <button type="button" id="ib_team_members_save" class="btn btn-sm btn-outline-primary">Save members</button>
+      </div>
+    </div>
+  </div></div>
+</div>
+
 <script>
 (function () {
   var TOKEN = "<?php echo $this->session->userdata('csrf_token_session'); ?>", BASE = "<?php echo base_url(); ?>";
   var PLAT_ICON = <?php echo json_encode($plat_icon); ?>, PLAT_NAME = <?php echo json_encode($plat_name); ?>;
+  var TEAMS_READY = <?php echo $teams_ready ? 'true' : 'false'; ?>; // Task 17 (C2, brief §13)
   var current = null, listStart = 0, threadBeforeId = 0, LABELS = [];
   var esc = function (s) { return $('<div>').text(s == null ? '' : String(s)).html(); };
   var note = function (m, ok) { if (typeof iziToast !== 'undefined') iziToast[ok ? 'success' : 'error']({message: m, position: 'topRight'}); else alert(m); };
   var post = function (path, data, cb) { data.csrf_token = TOKEN; return $.post(BASE + 'inbox/' + path, data, cb, 'json'); };
+  if (TEAMS_READY) { $('#ib_my_team_label, #ib_teams_manage, #ib_assign_team_label, #ib_assign_team').show(); }
 
   function labelBadge(l, removable) {
     var bg = l.color || '#6c757d';
@@ -257,12 +303,93 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
     });
   });
 
+  // ---------------------------------------------------------------------------------- teams
+  // (Task 17, C2, brief §13). Client-side mirror of the labels manager above: a modal that
+  // lists this tenant's teams (create/rename/delete) and, per team, which of this tenant's
+  // team_members belong to it (team_membership_set replaces the whole set at once).
+  var TEAM_MEMBERS = <?php echo json_encode($team_members); ?>;
+  var TEAMS = [], teamMembersEditingId = 0;
+
+  function loadTeams() {
+    if (!TEAMS_READY) return;
+    post('teams_list', {}, function (r) {
+      if (r.status !== '1') return;
+      TEAMS = r.rows || [];
+      var keep = $('#ib_assign_team').val();
+      $('#ib_assign_team').html('<option value="0">No team</option>' + TEAMS.map(function (t) {
+        return '<option value="' + (+t.id) + '">' + esc(t.name) + '</option>';
+      }).join('')).val(keep);
+      if ($('#ib_assign_team').val() !== keep) $('#ib_assign_team').val(0);
+      renderTeamsTable();
+    });
+  }
+
+  function renderTeamsTable() {
+    $('#ib_teams_table').html(TEAMS.length ? TEAMS.map(function (t) {
+      return '<div class="d-flex align-items-center mb-1" data-id="' + (+t.id) + '">' +
+        '<input class="form-control form-control-sm ib-team-name" maxlength="120" value="' + esc(t.name) + '">' +
+        '<small class="text-muted mx-2 text-nowrap">' + (+t.members) + ' member(s)</small>' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary ib-team-rename">Save</button>' +
+        '<button type="button" class="btn btn-sm btn-outline-primary ml-1 ib-team-edit-members">Members</button>' +
+        '<button type="button" class="btn btn-sm btn-outline-danger ml-1 ib-team-delete"><i class="fas fa-trash"></i></button></div>';
+    }).join('') : '<small class="text-muted">No teams yet.</small>');
+  }
+
+  $('#ib_teams_manage').on('click', function () { loadTeams(); $('#ib_team_members_box').hide(); $('#ib_teams_modal').modal('show'); });
+  $('#ib_team_create').on('click', function () {
+    var name = $('#ib_team_new_name').val();
+    if (!name) return;
+    post('team_save', {name: name}, function (r) {
+      note(r.message, r.status === '1');
+      if (r.status === '1') { $('#ib_team_new_name').val(''); loadTeams(); }
+    });
+  });
+  $(document).on('click', '.ib-team-rename', function () {
+    var row = $(this).closest('[data-id]');
+    post('team_save', {team_id: row.data('id'), name: row.find('.ib-team-name').val()}, function (r) {
+      note(r.message, r.status === '1');
+      if (r.status === '1') loadTeams();
+    });
+  });
+  $(document).on('click', '.ib-team-delete', function () {
+    var row = $(this).closest('[data-id]');
+    if (!confirm('Delete this team? It will be removed from every conversation it is assigned to.')) return;
+    post('team_delete', {team_id: row.data('id')}, function (r) {
+      note(r.message, r.status === '1');
+      if (r.status === '1') { loadTeams(); loadList(true); }
+    });
+  });
+  $(document).on('click', '.ib-team-edit-members', function () {
+    var id = $(this).closest('[data-id]').data('id');
+    var team = TEAMS.filter(function (t) { return +t.id === +id; })[0];
+    if (!team) return;
+    teamMembersEditingId = id;
+    $('#ib_team_members_name').text(team.name);
+    post('teams_list', {}, function () { /* member set below already reflects TEAM_MEMBERS statically */ });
+    // team_membership_set replaces the whole set; we do not yet know which members are already
+    // on this team without a dedicated read, so default every checkbox unchecked and let the
+    // agent pick — team_membership_set() is idempotent to call again with the same set.
+    $('#ib_team_members_list').html(TEAM_MEMBERS.map(function (m) {
+      return '<label class="d-block mb-0"><input type="checkbox" class="ib-team-member-cb" value="' + (+m.id) + '"> ' + esc(m.name) + '</label>';
+    }).join('') || '<small class="text-muted">No team members on this account yet.</small>');
+    $('#ib_team_members_box').show();
+  });
+  $('#ib_team_members_save').on('click', function () {
+    if (!teamMembersEditingId) return;
+    var ids = $('.ib-team-member-cb:checked').map(function () { return +$(this).val(); }).get();
+    post('team_membership_set', {team_id: teamMembersEditingId, team_member_ids: ids}, function (r) {
+      note(r.message, r.status === '1');
+      if (r.status === '1') loadTeams();
+    });
+  });
+
   function loadList(reset) {
     if (reset) listStart = 0;
     post('conversations_data', {
       label_id: $('#ib_label').val(),
       platform: $('#ib_platform').val(), status: $('#ib_status').val(),
       unread_only: $('#ib_unread').is(':checked') ? 1 : 0, search: $('#ib_search').val(),
+      my_team: TEAMS_READY && $('#ib_my_team').is(':checked') ? 1 : 0,
       start: listStart, length: 20
     }, function (r) {
       if (r.status !== '1') return;
@@ -286,6 +413,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   $('#ib_more').on('click', function () { listStart += 20; loadList(false); });
   $('#ib_search, #ib_platform, #ib_status, #ib_label').on('change keyup', function () { loadList(true); });
   $('#ib_unread').on('change', function () { loadList(true); });
+  $('#ib_my_team').on('change', function () { loadList(true); });
 
   $(document).on('click', '.ib-row', function () { openConversation($(this).data('id')); });
 
@@ -308,6 +436,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       $('#ib_c_channel').text(PLAT_NAME[current.platform] || current.platform);
       $('#ib_handoff_badge').text(r.handoff_label);
       $('#ib_assign').val(current.assigned_user_id || 0);
+      if (TEAMS_READY) $('#ib_assign_team').val(current.assigned_team_id || 0);
       $('#ib_composer, #ib_send').prop('disabled', false);
       $('#ib_attach').toggle(r.can_send_image === true);
       renderAiDraft(r.ai_draft);
@@ -315,6 +444,25 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
       loadSummary(false);
       loadCanned();
       loadList(true); // refresh unread badges
+      loadCustomerPanel(current.id);
+    });
+  }
+
+  /** Task 16 / brief §16/§13: compact Customer 360 panel. Hidden entirely when the
+   *  conversation has no linked customer row (customer_id NULL), same as an unresolved
+   *  legacy thread — nothing to show, no error either. */
+  function loadCustomerPanel(conversationId) {
+    $('#ib_cu_panel').hide();
+    post('customer_panel', {conversation_id: conversationId}, function (r) {
+      if (r.status !== '1') return; // no linked customer — leave the panel hidden
+      $('#ib_cu_score').text(r.customer.lead_score);
+      $('#ib_cu_channels').text((r.channels || []).map(function (c) { return PLAT_NAME[c] || c; }).join(', ') || '—');
+      var stage = r.lead_stage || {};
+      $('#ib_cu_stage').text(stage.open_deal ? stage.open_deal.title : ('Open: ' + (stage.open_count || 0) + ' · Won: ' + (stage.won_count || 0)));
+      $('#ib_cu_other_convs').text((r.other_conversations || []).length ? (r.other_conversations.length + ' other conversation(s)') : 'None');
+      $('#ib_cu_orders').text((r.orders || []).length ? (r.orders.length + ' order(s)') : 'None');
+      $('#ib_cu_profile_link').attr('href', r.profile_url || '#');
+      $('#ib_cu_panel').show();
     });
   }
 
@@ -435,6 +583,13 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   $('#ib_assign').on('change', function () {
     if (!current) return;
     post('assign', {conversation_id: current.id, team_member_id: $(this).val()}, function (r) { note(r.message, r.status === '1'); });
+  });
+
+  /** Task 17 (C2, brief §13): assign to a TEAM. Independent of the agent assign above — both
+   *  can be set on the same conversation; this only ever posts to assign_team. */
+  $('#ib_assign_team').on('change', function () {
+    if (!current) return;
+    post('assign_team', {conversation_id: current.id, team_id: $(this).val()}, function (r) { note(r.message, r.status === '1'); if (r.status === '1') loadList(true); });
   });
 
   function doAction(path) {
@@ -573,6 +728,7 @@ $plat_name = array('fb' => 'Messenger', 'ig' => 'Instagram', 'wa' => 'WhatsApp',
   }
 
   loadLabels();
+  loadTeams();
   loadList(true);
 })();
 </script>

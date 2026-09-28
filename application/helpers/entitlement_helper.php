@@ -13,8 +13,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  * 353). The matching `modules` rows are created by
  * assets/backup_db/migrations/2026-09-22-custom-module-entitlements.sql (400-407),
  * 2026-09-23-pricing-admin.sql (408), 2026-09-24-event-automation.sql (409),
- * 2026-09-24-onboarding.sql (410), 2026-09-25-unified-inbox.sql (411) and
- * 2026-09-26-sequences.sql (412).
+ * 2026-09-24-onboarding.sql (410), 2026-09-25-unified-inbox.sql (411),
+ * 2026-09-26-sequences.sql (412) and 2026-10-04a-customers-module.sql (413).
  *
  * SAFETY SWITCH: enforcement only happens when config item
  * 'entitlement_enforce_custom_modules' is TRUE. Unset/FALSE = log a would-deny and allow.
@@ -39,6 +39,7 @@ if (!function_exists('entitlement_map')) {
             'onboarding'          => 410, // Setup Guide (client onboarding wizard, Phase 11)
             'inbox'               => 411, // Unified Inbox (Phase 9.5)
             'sequences'           => 412, // Sequences (timed step sequences, Phase 10.5)
+            'customers'           => 413, // Customer 360 (read-only profile, Task 16 / brief §16)
         );
     }
 }
