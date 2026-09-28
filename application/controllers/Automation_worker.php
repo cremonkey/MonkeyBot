@@ -101,12 +101,68 @@ class Automation_worker extends Home
             log_message('error', 'automation_worker: ' . $e->getMessage());
         }
 
+        // Task 24 (brief 23): the inactivity scanner runs inside the same locked tick, after
+        // the queue drain, so it never overlaps another tick and its emitted events are
+        // simply picked up on the NEXT tick (same as any other event) rather than this one.
+        $inactivity = array('scanned' => 0, 'emitted' => 0);
+        try {
+            $inactivity = $this->scan_inactivity();
+        } catch (Throwable $e) {
+            log_message('error', 'automation_worker scan_inactivity: ' . $e->getMessage());
+        }
+
         $this->db->query("SELECT RELEASE_LOCK('" . self::LOCK . "')");
 
         $detail = "events {$seen}, rules matched {$totals['rules']}, ok {$totals['success']}, "
-                . "failed {$totals['failed']}, skipped {$totals['skipped']}, duplicate {$totals['duplicate']}";
+                . "failed {$totals['failed']}, skipped {$totals['skipped']}, duplicate {$totals['duplicate']}, "
+                . "inactivity scanned {$inactivity['scanned']} emitted {$inactivity['emitted']}";
         ops_health_record('automation_worker', $error === null, microtime(true) - $started, $error === null ? $detail : $error);
         echo $detail . "\n";
+    }
+
+    /**
+     * Task 24 (brief 23): the "inactivity" trigger has no natural emitter — nothing else in
+     * the app knows a conversation went quiet, so this tick scans for it and emits a real
+     * `inactivity` event, which then flows through the SAME event-driven pipeline as every
+     * other trigger (no second engine). Threshold: config item
+     * 'automation_inactivity_hours' (default 24). Dedup: only conversations whose
+     * updated_at is itself older than the threshold are scanned (so a conversation already
+     * flagged idle is not re-flagged every minute) — a coarse but cheap and safe guard;
+     * a determined rule author still gets at most one inactivity event per idle spell per
+     * conversation because conversation_transition() bumps updated_at on the next real
+     * activity, which is exactly when the row leaves this scan.
+     */
+    public function scan_inactivity($limit = 200)
+    {
+        if (!$this->db->table_exists('conversations')) return array('scanned' => 0, 'emitted' => 0);
+        try {
+            $this->load->library('automation_engine');
+            $hours = (float) $this->config->item('automation_inactivity_hours');
+            if ($hours <= 0) $hours = 24.0;
+
+            $cutoff = date('Y-m-d H:i:s', time() - (int) ($hours * 3600));
+            $rows = $this->db->select('id, user_id, platform, last_inbound_at, updated_at')
+                ->from('conversations')
+                ->where('status', 'open')
+                ->where('last_inbound_at IS NOT NULL', null, false)
+                ->where('last_inbound_at <', $cutoff)
+                ->order_by('id', 'ASC')->limit(max(1, (int) $limit))->get()->result_array();
+
+            $emitted = 0;
+            foreach ($rows as $row) {
+                if (!Automation_engine::is_inactive($row['last_inbound_at'], $hours)) continue;
+                $n = event_emit((int) $row['user_id'], 'inactivity', 'conversation', $row['id'], array(
+                    'idle_hours'      => $hours,
+                    'last_inbound_at' => $row['last_inbound_at'],
+                    'platform'        => $row['platform'],
+                ));
+                if ($n > 0) $emitted++;
+            }
+            return array('scanned' => count($rows), 'emitted' => $emitted);
+        } catch (Throwable $e) {
+            log_message('error', 'automation_worker scan_inactivity: ' . $e->getMessage());
+            return array('scanned' => 0, 'emitted' => 0);
+        }
     }
 
     /**

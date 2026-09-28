@@ -86,6 +86,9 @@ class FakeGateway
     public function send_text($u, $p, $to, $t, $pid = '') { return $this->result('send_text', func_get_args()); }
     public function call_webhook($url, array $p) { return $this->result('call_webhook', func_get_args()); }
     public function write_google_sheet($u, array $r) { return $this->result('write_google_sheet', func_get_args()); }
+    public function assign_agent($u, $s, $a) { return $this->result('assign_agent', func_get_args()); }
+    public function update_field($u, $t, $id, $f, $v) { return $this->result('update_field', func_get_args()); }
+    public function notify_customer_email($u, $email, $subj, $text) { return $this->result('notify_customer_email', func_get_args()); }
 
     public function policy_decide($platform, array $ctx) { $this->calls[] = array('policy_decide', array($platform, $ctx)); return $this->policy; }
     public function sleep_backoff($s) { $this->slept[] = $s; }
@@ -297,6 +300,95 @@ is_same('dry run describes the first action', 'Tag as "Hot"', $dry['actions'][0]
 is_same('dry run shows a policy denial', 'not send (opted_out)', $dry['actions'][1]['would']);
 is_same('dry run flags an unknown action', 'fail (unknown action)', $dry['actions'][2]['would']);
 is_same('dry run changed nothing', 0, count($gw->actions) + count($gw->runs) + $gw->sent());
+
+
+echo "-- Task 24: new actions ---------------------------------------------\n";
+
+$gw = new FakeGateway();
+$e = mk_engine($gw);
+$r = $e->run_rule(mk_rule(array(), array(array('type' => 'assign_agent', 'agent_id' => 9))), mk_event());
+is_same('assign_agent runs', 'success', $r['status']);
+is_same('assign_agent got the customer + agent id', array(11, 21, 9), $gw->calls[0][1]);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'assign_agent', 'agent_id' => 9))), mk_event(array('payload' => '{}', 'subject_type' => 'deal')));
+is_same('assign_agent without a customer is skipped, not failed', 'skipped', $gw->actions[0]['status']);
+
+$gw = new FakeGateway();
+$r = mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'field' => 'email', 'value' => 'x@example.test'))), mk_event());
+is_same('update_field runs', 'success', $r['status']);
+is_same('update_field defaults target to customer', array(11, 'customer', 21, 'email', 'x@example.test'), $gw->calls[0][1]);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'value' => 'x'))), mk_event());
+is_same('update_field needs a field name', 'no field given', $gw->actions[0]['error']);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'field' => 'title', 'value' => 'New title', 'target' => 'deal', 'deal_id' => 55))), mk_event());
+is_same('update_field(target=deal) uses the given deal_id', array(11, 'deal', 55, 'title', 'New title'), $gw->calls[0][1]);
+
+$gw = new FakeGateway();
+$r = mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'notify_customer_email', 'text' => 'Hello {{full_name}}'))), mk_event(array('payload' => json_encode(array('email' => 'nada@example.test', 'full_name' => 'Nada')))));
+is_same('notify_customer_email runs', 'success', $r['status']);
+is_same('notify_customer_email uses the customer email and fills the template', array(11, 'nada@example.test', 'An update for you', 'Hello Nada'), $gw->calls[0][1]);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'notify_customer_email', 'text' => 'hi'))), mk_event(array('payload' => '{}')));
+is_same('notify_customer_email without an email is skipped, not failed', 'skipped', $gw->actions[0]['status']);
+
+foreach (array('assign_agent', 'update_field', 'notify_customer_email') as $t) {
+    is_true('action_catalogue lists ' . $t, array_key_exists($t, Automation_engine::action_catalogue()));
+}
+
+echo "-- Task 24: new trigger types ----------------------------------------\n";
+
+is_true('trigger_catalogue lists keyword/tag/inactivity/score_threshold', count(array_diff(array('keyword', 'tag', 'inactivity', 'score_threshold'), array_keys(Automation_engine::trigger_catalogue()))) === 0);
+
+$gw = new FakeGateway();
+$gw->rules = array(
+    mk_rule(array(array('field' => 'text', 'op' => 'contains', 'value' => 'price')), array(array('type' => 'add_label', 'label' => 'asked price')), array('id' => 1, 'user_id' => 11, 'trigger_event' => 'keyword')),
+);
+$sum = mk_engine($gw)->process_event(mk_event(array('event_type' => 'message.received', 'payload' => json_encode(array('text' => 'what is the price?', 'subscriber_id' => 21)))));
+is_same('a keyword rule is woken by message.received', 1, $sum['rules']);
+is_same('and its condition (contains) decided the match', 'success', $sum['success'] > 0 ? 'success' : 'not run');
+
+$gw = new FakeGateway();
+$gw->rules = array(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x')), array('id' => 2, 'user_id' => 11, 'trigger_event' => 'tag')));
+$sum2 = mk_engine($gw)->process_event(mk_event(array('event_type' => 'customer.created')));
+is_same('a tag rule is woken by customer.created', 1, $sum2['rules']);
+
+$gw = new FakeGateway();
+$gw->rules = array(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x')), array('id' => 3, 'user_id' => 11, 'trigger_event' => 'score_threshold')));
+$sum3 = mk_engine($gw)->process_event(mk_event(array('event_type' => 'lead.qualified')));
+is_same('a score_threshold rule is woken by lead.qualified', 1, $sum3['rules']);
+
+$gw = new FakeGateway();
+$gw->rules = array(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x')), array('id' => 4, 'user_id' => 11, 'trigger_event' => 'inactivity')));
+$sum4 = mk_engine($gw)->process_event(mk_event(array('event_type' => 'inactivity')));
+is_same('an inactivity rule is a plain event_type match (no alias needed)', 1, $sum4['rules']);
+
+$gw = new FakeGateway();
+$gw->rules = array(
+    mk_rule(array(), array(array('type' => 'add_label', 'label' => 'literal')), array('id' => 5, 'user_id' => 11, 'trigger_event' => 'lead.created')),
+    mk_rule(array(), array(array('type' => 'add_label', 'label' => 'via-alias')), array('id' => 6, 'user_id' => 11, 'trigger_event' => 'tag')),
+);
+$sum5 = mk_engine($gw)->process_event(mk_event(array('event_type' => 'lead.created')));
+is_same('a literal-match rule and an aliased rule both fire, exactly once each', 2, $sum5['rules']);
+
+$gw = new FakeGateway();
+$gw->rules = array(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x')), array('id' => 7, 'user_id' => 11, 'trigger_event' => 'keyword')));
+$sum6 = mk_engine($gw)->process_event(mk_event(array('event_type' => 'order.created')));
+is_same('an unrelated event does not wake a keyword rule', 0, $sum6['rules']);
+
+echo "-- Task 24: is_inactive (pure) ----------------------------------------\n";
+$now = strtotime('2026-09-28 12:00:00');
+is_true('25h-old inbound at a 24h threshold is inactive', Automation_engine::is_inactive('2026-09-27 11:00:00', 24, $now));
+is_true('1h-old inbound is not inactive', !Automation_engine::is_inactive('2026-09-28 11:00:00', 24, $now));
+is_true('empty timestamp is never inactive', !Automation_engine::is_inactive('', 24, $now));
+is_true('null-ish timestamp is never inactive', !Automation_engine::is_inactive(null, 24, $now));
+is_true('unparseable timestamp is never inactive', !Automation_engine::is_inactive('not a date', 24, $now));
+is_true('a zero/negative threshold never fires', !Automation_engine::is_inactive('2020-01-01 00:00:00', 0, $now));
+is_true('exactly at the threshold counts as inactive', Automation_engine::is_inactive('2026-09-27 12:00:00', 24, $now));
 
 echo "\n== $PASS passed, $FAIL failed ==\n";
 exit($FAIL === 0 && $PASS > 0 ? 0 : 1);
