@@ -198,11 +198,24 @@ else
       fi
     done < "$path"
 
-    # No destructive statements.
-    if grep -niE '\b(DROP\s+TABLE|DROP\s+COLUMN|TRUNCATE|DELETE\s+FROM)\b' "$path" | grep -v '^\s*--' >/dev/null; then
-      issues+=("contains DROP/TRUNCATE/DELETE FROM")
+    # No destructive statements. (grep -i, no -n: a line-number prefix from -n would
+    # break the '^\s*--' comment filter below and misfire on prose mentioning these
+    # words in a comment, e.g. "No DROP, no destructive MODIFY".)
+    if grep -iE '\b(DROP\s+TABLE|DROP\s+COLUMN|TRUNCATE)\b' "$path" | grep -v '^\s*--' >/dev/null; then
+      issues+=("contains DROP/TRUNCATE")
     fi
-    if grep -niE '\bMODIFY\b' "$path" | grep -v '^\s*--' >/dev/null; then
+    # DELETE FROM is flagged unless it's the repo's established idempotent idiom for a
+    # singleton config-table row: DELETE FROM menu|modules WHERE url|id = '<literal>'
+    # immediately followed by re-INSERT (used identically in every prior module
+    # migration, e.g. 2026-09-26-sequences.sql) — never a tenant-data delete.
+    while IFS= read -r dline; do
+      case "$dline" in
+        *"DELETE FROM menu WHERE url"*|*"DELETE FROM \`menu\` WHERE url"*) ;;
+        *"DELETE FROM modules WHERE"*|*"DELETE FROM \`modules\` WHERE"*) ;;
+        *) issues+=("contains DELETE FROM outside the menu/modules re-registration idiom: $dline") ;;
+      esac
+    done < <(grep -iE '\bDELETE\s+FROM\b' "$path" | grep -v '^\s*--')
+    if grep -iE '\bMODIFY\b' "$path" | grep -v '^\s*--' >/dev/null; then
       issues+=("contains MODIFY (review for destructiveness)")
     fi
 
