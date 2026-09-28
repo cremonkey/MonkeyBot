@@ -23,7 +23,7 @@ require_once("Home.php");
  */
 class Onboarding extends Home
 {
-    const STEPS = 9;
+    const STEPS = 10;
 
     public function __construct()
     {
@@ -165,6 +165,9 @@ class Onboarding extends Home
             case 9:
                 $data['checklist'] = $this->checklist($st, $tpl);
                 break;
+            case 10:
+                $data['extras'] = $this->extras_state($st, $tpl);
+                break;
         }
 
         $data['page_title'] = 'Setup Guide';
@@ -184,6 +187,7 @@ class Onboarding extends Home
             7 => array('en' => 'Working mode', 'ar' => 'طريقة الشغل'),
             8 => array('en' => 'Test conversation', 'ar' => 'جرّب محادثة'),
             9 => array('en' => 'Go live', 'ar' => 'ابدأ الشغل'),
+            10 => array('en' => 'Extras (optional)', 'ar' => 'إضافات اختيارية'),
         );
     }
 
@@ -713,6 +717,128 @@ class Onboarding extends Home
         $this->jout(array('status' => '1'));
     }
 
+    /**
+     * Step 10 — Extras (optional, brief §33 / Task 23). Fully skippable: the wizard never
+     * calls this and never redirects here on its own. Every row this creates is created
+     * DISABLED — sequences and automation rules as status 'draft' (Sequences.php /
+     * Automations.php only ever act on 'active'), the appointment service as status '0'
+     * (Appointment_booking only ever books against '1'). The owner is the ONLY path to "on":
+     * this step never flips a status to active/1, no matter what is checked.
+     *
+     * Idempotent: which template sequences/rules were already created here is remembered in
+     * onboarding_state.data_json (extras_applied: source_key => row id, the same "wizard's
+     * own bookkeeping" pattern save_state already uses for profile_id/faq_applied_at) — an
+     * already-applied item is skipped even if its checkbox is re-submitted checked, and the
+     * appointment service is judged straight from ab_services (any row for this tenant), not
+     * from bookkeeping, so it can never be created twice either.
+     */
+    public function save_extras()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        $st = $this->state();
+        $tpl = $this->template_of($st);
+        if ($tpl === null) { $this->jout(array('status' => '0', 'message' => 'Pick a business type first.')); return; }
+        if (empty($this->selected_targets($st))) { $this->jout(array('status' => '0', 'message' => 'Choose the pages for this business first (step 2).')); return; }
+
+        $applied = (array) ($st['data']['extras_applied'] ?? array());
+        $checked_seq = array_map('strval', (array) $this->input->post('sequences', true));
+        $checked_auto = array_map('strval', (array) $this->input->post('automation_rules', true));
+        $checked_appt = (string) $this->input->post('appointment', true) === '1';
+        $now = date('Y-m-d H:i:s');
+
+        // -- sequences --------------------------------------------------------------
+        $existing_seq = array();
+        foreach ($applied as $sk => $rid) if (strpos($sk, 'seq:') === 0) $existing_seq[substr($sk, 4)] = array('id' => $rid);
+        $seq_created = 0;
+        foreach (industry_template_sequences_plan($tpl, $existing_seq) as $p) {
+            if ($p['op'] !== 'insert' || !in_array($p['source_key'], $checked_seq, true)) continue;
+            $this->db->insert('sequences', array(
+                'user_id' => $this->uid, 'name' => mb_substr($p['name'], 0, 190),
+                'trigger_event' => 'manual', 'enroll_conditions_json' => null,
+                // ALWAYS 'draft': a template extra never runs until the owner publishes it.
+                'status' => $p['status'], 'created_at' => $now, 'updated_at' => $now,
+            ));
+            $sid = (int) $this->db->insert_id();
+            foreach ($p['steps'] as $pos => $step) {
+                $this->db->insert('sequence_steps', array(
+                    'sequence_id' => $sid, 'position' => $pos, 'delay_seconds' => $step['delay_seconds'],
+                    'action_type' => $step['action_type'], 'action_params_json' => json_encode($step['action_params'], JSON_UNESCAPED_UNICODE),
+                ));
+            }
+            $applied['seq:' . $p['source_key']] = $sid;
+            $seq_created++;
+        }
+
+        // -- automation rules ---------------------------------------------------------
+        $existing_auto = array();
+        foreach ($applied as $sk => $rid) if (strpos($sk, 'auto:') === 0) $existing_auto[substr($sk, 5)] = array('id' => $rid);
+        $auto_created = 0;
+        foreach (industry_template_automation_plan($tpl, $existing_auto) as $p) {
+            if ($p['op'] !== 'insert' || !in_array($p['source_key'], $checked_auto, true)) continue;
+            $this->db->insert('automation_rules', array(
+                'user_id' => $this->uid, 'name' => mb_substr($p['name'], 0, 190),
+                'trigger_event' => $p['trigger_event'], 'conditions_json' => $p['conditions_json'], 'actions_json' => $p['actions_json'],
+                // ALWAYS 'draft': a template extra never fires until the owner publishes it.
+                'status' => $p['status'], 'created_by' => (int) $this->session->userdata('user_id'),
+                'created_at' => $now, 'updated_at' => $now,
+            ));
+            $applied['auto:' . $p['source_key']] = (int) $this->db->insert_id();
+            $auto_created++;
+        }
+
+        // -- appointment default service ------------------------------------------------
+        // The template ships appointments.enabled = false (never auto-applied); ticking
+        // this box on this step IS the owner's explicit opt-in the plan function requires.
+        $has_service = $this->db->from('ab_services')->where('user_id', $this->uid)->count_all_results() > 0;
+        $ap_tpl = $tpl;
+        if (is_array($ap_tpl['appointments'] ?? null)) $ap_tpl['appointments']['enabled'] = $checked_appt;
+        $ap_plan = industry_template_appointments_plan($ap_tpl, $has_service);
+        $appt_created = false;
+        if ($ap_plan['op'] === 'insert') {
+            $this->db->insert('ab_services', array(
+                'user_id' => $this->uid, 'name' => mb_substr($ap_plan['name'], 0, 120),
+                'duration_min' => (int) $ap_plan['duration_min'], 'price' => 0, 'currency' => 'USD',
+                // ALWAYS '0' (not bookable): matches ab_services.status semantics.
+                'status' => $ap_plan['status'], 'created_at' => $now,
+            ));
+            $appt_created = true;
+        }
+
+        $this->save_state(array('extras_applied' => $applied, 'extras_applied_at' => $now), 10);
+        $this->jout(array(
+            'status' => '1', 'sequences_created' => $seq_created, 'automation_rules_created' => $auto_created,
+            'appointment_created' => $appt_created,
+        ));
+    }
+
+    /**
+     * Data for step 10's view: every template extra, with whether it is already applied
+     * (so the checkbox shows checked+disabled) — read the same way as everything else on
+     * this step, from the wizard's own bookkeeping for sequences/rules (they have no
+     * source_key column of their own) and live from ab_services for the appointment default.
+     */
+    private function extras_state($st, $tpl)
+    {
+        $applied = (array) ($st['data']['extras_applied'] ?? array());
+        $existing_seq = array();
+        foreach ($applied as $sk => $rid) if (strpos($sk, 'seq:') === 0) $existing_seq[substr($sk, 4)] = array('id' => $rid);
+        $existing_auto = array();
+        foreach ($applied as $sk => $rid) if (strpos($sk, 'auto:') === 0) $existing_auto[substr($sk, 5)] = array('id' => $rid);
+
+        $has_service = $this->db->from('ab_services')->where('user_id', $this->uid)->count_all_results() > 0;
+        $ap_tpl = $tpl;
+        if (is_array($ap_tpl['appointments'] ?? null)) $ap_tpl['appointments']['enabled'] = true;   // preview only: "what WOULD be offered if ticked"
+
+        return array(
+            'sequences' => industry_template_sequences_plan($tpl, $existing_seq),
+            'automation_rules' => industry_template_automation_plan($tpl, $existing_auto),
+            'media' => industry_template_media_plan($tpl),
+            'appointments' => industry_template_appointments_plan($ap_tpl, $has_service),
+            'has_service' => $has_service,
+        );
+    }
+
     /* ------------------------------------------------------------- checklist */
 
     /**
@@ -795,6 +921,10 @@ class Onboarding extends Home
             'done' => !empty($st['data']['tested_at']), 'required' => false,
             'detail' => $this->ai_ready() ? '' : 'AI key not set up yet', 'link' => 'onboarding/step/8');
 
+        $out[] = array('key' => 'extras', 'label_en' => 'Optional extras reviewed', 'label_ar' => 'راجعت الإضافات الاختيارية',
+            'done' => !empty($st['data']['extras_applied_at']), 'required' => false,
+            'detail' => 'Sequences, automations, appointments — all optional', 'link' => 'onboarding/step/10');
+
         return $out;
     }
 
@@ -811,6 +941,7 @@ class Onboarding extends Home
             7 => !empty($st['data']['hours_done_at']),
             8 => !empty($st['data']['tested_at']),
             9 => !empty($st['completed_at']),
+            10 => !empty($st['data']['extras_applied_at']),
         );
         foreach ($flags as $ok) if ($ok) $done++;
         return array('done' => $done, 'total' => self::STEPS, 'flags' => $flags);
