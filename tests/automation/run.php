@@ -86,6 +86,9 @@ class FakeGateway
     public function send_text($u, $p, $to, $t, $pid = '') { return $this->result('send_text', func_get_args()); }
     public function call_webhook($url, array $p) { return $this->result('call_webhook', func_get_args()); }
     public function write_google_sheet($u, array $r) { return $this->result('write_google_sheet', func_get_args()); }
+    public function assign_agent($u, $s, $a) { return $this->result('assign_agent', func_get_args()); }
+    public function update_field($u, $t, $id, $f, $v) { return $this->result('update_field', func_get_args()); }
+    public function notify_customer_email($u, $email, $subj, $text) { return $this->result('notify_customer_email', func_get_args()); }
 
     public function policy_decide($platform, array $ctx) { $this->calls[] = array('policy_decide', array($platform, $ctx)); return $this->policy; }
     public function sleep_backoff($s) { $this->slept[] = $s; }
@@ -297,6 +300,230 @@ is_same('dry run describes the first action', 'Tag as "Hot"', $dry['actions'][0]
 is_same('dry run shows a policy denial', 'not send (opted_out)', $dry['actions'][1]['would']);
 is_same('dry run flags an unknown action', 'fail (unknown action)', $dry['actions'][2]['would']);
 is_same('dry run changed nothing', 0, count($gw->actions) + count($gw->runs) + $gw->sent());
+
+
+echo "-- Task 24: new actions ---------------------------------------------\n";
+
+$gw = new FakeGateway();
+$e = mk_engine($gw);
+$r = $e->run_rule(mk_rule(array(), array(array('type' => 'assign_agent', 'agent_id' => 9))), mk_event());
+is_same('assign_agent runs', 'success', $r['status']);
+is_same('assign_agent got the customer + agent id', array(11, 21, 9), $gw->calls[0][1]);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'assign_agent', 'agent_id' => 9))), mk_event(array('payload' => '{}', 'subject_type' => 'deal')));
+is_same('assign_agent without a customer is skipped, not failed', 'skipped', $gw->actions[0]['status']);
+
+$gw = new FakeGateway();
+$r = mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'field' => 'email', 'value' => 'x@example.test'))), mk_event());
+is_same('update_field runs', 'success', $r['status']);
+is_same('update_field defaults target to customer', array(11, 'customer', 21, 'email', 'x@example.test'), $gw->calls[0][1]);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'value' => 'x'))), mk_event());
+is_same('update_field needs a field name', 'no field given', $gw->actions[0]['error']);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'field' => 'title', 'value' => 'New title', 'target' => 'deal', 'deal_id' => 55))), mk_event());
+is_same('update_field(target=deal) uses the given deal_id', array(11, 'deal', 55, 'title', 'New title'), $gw->calls[0][1]);
+
+$gw = new FakeGateway();
+$r = mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'notify_customer_email', 'text' => 'Hello {{full_name}}'))), mk_event(array('payload' => json_encode(array('email' => 'nada@example.test', 'full_name' => 'Nada')))));
+is_same('notify_customer_email runs', 'success', $r['status']);
+is_same('notify_customer_email uses the customer email and fills the template', array(11, 'nada@example.test', 'An update for you', 'Hello Nada'), $gw->calls[0][1]);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'notify_customer_email', 'text' => 'hi'))), mk_event(array('payload' => '{}')));
+is_same('notify_customer_email without an email is skipped, not failed', 'skipped', $gw->actions[0]['status']);
+
+foreach (array('assign_agent', 'update_field', 'notify_customer_email') as $t) {
+    is_true('action_catalogue lists ' . $t, array_key_exists($t, Automation_engine::action_catalogue()));
+}
+
+echo "-- Task 24: new trigger types ----------------------------------------\n";
+
+is_true('trigger_catalogue lists keyword/tag/inactivity/score_threshold', count(array_diff(array('keyword', 'tag', 'inactivity', 'score_threshold'), array_keys(Automation_engine::trigger_catalogue()))) === 0);
+
+$gw = new FakeGateway();
+$gw->rules = array(
+    mk_rule(array(array('field' => 'text', 'op' => 'contains', 'value' => 'price')), array(array('type' => 'add_label', 'label' => 'asked price')), array('id' => 1, 'user_id' => 11, 'trigger_event' => 'keyword')),
+);
+$sum = mk_engine($gw)->process_event(mk_event(array('event_type' => 'message.received', 'payload' => json_encode(array('text' => 'what is the price?', 'subscriber_id' => 21)))));
+is_same('a keyword rule is woken by message.received', 1, $sum['rules']);
+is_same('and its condition (contains) decided the match', 'success', $sum['success'] > 0 ? 'success' : 'not run');
+
+$gw = new FakeGateway();
+$gw->rules = array(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x')), array('id' => 2, 'user_id' => 11, 'trigger_event' => 'tag')));
+$sum2 = mk_engine($gw)->process_event(mk_event(array('event_type' => 'customer.created')));
+is_same('a tag rule is woken by customer.created', 1, $sum2['rules']);
+
+$gw = new FakeGateway();
+$gw->rules = array(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x')), array('id' => 3, 'user_id' => 11, 'trigger_event' => 'score_threshold')));
+$sum3 = mk_engine($gw)->process_event(mk_event(array('event_type' => 'lead.qualified')));
+is_same('a score_threshold rule is woken by lead.qualified', 1, $sum3['rules']);
+
+$gw = new FakeGateway();
+$gw->rules = array(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x')), array('id' => 4, 'user_id' => 11, 'trigger_event' => 'inactivity')));
+$sum4 = mk_engine($gw)->process_event(mk_event(array('event_type' => 'inactivity')));
+is_same('an inactivity rule is a plain event_type match (no alias needed)', 1, $sum4['rules']);
+
+$gw = new FakeGateway();
+$gw->rules = array(
+    mk_rule(array(), array(array('type' => 'add_label', 'label' => 'literal')), array('id' => 5, 'user_id' => 11, 'trigger_event' => 'lead.created')),
+    mk_rule(array(), array(array('type' => 'add_label', 'label' => 'via-alias')), array('id' => 6, 'user_id' => 11, 'trigger_event' => 'tag')),
+);
+$sum5 = mk_engine($gw)->process_event(mk_event(array('event_type' => 'lead.created')));
+is_same('a literal-match rule and an aliased rule both fire, exactly once each', 2, $sum5['rules']);
+
+$gw = new FakeGateway();
+$gw->rules = array(mk_rule(array(), array(array('type' => 'add_label', 'label' => 'x')), array('id' => 7, 'user_id' => 11, 'trigger_event' => 'keyword')));
+$sum6 = mk_engine($gw)->process_event(mk_event(array('event_type' => 'order.created')));
+is_same('an unrelated event does not wake a keyword rule', 0, $sum6['rules']);
+
+echo "-- Task 24: is_inactive (pure) ----------------------------------------\n";
+$now = strtotime('2026-09-28 12:00:00');
+is_true('25h-old inbound at a 24h threshold is inactive', Automation_engine::is_inactive('2026-09-27 11:00:00', 24, $now));
+is_true('1h-old inbound is not inactive', !Automation_engine::is_inactive('2026-09-28 11:00:00', 24, $now));
+is_true('empty timestamp is never inactive', !Automation_engine::is_inactive('', 24, $now));
+is_true('null-ish timestamp is never inactive', !Automation_engine::is_inactive(null, 24, $now));
+is_true('unparseable timestamp is never inactive', !Automation_engine::is_inactive('not a date', 24, $now));
+is_true('a zero/negative threshold never fires', !Automation_engine::is_inactive('2020-01-01 00:00:00', 0, $now));
+is_true('exactly at the threshold counts as inactive', Automation_engine::is_inactive('2026-09-27 12:00:00', 24, $now));
+
+
+echo "-- Task 24 review fix: update_field numeric validation ----------------\n";
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'field' => 'lead_score', 'value' => 'not-a-number'))), mk_event());
+is_same('non-numeric lead_score is rejected', 'failed', $gw->actions[0]['status']);
+is_true('the error names the field', strpos($gw->actions[0]['error'], 'lead_score') !== false);
+is_same('the gateway was never called', 0, count($gw->calls));
+
+$gw = new FakeGateway();
+$r = mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'field' => 'lead_score', 'value' => '42'))), mk_event());
+is_same('numeric lead_score (as a string) is accepted', 'success', $r['status']);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'field' => 'value', 'value' => 'abc', 'target' => 'deal', 'deal_id' => 55))), mk_event());
+is_same('non-numeric deal value is rejected', 'failed', $gw->actions[0]['status']);
+
+echo "-- Task 24 review fix: human.assigned from assign_agent (Automation_gateway) --------\n";
+// This is exercised against the REAL gateway class (not FakeGateway) purely as a static
+// check: the fake gateway intentionally has no database, and a DB-backed behavioural test is
+// out of scope for this dependency-free suite (see tests/events/run.php for the equivalent
+// static wiring check on Inbox::assign()).
+$gw_src = file_get_contents(__DIR__ . '/../../application/libraries/Automation_gateway.php');
+$pos = strpos($gw_src, 'function assign_agent(');
+is_true('Automation_gateway::assign_agent() exists', $pos !== false);
+is_true('assign_agent() emits human.assigned for consistency with Inbox::assign()',
+    strpos(substr($gw_src, $pos, 2500), "'human.assigned'") !== false);
+
+echo "-- Task 24 review fix: inactivity tenant filter + once-per-spell dedup (pure) --------\n";
+
+$rules_none = array(mk_rule(array(), array(), array('id' => 1, 'user_id' => 11, 'trigger_event' => 'lead.created', 'status' => 'active')));
+is_same('a tenant with no inactivity rule is not in the scan set', array(), Automation_engine::inactivity_tenants($rules_none));
+
+$rules_paused = array(mk_rule(array(), array(), array('id' => 1, 'user_id' => 11, 'trigger_event' => 'inactivity', 'status' => 'paused')));
+is_same('a PAUSED inactivity rule does not add its tenant either', array(), Automation_engine::inactivity_tenants($rules_paused));
+
+$rules_mixed = array(
+    array('user_id' => 11, 'status' => 'active', 'trigger_event' => 'inactivity'),
+    array('user_id' => 11, 'status' => 'active', 'trigger_event' => 'inactivity'), // duplicate rule, same tenant
+    array('user_id' => 12, 'status' => 'active', 'trigger_event' => 'lead.created'), // different trigger
+    array('user_id' => 13, 'status' => 'active', 'trigger_event' => 'inactivity'),
+);
+is_same('only tenants with an active inactivity rule are returned, once each', array(11, 13), Automation_engine::inactivity_tenants($rules_mixed));
+
+$now = strtotime('2026-09-28 12:00:00');
+$conv = array('id' => 501, 'last_inbound_at' => '2026-09-27 00:00:00'); // 36h idle, past a 24h threshold
+$first = Automation_engine::inactivity_emit_targets(array($conv), array(), 24, $now);
+is_same('scan #1: the idle conversation with no prior event is a target', array('501'), $first);
+
+// scan #2 mimics running scan_inactivity() again a minute later, now WITH the event that
+// scan #1's emit would have written (created "now", well after last_inbound_at).
+$events_after_first_scan = array(array('subject_id' => '501', 'created_at' => date('Y-m-d H:i:s', $now)));
+$second = Automation_engine::inactivity_emit_targets(array($conv), $events_after_first_scan, 24, $now + 60);
+is_same('scan #2 (same idle spell): the same conversation is NOT emitted again', array(), $second);
+
+// a real inbound message afterwards moves last_inbound_at forward -- eligible again once idle
+$conv_after_reply = array('id' => 501, 'last_inbound_at' => date('Y-m-d H:i:s', $now + 3600));
+$still_recent = Automation_engine::inactivity_emit_targets(array($conv_after_reply), $events_after_first_scan, 24, $now + 3700);
+is_same('right after a fresh inbound message the conversation is not idle yet', array(), $still_recent);
+$idle_again = Automation_engine::inactivity_emit_targets(array($conv_after_reply), $events_after_first_scan, 24, $now + 3600 + (25 * 3600));
+is_same('once idle again (new spell, after the old event) it is a target again', array('501'), $idle_again);
+
+$conv_other = array('id' => 502, 'last_inbound_at' => '2026-09-27 00:00:00');
+$mix = Automation_engine::inactivity_emit_targets(array($conv, $conv_other), $events_after_first_scan, 24, $now + 60);
+is_same('a DIFFERENT idle conversation with no prior event is still a target', array('502'), $mix);
+
+
+echo "-- Task 24 review round 2: no starvation -- real query, SQLite -------\n";
+// Round 1 moved the "already flagged" exclusion into PHP, AFTER the SQL's LIMIT had already
+// been filled by already-flagged rows -- a tenant with >= $per_tenant flagged idle
+// conversations would starve every newer idle conversation forever. The fix puts the
+// exclusion inside Automation_engine::inactivity_candidate_sql()'s WHERE clause, before
+// LIMIT. This runs that EXACT SQL string (the same one production sends to MariaDB) against
+// an in-memory SQLite database, so it is a real query-execution test, not a hand-built-array
+// stand-in for one.
+$sql_shape = Automation_engine::inactivity_candidate_sql();
+$not_exists_pos = strpos($sql_shape, 'NOT EXISTS');
+$limit_pos = strpos($sql_shape, 'LIMIT');
+is_true('inactivity_candidate_sql() has a NOT EXISTS exclusion', $not_exists_pos !== false);
+is_true('...and it sits BEFORE LIMIT (inside WHERE, not a post-filter)', $not_exists_pos !== false && $limit_pos !== false && $not_exists_pos < $limit_pos);
+
+if (!extension_loaded('pdo_sqlite')) {
+    bad('inactivity SQL: no starvation (SQLite-backed)', 'pdo_sqlite extension not available in this PHP -- cannot run a real query test');
+} else {
+    $pdo = new PDO('sqlite::memory:');
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->exec("CREATE TABLE conversations (id INTEGER PRIMARY KEY, user_id INTEGER, platform TEXT, status TEXT, last_inbound_at TEXT)");
+    $pdo->exec("CREATE TABLE events (id INTEGER PRIMARY KEY, user_id INTEGER, event_type TEXT, subject_type TEXT, subject_id TEXT, created_at TEXT)");
+
+    $per_tenant = 3; // small on purpose: exactly the LIMIT round 1's bug filled with junk
+    $user_id = 11;
+    $now_ts = strtotime('2026-09-28 12:00:00');
+    $cutoff = date('Y-m-d H:i:s', $now_ts - (24 * 3600));
+
+    // 3 conversations that are idle AND already flagged for this idle spell (event created
+    // after their last_inbound_at) -- exactly $per_tenant of them, the round-1 starvation case.
+    $flagged_last_inbound = date('Y-m-d H:i:s', $now_ts - (48 * 3600));
+    $flagged_event_created = date('Y-m-d H:i:s', $now_ts - (47 * 3600));
+    for ($i = 1; $i <= $per_tenant; $i++) {
+        $pdo->exec("INSERT INTO conversations (id, user_id, platform, status, last_inbound_at) VALUES ($i, $user_id, 'wa', 'open', '$flagged_last_inbound')");
+        $pdo->exec("INSERT INTO events (user_id, event_type, subject_type, subject_id, created_at) VALUES ($user_id, 'inactivity', 'conversation', '$i', '$flagged_event_created')");
+    }
+    // ...plus ONE genuinely new-idle conversation for the SAME tenant, never flagged.
+    $new_conv_id = 999;
+    $new_last_inbound = date('Y-m-d H:i:s', $now_ts - (30 * 3600));
+    $pdo->exec("INSERT INTO conversations (id, user_id, platform, status, last_inbound_at) VALUES ($new_conv_id, $user_id, 'wa', 'open', '$new_last_inbound')");
+
+    $sql = Automation_engine::inactivity_candidate_sql();
+    $run_query = function () use ($pdo, $sql, $user_id, $cutoff, $per_tenant) {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute(array($user_id, $cutoff, $per_tenant));
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    };
+
+    $tick1 = $run_query();
+    $ids1 = array_map(function ($r) { return (int) $r['id']; }, $tick1);
+    is_same('tick 1: the LIMIT is not filled by already-flagged rows', array($new_conv_id), $ids1);
+    is_true('tick 1: the new conversation got exactly one row back (not zero, not starved)', count($tick1) === 1);
+
+    // Simulate the worker's own emit for what tick 1 found.
+    foreach ($tick1 as $row) {
+        $pdo->exec("INSERT INTO events (user_id, event_type, subject_type, subject_id, created_at) VALUES ({$row['user_id']}, 'inactivity', 'conversation', '{$row['id']}', '" . date('Y-m-d H:i:s', $now_ts) . "')");
+    }
+
+    $tick2 = $run_query();
+    is_same('tick 2 (same idle spell, one minute later): nothing left to emit -- no re-fire', array(), $tick2);
+
+    // A real inbound message re-arms the same conversation for its NEXT idle spell.
+    $pdo->exec("UPDATE conversations SET last_inbound_at = '" . date('Y-m-d H:i:s', $now_ts) . "' WHERE id = $new_conv_id");
+    $cutoff_later = date('Y-m-d H:i:s', $now_ts + (25 * 3600) - (24 * 3600));
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(array($user_id, $cutoff_later, $per_tenant));
+    $tick3 = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    is_same('once idle again after a fresh inbound message, it is a candidate again', array($new_conv_id), array_map(function ($r) { return (int) $r['id']; }, $tick3));
+}
 
 echo "\n== $PASS passed, $FAIL failed ==\n";
 exit($FAIL === 0 && $PASS > 0 ? 0 : 1);

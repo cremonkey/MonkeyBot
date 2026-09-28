@@ -361,7 +361,15 @@ class Ai_tools
 
     protected function t_calculate_price($user_id, $args, $context = array())
     {
-        $this->CI->load->helper('pricing');
+        $this->CI->load->helper(array('pricing', 'event'));
+        if (function_exists('event_emit')) {
+            $uid = (int) (is_array($context) && isset($context['user_id']) ? $context['user_id'] : $user_id);
+            event_emit($uid, 'price.requested', 'subscriber', (string) ($context['subscriber_row_id'] ?? ''), array(
+                'query'    => is_array($args) ? ($args['room_or_package'] ?? ($args['type'] ?? '')) : '',
+                'platform' => $context['social_media'] ?? '',
+                'page_id'  => $context['page_id'] ?? '',
+            ));
+        }
         $cfg = $this->_price_config($context, $user_id);
         if (empty($cfg)) return 'Pricing is not configured; tell the customer the team will confirm the exact total and ask for their contact number.';
 

@@ -191,6 +191,18 @@ if (!function_exists('conversation_customer_for_identity')) {
             $cid = $find();
             if ($cid !== $new_id) { $db->trans_rollback(); return $find(); } // lost a race: keep the winner's customer
             $db->trans_commit();
+
+            // Task 24 (brief 22): fires exactly once per genuinely new customer row — the
+            // race losers above return before reaching here.
+            $ci =& get_instance();
+            $ci->load->helper('event');
+            if (function_exists('event_emit')) {
+                event_emit((int) $user_id, 'customer.created', 'subscriber', $cid, array(
+                    'platform'  => $platform,
+                    'full_name' => !empty($sub) ? $sub['full_name'] : null,
+                ));
+            }
+
             return $cid;
         } catch (Throwable $e) {
             $db->trans_rollback();
@@ -395,6 +407,21 @@ if (!function_exists('conversation_transition')) {
             $db->trans_commit();
             $res['ok'] = true;
             $res['paused_until'] = $pause;
+
+            // Task 24 (brief 22): a fact for any rule listening for a handoff change. Never
+            // throws, never behind the automation flag (see event_helper.php).
+            $ci2 =& get_instance();
+            $ci2->load->helper('event');
+            if (function_exists('event_emit')) {
+                event_emit((int) $conv['user_id'], 'conversation.state_changed', 'conversation', $conv['id'], array(
+                    'from'       => $from,
+                    'to'         => $to,
+                    'actor_type' => $actor_type,
+                    'actor_id'   => $actor_id,
+                    'platform'   => $conv['platform'],
+                ));
+            }
+
             return $res;
         } catch (Throwable $e) {
             // PHP 8.1 mysqli throws on SQL errors even with db_debug FALSE: never leave the

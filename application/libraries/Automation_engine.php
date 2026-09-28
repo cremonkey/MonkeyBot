@@ -30,6 +30,115 @@ class Automation_engine
     /** total attempts per action, including the first */
     const MAX_ATTEMPTS = 3;
 
+    /**
+     * Task 24 (brief 23): pure predicate the inactivity scanner (Automation_worker) uses to
+     * decide which conversations are idle. No side effects, no CI — trivially unit-testable.
+     * A missing/unparseable timestamp is never "inactive" (cannot verify => no action).
+     */
+    public static function is_inactive($last_inbound_at, $hours, $now = null)
+    {
+        $last_inbound_at = trim((string) $last_inbound_at);
+        if ($last_inbound_at === '' || $last_inbound_at === '0000-00-00 00:00:00') return false;
+        $hours = (float) $hours;
+        if ($hours <= 0) return false;
+        $last = strtotime($last_inbound_at);
+        if ($last === false) return false;
+        $now = $now === null ? time() : (int) $now;
+        return ($now - $last) >= ($hours * 3600);
+    }
+
+    /**
+     * Task 24 review fix (brief 23): which tenants actually have an active inactivity rule.
+     * Pure so the "a tenant with no inactivity rule is never scanned" guarantee is testable
+     * without a database — Automation_worker::scan_inactivity() feeds this the (already
+     * status='active' AND trigger_event='inactivity' filtered, cheap) rows straight from
+     * automation_rules; the extra filtering here is defense-in-depth, not the primary guard.
+     */
+    public static function inactivity_tenants(array $rules)
+    {
+        $out = array();
+        foreach ($rules as $r) {
+            if ((string) (isset($r['trigger_event']) ? $r['trigger_event'] : '') !== 'inactivity') continue;
+            if ((string) (isset($r['status']) ? $r['status'] : '') !== 'active') continue;
+            $uid = (int) (isset($r['user_id']) ? $r['user_id'] : 0);
+            if ($uid > 0 && !in_array($uid, $out, true)) $out[] = $uid;
+        }
+        return $out;
+    }
+
+    /**
+     * Task 24 review-round-2 fix (brief 23): the exact SQL Automation_worker::scan_inactivity()
+     * runs per tenant. Single source of truth so the "already flagged for this idle spell"
+     * exclusion is INSIDE the WHERE clause, before LIMIT — a flagged conversation can never
+     * occupy a LIMIT slot, so it can never starve the rest of the tenant's queue out of being
+     * scanned. (Round 1's bug: the exclusion was applied in PHP AFTER the LIMIT had already
+     * been filled by already-flagged rows.)
+     *
+     * Portable SQL (runs unmodified against MariaDB in production and against SQLite in
+     * tests/automation/run.php's behavioural test — same string, two engines, one proof).
+     * Binds, in order: user_id, cutoff datetime, limit.
+     */
+    public static function inactivity_candidate_sql()
+    {
+        return "SELECT c.id, c.user_id, c.platform, c.last_inbound_at
+"
+             . "  FROM conversations c
+"
+             . " WHERE c.user_id = ? AND c.status = 'open' AND c.last_inbound_at IS NOT NULL AND c.last_inbound_at < ?
+"
+             . "   AND NOT EXISTS (
+"
+             . "     SELECT 1 FROM events e
+"
+             . "      WHERE e.user_id = c.user_id AND e.event_type = 'inactivity' AND e.subject_type = 'conversation'
+"
+             . "        AND e.subject_id = c.id AND e.created_at > c.last_inbound_at
+"
+             . "   )
+"
+             . " ORDER BY c.last_inbound_at ASC
+"
+             . " LIMIT ?";
+    }
+
+    /**
+     * Task 24 review fix (brief 23): which idle conversations should get a NEW `inactivity`
+     * event this tick. A conversation is skipped when it already has an `inactivity` event
+     * whose created_at is newer than its CURRENT last_inbound_at — i.e. one that already
+     * fired for this same idle spell. A later real inbound message moves last_inbound_at
+     * forward, which makes the old event "older than last_inbound_at" again and the
+     * conversation eligible once more the next time it goes idle. Pure: no database, so
+     * "run the scan twice, get exactly one emit" is directly testable.
+     *
+     * @param array $conversations      rows with at least id, last_inbound_at
+     * @param array $inactivity_events  rows with at least subject_id, created_at — prior
+     *                                  `inactivity` events for (a superset of) these conversations
+     * @return array list of conversation ids (as strings, matching events.subject_id) to emit for
+     */
+    public static function inactivity_emit_targets(array $conversations, array $inactivity_events, $hours, $now = null)
+    {
+        $latest = array();
+        foreach ($inactivity_events as $e) {
+            $cid = (string) (isset($e['subject_id']) ? $e['subject_id'] : '');
+            if ($cid === '') continue;
+            $ts = isset($e['created_at']) ? strtotime((string) $e['created_at']) : false;
+            if ($ts === false) continue;
+            if (!isset($latest[$cid]) || $ts > $latest[$cid]) $latest[$cid] = $ts;
+        }
+
+        $out = array();
+        foreach ($conversations as $c) {
+            $cid = (string) (isset($c['id']) ? $c['id'] : '');
+            if ($cid === '') continue;
+            $last_inbound_at = isset($c['last_inbound_at']) ? $c['last_inbound_at'] : null;
+            if (!self::is_inactive($last_inbound_at, $hours, $now)) continue;
+            $last_ts = strtotime((string) $last_inbound_at);
+            if (isset($latest[$cid]) && $last_ts !== false && $latest[$cid] > $last_ts) continue; // already flagged this idle spell
+            $out[] = $cid;
+        }
+        return $out;
+    }
+
     /** seconds to wait before attempt 2 and attempt 3 */
     public static $backoff = array(1, 3);
 
@@ -304,6 +413,9 @@ class Automation_engine
             'write_google_sheet' => 'Add a row to your Google Sheet',
             'create_task'        => 'Create a follow-up task for your team',
             'start_sequence'     => 'Start a sequence for the customer',
+            'assign_agent'       => 'Assign the conversation to a team member',
+            'update_field'       => 'Update a field on the customer or deal',
+            'notify_customer_email' => 'Email the customer',
         );
     }
 
@@ -320,6 +432,9 @@ class Automation_engine
             case 'write_google_sheet': return 'Append a row to the connected sheet';
             case 'create_task':        return 'Task: ' . $this->param($a, 'subject', $data);
             case 'start_sequence':     return 'Start sequence #' . $this->param($a, 'sequence_id', $data);
+            case 'assign_agent':       return 'Assign to agent #' . $this->param($a, 'agent_id', $data);
+            case 'update_field':       return 'Set ' . $this->param($a, 'field', $data) . ' = ' . $this->param($a, 'value', $data);
+            case 'notify_customer_email': return 'Email the customer: ' . mb_substr((string) $this->param($a, 'text', $data), 0, 80);
         }
         return 'Unknown action "' . $a['type'] . '"';
     }
@@ -345,14 +460,62 @@ class Automation_engine
     // =====================================================================
 
     /**
-     * Run every active rule of the event's tenant whose trigger is this event type.
+     * Task 24 (brief 23): pseudo trigger types that are not their own event_type. A rule
+     * whose trigger_event is one of these keys is also woken by any real event listed here
+     * (its conditions do the actual matching, e.g. {field:text, op:contains, value:...} for
+     * 'keyword', {field:labels, op:contains, value:...} for 'tag'). This is deliberately the
+     * SAME event-driven pipeline, just widened at the lookup: no second engine, no new
+     * dispatch path. 'inactivity' is not aliased here — Automation_worker's scanner emits it
+     * as a real event_type of its own, so it needs no alias at all.
+     */
+    public static function trigger_aliases()
+    {
+        return array(
+            'keyword'         => array('message.received'),
+            'tag'              => array('message.received', 'conversation.started', 'customer.created', 'lead.created', 'lead.stage_changed'),
+            'score_threshold'  => array('lead.qualified', 'lead.created', 'lead.stage_changed', 'message.received'),
+        );
+    }
+
+    /** trigger key => owner-language label (brief 46), event_catalogue() plus the pseudo triggers above. */
+    public static function trigger_catalogue()
+    {
+        $c = function_exists('event_catalogue') ? event_catalogue() : array();
+        $c['keyword']         = 'A message contains a keyword';
+        $c['tag']              = 'A customer has a specific tag';
+        $c['inactivity']       = 'No message for a while';
+        $c['score_threshold']  = 'The lead score crosses a threshold';
+        return $c;
+    }
+
+    /**
+     * Run every active rule of the event's tenant whose trigger is this event type, OR one
+     * of the pseudo trigger types aliased to it (see trigger_aliases()). A rule id is never
+     * run twice for the same event even if it matches through more than one key.
      * @return array counters, used for the worker's ops-health detail line
      */
     public function process_event(array $event)
     {
         $user_id = (int) $event['user_id'];
+        $event_type = (string) $event['event_type'];
         $out = array('rules' => 0, 'success' => 0, 'failed' => 0, 'skipped' => 0, 'duplicate' => 0);
-        $rules = $this->gw->active_rules($user_id, (string) $event['event_type']);
+
+        $trigger_keys = array($event_type);
+        foreach (self::trigger_aliases() as $pseudo => $events) {
+            if (in_array($event_type, $events, true)) $trigger_keys[] = $pseudo;
+        }
+
+        $rules = array();
+        $seen = array();
+        foreach ($trigger_keys as $tk) {
+            foreach ($this->gw->active_rules($user_id, $tk) as $r) {
+                $rid = (int) $r['id'];
+                if (isset($seen[$rid])) continue;
+                $seen[$rid] = true;
+                $rules[] = $r;
+            }
+        }
+
         $out['rules'] = count($rules);
         foreach ($rules as $rule) {
             $r = $this->run_rule($rule, $event);
@@ -562,6 +725,37 @@ class Automation_engine
                     if ($sequence_id <= 0) return array(self::ST_FAILED, 'no sequence chosen', false);
                     if ($subscriber_id <= 0) return array(self::ST_SKIPPED, 'no customer on this event', false);
                     return $this->norm($this->gw->start_sequence($user_id, $sequence_id, $subscriber_id));
+
+                case 'assign_agent':
+                    $agent_id = (int) $this->param($action, 'agent_id', $data, 0);
+                    if ($subscriber_id <= 0) return array(self::ST_SKIPPED, 'no customer on this event', false);
+                    return $this->norm($this->gw->assign_agent($user_id, $subscriber_id, $agent_id));
+
+                case 'update_field':
+                    $field = trim((string) $this->param($action, 'field', $data));
+                    if ($field === '') return array(self::ST_FAILED, 'no field given', false);
+                    $value = (string) $this->param($action, 'value', $data, '');
+                    $target = (string) $this->param($action, 'target', $data, 'customer');
+                    // Task 24 review fix: the numeric fields must actually be numeric —
+                    // writing "abc" into lead_score/value would corrupt scoring and reporting.
+                    if (in_array($field, array('lead_score', 'value'), true) && !is_numeric($value)) {
+                        return array(self::ST_FAILED, $field . ' must be a number, got "' . $value . '"', false);
+                    }
+                    if ($target === 'deal') {
+                        $deal_id = (int) $this->param($action, 'deal_id', $data, (int) self::resolve_field($data, 'deal.id'));
+                        if ($deal_id <= 0) return array(self::ST_SKIPPED, 'no deal on this event', false);
+                        return $this->norm($this->gw->update_field($user_id, 'deal', $deal_id, $field, $value));
+                    }
+                    if ($subscriber_id <= 0) return array(self::ST_SKIPPED, 'no customer on this event', false);
+                    return $this->norm($this->gw->update_field($user_id, 'customer', $subscriber_id, $field, $value));
+
+                case 'notify_customer_email':
+                    $etext = trim((string) $this->param($action, 'text', $data));
+                    if ($etext === '') return array(self::ST_FAILED, 'no message text', false);
+                    $eto = trim((string) $this->param($action, 'to', $data, (string) self::resolve_field($data, 'email')));
+                    if ($eto === '' || strpos($eto, '@') === false) return array(self::ST_SKIPPED, 'no email on this event', false);
+                    $esubject = (string) $this->param($action, 'subject', $data, 'An update for you');
+                    return $this->norm($this->gw->notify_customer_email($user_id, $eto, $esubject, $etext));
             }
         } catch (Throwable $e) {
             // An action that blows up must not abort the run or the worker (brief 51).

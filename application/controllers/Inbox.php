@@ -462,6 +462,10 @@ class Inbox extends Home
         $this->db->where('id', $conv['id'])->where('user_id', $this->uid)
             ->update('conversations', array('assigned_user_id' => $team_member_id, 'updated_at' => date('Y-m-d H:i:s')));
         $this->load->helper('audit'); audit_record($this->uid, 'inbox.assign', 'conversation', $conv['id'], array('assigned_user_id'=>$conv['assigned_user_id'] ?? null), array('assigned_user_id'=>$team_member_id));
+        $this->load->helper('event');
+        event_emit($this->uid, 'human.assigned', 'conversation', $conv['id'], array(
+            'agent_id' => $team_member_id, 'platform' => $conv['platform'] ?? '', 'team_id' => null,
+        ));
         echo json_encode(array('status' => '1', 'message' => 'Assignment updated'));
     }
 
@@ -624,6 +628,10 @@ class Inbox extends Home
         audit_record($this->uid, 'inbox.assign_team', 'conversation', $conv['id'],
             array('assigned_team_id' => $before['assigned_team_id'] ?? null), array('assigned_team_id' => $team_id),
             $this->actor_id, 'user');
+        $this->load->helper('event');
+        event_emit($this->uid, 'human.assigned', 'conversation', $conv['id'], array(
+            'agent_id' => null, 'platform' => $conv['platform'] ?? '', 'team_id' => $team_id,
+        ));
         echo json_encode(array('status' => '1', 'message' => 'Team assignment updated'));
     }
 
