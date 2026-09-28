@@ -47,6 +47,63 @@ class Automation_engine
         return ($now - $last) >= ($hours * 3600);
     }
 
+    /**
+     * Task 24 review fix (brief 23): which tenants actually have an active inactivity rule.
+     * Pure so the "a tenant with no inactivity rule is never scanned" guarantee is testable
+     * without a database — Automation_worker::scan_inactivity() feeds this the (already
+     * status='active' AND trigger_event='inactivity' filtered, cheap) rows straight from
+     * automation_rules; the extra filtering here is defense-in-depth, not the primary guard.
+     */
+    public static function inactivity_tenants(array $rules)
+    {
+        $out = array();
+        foreach ($rules as $r) {
+            if ((string) (isset($r['trigger_event']) ? $r['trigger_event'] : '') !== 'inactivity') continue;
+            if ((string) (isset($r['status']) ? $r['status'] : '') !== 'active') continue;
+            $uid = (int) (isset($r['user_id']) ? $r['user_id'] : 0);
+            if ($uid > 0 && !in_array($uid, $out, true)) $out[] = $uid;
+        }
+        return $out;
+    }
+
+    /**
+     * Task 24 review fix (brief 23): which idle conversations should get a NEW `inactivity`
+     * event this tick. A conversation is skipped when it already has an `inactivity` event
+     * whose created_at is newer than its CURRENT last_inbound_at — i.e. one that already
+     * fired for this same idle spell. A later real inbound message moves last_inbound_at
+     * forward, which makes the old event "older than last_inbound_at" again and the
+     * conversation eligible once more the next time it goes idle. Pure: no database, so
+     * "run the scan twice, get exactly one emit" is directly testable.
+     *
+     * @param array $conversations      rows with at least id, last_inbound_at
+     * @param array $inactivity_events  rows with at least subject_id, created_at — prior
+     *                                  `inactivity` events for (a superset of) these conversations
+     * @return array list of conversation ids (as strings, matching events.subject_id) to emit for
+     */
+    public static function inactivity_emit_targets(array $conversations, array $inactivity_events, $hours, $now = null)
+    {
+        $latest = array();
+        foreach ($inactivity_events as $e) {
+            $cid = (string) (isset($e['subject_id']) ? $e['subject_id'] : '');
+            if ($cid === '') continue;
+            $ts = isset($e['created_at']) ? strtotime((string) $e['created_at']) : false;
+            if ($ts === false) continue;
+            if (!isset($latest[$cid]) || $ts > $latest[$cid]) $latest[$cid] = $ts;
+        }
+
+        $out = array();
+        foreach ($conversations as $c) {
+            $cid = (string) (isset($c['id']) ? $c['id'] : '');
+            if ($cid === '') continue;
+            $last_inbound_at = isset($c['last_inbound_at']) ? $c['last_inbound_at'] : null;
+            if (!self::is_inactive($last_inbound_at, $hours, $now)) continue;
+            $last_ts = strtotime((string) $last_inbound_at);
+            if (isset($latest[$cid]) && $last_ts !== false && $latest[$cid] > $last_ts) continue; // already flagged this idle spell
+            $out[] = $cid;
+        }
+        return $out;
+    }
+
     /** seconds to wait before attempt 2 and attempt 3 */
     public static $backoff = array(1, 3);
 
@@ -644,6 +701,11 @@ class Automation_engine
                     if ($field === '') return array(self::ST_FAILED, 'no field given', false);
                     $value = (string) $this->param($action, 'value', $data, '');
                     $target = (string) $this->param($action, 'target', $data, 'customer');
+                    // Task 24 review fix: the numeric fields must actually be numeric —
+                    // writing "abc" into lead_score/value would corrupt scoring and reporting.
+                    if (in_array($field, array('lead_score', 'value'), true) && !is_numeric($value)) {
+                        return array(self::ST_FAILED, $field . ' must be a number, got "' . $value . '"', false);
+                    }
                     if ($target === 'deal') {
                         $deal_id = (int) $this->param($action, 'deal_id', $data, (int) self::resolve_field($data, 'deal.id'));
                         if ($deal_id <= 0) return array(self::ST_SKIPPED, 'no deal on this event', false);

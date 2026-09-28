@@ -121,47 +121,80 @@ class Automation_worker extends Home
     }
 
     /**
-     * Task 24 (brief 23): the "inactivity" trigger has no natural emitter — nothing else in
-     * the app knows a conversation went quiet, so this tick scans for it and emits a real
-     * `inactivity` event, which then flows through the SAME event-driven pipeline as every
-     * other trigger (no second engine). Threshold: config item
-     * 'automation_inactivity_hours' (default 24). Dedup: only conversations whose
-     * updated_at is itself older than the threshold are scanned (so a conversation already
-     * flagged idle is not re-flagged every minute) — a coarse but cheap and safe guard;
-     * a determined rule author still gets at most one inactivity event per idle spell per
-     * conversation because conversation_transition() bumps updated_at on the next real
-     * activity, which is exactly when the row leaves this scan.
+     * Task 24 review fix (brief 23): the "inactivity" trigger has no natural emitter —
+     * nothing else in the app knows a conversation went quiet, so this tick scans for it and
+     * emits a real `inactivity` event, which then flows through the SAME event-driven
+     * pipeline as every other trigger (no second engine). Threshold: config item
+     * 'automation_inactivity_hours' (default 24).
+     *
+     * Two guarantees the first version of this method got wrong (caught in review):
+     *  1. Only tenants with an ACTIVE rule whose trigger_event is 'inactivity' are scanned
+     *     at all — a tenant with no such rule never has its conversations touched or an
+     *     event written for it.
+     *  2. Exactly one `inactivity` event per idle SPELL per conversation, not one per tick.
+     *     The decision is Automation_engine::inactivity_emit_targets() (pure, unit-tested):
+     *     a conversation is skipped once it already has an `inactivity` event newer than its
+     *     current last_inbound_at, and becomes eligible again only after a real inbound
+     *     message moves last_inbound_at forward.
+     * Oldest-idle-first (ORDER BY last_inbound_at ASC) plus that per-spell dedup means the
+     * same handful of conversations can never starve the rest of a tenant's queue: once
+     * flagged they drop out of every subsequent scan until they go quiet again.
      */
     public function scan_inactivity($limit = 200)
     {
-        if (!$this->db->table_exists('conversations')) return array('scanned' => 0, 'emitted' => 0);
+        if (!$this->db->table_exists('conversations') || !$this->db->table_exists('automation_rules')
+            || !$this->db->table_exists('events')) {
+            return array('scanned' => 0, 'emitted' => 0, 'tenants' => 0);
+        }
         try {
             $this->load->library('automation_engine');
             $hours = (float) $this->config->item('automation_inactivity_hours');
             if ($hours <= 0) $hours = 24.0;
-
             $cutoff = date('Y-m-d H:i:s', time() - (int) ($hours * 3600));
-            $rows = $this->db->select('id, user_id, platform, last_inbound_at, updated_at')
-                ->from('conversations')
-                ->where('status', 'open')
-                ->where('last_inbound_at IS NOT NULL', null, false)
-                ->where('last_inbound_at <', $cutoff)
-                ->order_by('id', 'ASC')->limit(max(1, (int) $limit))->get()->result_array();
 
-            $emitted = 0;
-            foreach ($rows as $row) {
-                if (!Automation_engine::is_inactive($row['last_inbound_at'], $hours)) continue;
-                $n = event_emit((int) $row['user_id'], 'inactivity', 'conversation', $row['id'], array(
-                    'idle_hours'      => $hours,
-                    'last_inbound_at' => $row['last_inbound_at'],
-                    'platform'        => $row['platform'],
-                ));
-                if ($n > 0) $emitted++;
+            $rule_rows = $this->db->select('user_id, status, trigger_event')->from('automation_rules')
+                ->where('status', 'active')->where('trigger_event', 'inactivity')->get()->result_array();
+            $tenants = Automation_engine::inactivity_tenants($rule_rows);
+
+            $scanned = 0; $emitted = 0;
+            if (empty($tenants)) return array('scanned' => 0, 'emitted' => 0, 'tenants' => 0);
+
+            $per_tenant = max(1, (int) floor(max(1, (int) $limit) / count($tenants)));
+
+            foreach ($tenants as $user_id) {
+                $candidates = $this->db->select('id, user_id, platform, last_inbound_at')
+                    ->from('conversations')
+                    ->where('user_id', $user_id)->where('status', 'open')
+                    ->where('last_inbound_at IS NOT NULL', null, false)
+                    ->where('last_inbound_at <', $cutoff)
+                    ->order_by('last_inbound_at', 'ASC')->limit($per_tenant)->get()->result_array();
+                if (empty($candidates)) continue;
+                $scanned += count($candidates);
+
+                $ids = array();
+                foreach ($candidates as $c) $ids[] = (int) $c['id'];
+                $existing = $this->db->select('subject_id, created_at')->from('events')
+                    ->where('user_id', $user_id)->where('event_type', 'inactivity')->where('subject_type', 'conversation')
+                    ->where_in('subject_id', $ids)->get()->result_array();
+
+                $targets = Automation_engine::inactivity_emit_targets($candidates, $existing, $hours);
+                if (empty($targets)) continue;
+                $targets = array_flip($targets); // O(1) lookup below
+
+                foreach ($candidates as $c) {
+                    if (!isset($targets[(string) $c['id']])) continue;
+                    $n = event_emit((int) $user_id, 'inactivity', 'conversation', $c['id'], array(
+                        'idle_hours'      => $hours,
+                        'last_inbound_at' => $c['last_inbound_at'],
+                        'platform'        => $c['platform'],
+                    ));
+                    if ($n > 0) $emitted++;
+                }
             }
-            return array('scanned' => count($rows), 'emitted' => $emitted);
+            return array('scanned' => $scanned, 'emitted' => $emitted, 'tenants' => count($tenants));
         } catch (Throwable $e) {
             log_message('error', 'automation_worker scan_inactivity: ' . $e->getMessage());
-            return array('scanned' => 0, 'emitted' => 0);
+            return array('scanned' => 0, 'emitted' => 0, 'tenants' => 0);
         }
     }
 

@@ -390,5 +390,70 @@ is_true('unparseable timestamp is never inactive', !Automation_engine::is_inacti
 is_true('a zero/negative threshold never fires', !Automation_engine::is_inactive('2020-01-01 00:00:00', 0, $now));
 is_true('exactly at the threshold counts as inactive', Automation_engine::is_inactive('2026-09-27 12:00:00', 24, $now));
 
+
+echo "-- Task 24 review fix: update_field numeric validation ----------------\n";
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'field' => 'lead_score', 'value' => 'not-a-number'))), mk_event());
+is_same('non-numeric lead_score is rejected', 'failed', $gw->actions[0]['status']);
+is_true('the error names the field', strpos($gw->actions[0]['error'], 'lead_score') !== false);
+is_same('the gateway was never called', 0, count($gw->calls));
+
+$gw = new FakeGateway();
+$r = mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'field' => 'lead_score', 'value' => '42'))), mk_event());
+is_same('numeric lead_score (as a string) is accepted', 'success', $r['status']);
+
+$gw = new FakeGateway();
+mk_engine($gw)->run_rule(mk_rule(array(), array(array('type' => 'update_field', 'field' => 'value', 'value' => 'abc', 'target' => 'deal', 'deal_id' => 55))), mk_event());
+is_same('non-numeric deal value is rejected', 'failed', $gw->actions[0]['status']);
+
+echo "-- Task 24 review fix: human.assigned from assign_agent (Automation_gateway) --------\n";
+// This is exercised against the REAL gateway class (not FakeGateway) purely as a static
+// check: the fake gateway intentionally has no database, and a DB-backed behavioural test is
+// out of scope for this dependency-free suite (see tests/events/run.php for the equivalent
+// static wiring check on Inbox::assign()).
+$gw_src = file_get_contents(__DIR__ . '/../../application/libraries/Automation_gateway.php');
+$pos = strpos($gw_src, 'function assign_agent(');
+is_true('Automation_gateway::assign_agent() exists', $pos !== false);
+is_true('assign_agent() emits human.assigned for consistency with Inbox::assign()',
+    strpos(substr($gw_src, $pos, 2500), "'human.assigned'") !== false);
+
+echo "-- Task 24 review fix: inactivity tenant filter + once-per-spell dedup (pure) --------\n";
+
+$rules_none = array(mk_rule(array(), array(), array('id' => 1, 'user_id' => 11, 'trigger_event' => 'lead.created', 'status' => 'active')));
+is_same('a tenant with no inactivity rule is not in the scan set', array(), Automation_engine::inactivity_tenants($rules_none));
+
+$rules_paused = array(mk_rule(array(), array(), array('id' => 1, 'user_id' => 11, 'trigger_event' => 'inactivity', 'status' => 'paused')));
+is_same('a PAUSED inactivity rule does not add its tenant either', array(), Automation_engine::inactivity_tenants($rules_paused));
+
+$rules_mixed = array(
+    array('user_id' => 11, 'status' => 'active', 'trigger_event' => 'inactivity'),
+    array('user_id' => 11, 'status' => 'active', 'trigger_event' => 'inactivity'), // duplicate rule, same tenant
+    array('user_id' => 12, 'status' => 'active', 'trigger_event' => 'lead.created'), // different trigger
+    array('user_id' => 13, 'status' => 'active', 'trigger_event' => 'inactivity'),
+);
+is_same('only tenants with an active inactivity rule are returned, once each', array(11, 13), Automation_engine::inactivity_tenants($rules_mixed));
+
+$now = strtotime('2026-09-28 12:00:00');
+$conv = array('id' => 501, 'last_inbound_at' => '2026-09-27 00:00:00'); // 36h idle, past a 24h threshold
+$first = Automation_engine::inactivity_emit_targets(array($conv), array(), 24, $now);
+is_same('scan #1: the idle conversation with no prior event is a target', array('501'), $first);
+
+// scan #2 mimics running scan_inactivity() again a minute later, now WITH the event that
+// scan #1's emit would have written (created "now", well after last_inbound_at).
+$events_after_first_scan = array(array('subject_id' => '501', 'created_at' => date('Y-m-d H:i:s', $now)));
+$second = Automation_engine::inactivity_emit_targets(array($conv), $events_after_first_scan, 24, $now + 60);
+is_same('scan #2 (same idle spell): the same conversation is NOT emitted again', array(), $second);
+
+// a real inbound message afterwards moves last_inbound_at forward -- eligible again once idle
+$conv_after_reply = array('id' => 501, 'last_inbound_at' => date('Y-m-d H:i:s', $now + 3600));
+$still_recent = Automation_engine::inactivity_emit_targets(array($conv_after_reply), $events_after_first_scan, 24, $now + 3700);
+is_same('right after a fresh inbound message the conversation is not idle yet', array(), $still_recent);
+$idle_again = Automation_engine::inactivity_emit_targets(array($conv_after_reply), $events_after_first_scan, 24, $now + 3600 + (25 * 3600));
+is_same('once idle again (new spell, after the old event) it is a target again', array('501'), $idle_again);
+
+$conv_other = array('id' => 502, 'last_inbound_at' => '2026-09-27 00:00:00');
+$mix = Automation_engine::inactivity_emit_targets(array($conv, $conv_other), $events_after_first_scan, 24, $now + 60);
+is_same('a DIFFERENT idle conversation with no prior event is still a target', array('502'), $mix);
+
 echo "\n== $PASS passed, $FAIL failed ==\n";
 exit($FAIL === 0 && $PASS > 0 ? 0 : 1);

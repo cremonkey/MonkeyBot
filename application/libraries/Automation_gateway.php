@@ -446,6 +446,16 @@ class Automation_gateway
 
             $this->CI->db->where('id', (int) $conv['id'])->where('user_id', (int) $user_id)
                 ->update('conversations', array('assigned_user_id' => $agent_id > 0 ? $agent_id : null, 'updated_at' => date('Y-m-d H:i:s')));
+
+            // Task 24 review fix: consistent with Inbox::assign() emitting human.assigned —
+            // an automation assigning a conversation is exactly as much "a human got
+            // assigned" as an agent clicking the same button in the Inbox UI.
+            if (function_exists('event_emit')) {
+                event_emit((int) $user_id, 'human.assigned', 'conversation', $conv['id'], array(
+                    'agent_id' => $agent_id > 0 ? $agent_id : null, 'platform' => $sub['social_media'], 'team_id' => null,
+                ));
+            }
+
             return array(true, null, false);
         } catch (Throwable $e) {
             return array(false, $e->getMessage(), true);

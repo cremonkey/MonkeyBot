@@ -84,6 +84,26 @@ is_true('order.created is emitted inside confirmation_message_sender (not a per-
     strpos(substr($src, $fn_start, 2000), "order.created") !== false);
 
 // ---------------------------------------------------------------------------------------
+echo "-- Task 24 review fix: order.created is guarded against replay ----------------------\n";
+// confirmation_message_sender() is called from 14 payment-gateway sites with no other
+// state-transition gate, so a reload/replay of the confirmation page must NOT re-fire
+// order.created. The atomic guard: UPDATE ... WHERE order_event_emitted_at IS NULL, only
+// emit when that UPDATE actually changed a row (affected_rows() > 0).
+$fn_body3 = substr($src, $fn_start, 2500);
+is_true('the order.created emit is gated on field_exists(order_event_emitted_at)',
+    strpos($fn_body3, 'field_exists("order_event_emitted_at", "ecommerce_cart")') !== false);
+is_true('the guard is a cached static (checked once per process, like Automation_gateway::action_log)',
+    strpos($fn_body3, 'static $has_order_event_guard') !== false);
+is_true('the claim is WHERE ... IS NULL (atomic, first-writer-wins)',
+    strpos($fn_body3, 'order_event_emitted_at IS NULL') !== false);
+is_true('the emit only runs when the UPDATE actually changed a row',
+    strpos($fn_body3, 'affected_rows() > 0') !== false
+    && strpos($fn_body3, 'affected_rows() > 0') < strpos($fn_body3, 'order.created', strpos($fn_body3, 'affected_rows() > 0')));
+$migration = file_get_contents($root . '/assets/backup_db/migrations/2026-10-04g-order-event-guard.sql');
+is_true('the guard column migration exists and is idempotent (ADD COLUMN IF NOT EXISTS)',
+    strpos($migration, 'ADD COLUMN IF NOT EXISTS `order_event_emitted_at`') !== false);
+
+// ---------------------------------------------------------------------------------------
 echo "-- message.* is intentionally NOT built --------------------------------------------\n";
 // brief: skip message.received / message.sent (needs a volume decision). Documented, not built.
 ok('message.* skipped by design -- see task-24-report.md');

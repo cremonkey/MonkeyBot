@@ -9451,19 +9451,31 @@ private function confirmation_message_sender($cart_id=0,$subscriber_id="")
 
   $cart_data = $cart_data_2d[0];      
 
-  // Task 24 (brief 22): a paid order confirmed, whichever of the 14 payment methods
-  // got it here. Guarded, never throws (event_helper.php).
-  $this->load->helper("event");
-  event_emit(
-    isset($cart_data['user_id']) ? $cart_data['user_id'] : 0,
-    "order.created", "order", (string) $cart_id,
-    array(
-      "order_id"  => $cart_id,
-      "total"     => isset($cart_data['payment_amount']) && $cart_data['payment_amount'] > 0 ? $cart_data['payment_amount'] : (isset($cart_data['subtotal']) ? $cart_data['subtotal'] : 0),
-      "currency"  => isset($cart_data['currency']) ? $cart_data['currency'] : '',
-      "subscriber_id" => $subscriber_id,
-    )
-  );
+  // Task 24 review fix (brief 22): order.created must fire exactly ONCE per paid order,
+  // not on every reload/replay of this confirmation page (this function is called from
+  // 14 different payment-gateway sites with no other state-transition gate). The atomic
+  // claim below -- UPDATE ... WHERE order_event_emitted_at IS NULL, act only if a row was
+  // actually changed -- is the same pattern automation_runs uses for (rule, event)
+  // idempotency. Guarded: does nothing until 2026-10-04g-order-event-guard.sql has run.
+  static $has_order_event_guard = null;
+  if ($has_order_event_guard === null) $has_order_event_guard = $this->db->field_exists("order_event_emitted_at", "ecommerce_cart");
+  if ($has_order_event_guard) {
+    $this->db->where("id", $cart_id)->where("order_event_emitted_at IS NULL", null, false)
+      ->update("ecommerce_cart", array("order_event_emitted_at" => date("Y-m-d H:i:s")));
+    if ((int) $this->db->affected_rows() > 0) {
+      $this->load->helper("event");
+      event_emit(
+        isset($cart_data['user_id']) ? $cart_data['user_id'] : 0,
+        "order.created", "order", (string) $cart_id,
+        array(
+          "order_id"  => $cart_id,
+          "total"     => isset($cart_data['payment_amount']) && $cart_data['payment_amount'] > 0 ? $cart_data['payment_amount'] : (isset($cart_data['subtotal']) ? $cart_data['subtotal'] : 0),
+          "currency"  => isset($cart_data['currency']) ? $cart_data['currency'] : '',
+          "subscriber_id" => $subscriber_id,
+        )
+      );
+    }
+  }
 
 
 
