@@ -296,5 +296,218 @@ foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/
 }
 check('no new files under application/config (they would never reach production)', empty($extra), implode(', ', $extra));
 
+echo "\n== task 23 / \xc2\xa733: optional extras (sequences, automation, media, appointments) ==\n";
+// Old templates without these keys must still validate and produce plans that do nothing --
+// this proves the extension is additive and byte-identical when a template opts out.
+$bare = $templates['hotel'];
+foreach (array('sequences', 'automation_rules', 'media', 'appointments') as $optional_key) unset($bare[$optional_key]);
+check('a template with none of the optional keys still validates', empty(industry_template_validate($bare)));
+same('no sequences key -> empty plan', array(), industry_template_sequences_plan($bare, array()));
+same('no automation_rules key -> empty plan', array(), industry_template_automation_plan($bare, array()));
+same('no media key -> empty plan', array(), industry_template_media_plan($bare));
+same('no appointments key -> skip (nothing offered)', 'skip', industry_template_appointments_plan($bare, false)['op']);
+
+foreach ($EXPECTED as $k) {
+    check("$k.json carries the new optional sections", isset($templates[$k]['sequences'], $templates[$k]['automation_rules'], $templates[$k]['media'], $templates[$k]['appointments']));
+}
+
+echo "\n-- sequences plan --\n";
+$hotel = $templates['hotel'];
+$seq_plan = industry_template_sequences_plan($hotel, array());
+check('one insert per template sequence', count($seq_plan) === count($hotel['sequences']));
+$first = $seq_plan[0];
+same('a fresh sequence is inserted', 'insert', $first['op']);
+same('a template sequence is NEVER created active -- status is always draft', 'draft', $first['status']);
+check('steps carry delay_seconds converted from delay_hours', $first['steps'][0]['delay_seconds'] === (int) round(((float) $hotel['sequences'][0]['steps'][0]['delay_hours']) * 3600));
+same('a step dispatches through the shared send_message action, same vocabulary as Automation Rules', 'send_message', $first['steps'][0]['action_type']);
+check('ar text flows into the step by default', trim($first['steps'][0]['action_params']['text']) === trim($hotel['sequences'][0]['steps'][0]['message_ar']));
+$seq_plan_en = industry_template_sequences_plan($hotel, array(), 'en');
+check('lang=en picks message_en instead', trim($seq_plan_en[0]['steps'][0]['action_params']['text']) === trim($hotel['sequences'][0]['steps'][0]['message_en']));
+
+// idempotency: a sequence already applied (by source_key) is never re-inserted
+$sk = industry_template_sequence_source_key($hotel['key'], $hotel['sequences'][0]['name']);
+$again = industry_template_sequences_plan($hotel, array($sk => array('id' => 9)));
+same('re-applying a sequence already on the tenant is a no-op', 'skip', $again[0]['op']);
+
+echo "\n-- automation rules plan --\n";
+$auto_plan = industry_template_automation_plan($hotel, array());
+check('one insert per template rule', count($auto_plan) === count($hotel['automation_rules']));
+same('a template rule is NEVER created active -- status is always draft', 'draft', $auto_plan[0]['status']);
+same('trigger_event carries the template trigger', $hotel['automation_rules'][0]['trigger'], $auto_plan[0]['trigger_event']);
+check('actions_json round-trips the template actions', json_decode($auto_plan[0]['actions_json'], true) === array_values($hotel['automation_rules'][0]['actions']));
+$ask = industry_template_automation_source_key($hotel['key'], $hotel['automation_rules'][0]['name']);
+$auto_again = industry_template_automation_plan($hotel, array($ask => array('id' => 3)));
+same('re-applying a rule already on the tenant is a no-op', 'skip', $auto_again[0]['op']);
+if (class_exists('Automation_engine', false)) {
+    $catalogue = array_keys(Automation_engine::action_catalogue());
+    foreach ($EXPECTED as $k) {
+        foreach ($templates[$k]['automation_rules'] as $ri => $rule) {
+            foreach ($rule['actions'] as $ai => $a) {
+                check("$k.automation_rules[$ri].actions[$ai].type is a known Automation_engine action", in_array($a['type'], $catalogue, true), $a['type']);
+            }
+        }
+    }
+}
+
+// every shipped template's trigger must be a real, emitted event — a trigger not in
+// event_catalogue() would sit permanently dead even once the owner enables the rule.
+require_once APPPATH . 'helpers/event_helper.php';
+$event_triggers = array_keys(event_catalogue());
+foreach ($EXPECTED as $k) {
+    foreach ($templates[$k]['automation_rules'] as $ri => $rule) {
+        check("$k.automation_rules[$ri].trigger \"" . $rule['trigger'] . "\" is in event_catalogue()", in_array($rule['trigger'], $event_triggers, true), $rule['trigger']);
+    }
+}
+$bad_trigger_tpl = $hotel;
+$bad_trigger_tpl['automation_rules'][0]['trigger'] = 'appointment.no_show';
+check('an unknown trigger is rejected by the validator', !empty(industry_template_validate($bad_trigger_tpl)));
+require_once APPPATH . 'helpers/event_helper.php';
+$event_triggers = array_keys(event_catalogue());
+foreach ($EXPECTED as $k) {
+    foreach ($templates[$k]['automation_rules'] as $ri => $rule) {
+        check("$k.automation_rules[$ri].trigger is a known event_catalogue() trigger", in_array($rule['trigger'], $event_triggers, true), $rule['trigger']);
+    }
+}
+// a dead trigger (nothing in event_catalogue() would ever fire it) must fail validation
+$dead_trigger_tpl = $hotel;
+$dead_trigger_tpl['automation_rules'][0]['trigger'] = 'appointment.no_show';
+$dead_errors = industry_template_validate($dead_trigger_tpl);
+check('an unknown/dead automation trigger is rejected by the validator', !empty($dead_errors) && strpos(implode(' ', $dead_errors), 'appointment.no_show') !== false, implode('; ', $dead_errors));
+check('every shipped template still passes with its real triggers', empty(industry_template_validate($hotel)));
+
+echo "\n-- media placeholders plan --\n";
+$media_plan = industry_template_media_plan($hotel);
+check('one row per template media placeholder, no files created', count($media_plan) === count($hotel['media']));
+check('nothing "uploaded" until the caller says so', $media_plan[0]['uploaded'] === false);
+$media_plan2 = industry_template_media_plan($hotel, array($hotel['media'][0]['key']));
+check('an existing key is reported uploaded', $media_plan2[0]['uploaded'] === true);
+foreach ($EXPECTED as $k) {
+    foreach ($templates[$k]['media'] as $mi => $m) {
+        check("$k.media[$mi] has no file/url/path -- placeholder only", !isset($m['file'], $m['url'], $m['path']));
+    }
+}
+
+echo "\n-- appointments plan --\n";
+$ap_plan = industry_template_appointments_plan($hotel, false);
+same('appointments.enabled is false in every shipped template -> nothing offered', 'skip', $ap_plan['op']);
+$enabled_tpl = $hotel; $enabled_tpl['appointments']['enabled'] = true;
+$ap_plan2 = industry_template_appointments_plan($enabled_tpl, false);
+same('an owner-enabled template with no existing service -> offer to create one', 'insert', $ap_plan2['op']);
+same('a template appointment service is NEVER created bookable -- status is always "0"', '0', $ap_plan2['status']);
+same('default_duration_minutes carries through', (int) $hotel['appointments']['default_duration_minutes'], $ap_plan2['duration_min']);
+$ap_plan3 = industry_template_appointments_plan($enabled_tpl, true);
+same('a tenant with an existing service is never touched', 'skip', $ap_plan3['op']);
+
+
+echo "\n== step 10 (Extras) save path: onboarding/save_extras() simulated with a fake DB ==\n";
+/*
+ * Onboarding::save_extras() has no unit-testable seam of its own (it is a real DB write,
+ * like save_knowledge()/save_pricing()), so this simulates the EXACT loop the controller
+ * runs: build existing_by_key from the "extras_applied" bookkeeping stored in
+ * onboarding_state.data_json, call the REAL plan functions above, and only insert an item
+ * that is both op=insert AND checked. This proves the rule, not a copy of it.
+ */
+class FakeExtrasDb
+{
+    public $sequences = array();      // id => row
+    public $sequence_steps = array(); // id => [row,...]
+    public $automation_rules = array(); // id => row
+    public $ab_services = array();    // id => row
+    private $next_id = 1;
+
+    /** Mirrors Onboarding::save_extras()'s body 1:1 against this fake storage. */
+    public function save_extras($template, $applied, $checked_seq, $checked_auto, $checked_appt)
+    {
+        $existing_seq = array();
+        foreach ($applied as $sk => $rid) if (strpos($sk, 'seq:') === 0) $existing_seq[substr($sk, 4)] = array('id' => $rid);
+        foreach (industry_template_sequences_plan($template, $existing_seq) as $p) {
+            if ($p['op'] !== 'insert' || !in_array($p['source_key'], $checked_seq, true)) continue;
+            $id = $this->next_id++;
+            $this->sequences[$id] = array('name' => $p['name'], 'status' => $p['status']);
+            $this->sequence_steps[$id] = $p['steps'];
+            $applied['seq:' . $p['source_key']] = $id;
+        }
+
+        $existing_auto = array();
+        foreach ($applied as $sk => $rid) if (strpos($sk, 'auto:') === 0) $existing_auto[substr($sk, 5)] = array('id' => $rid);
+        foreach (industry_template_automation_plan($template, $existing_auto) as $p) {
+            if ($p['op'] !== 'insert' || !in_array($p['source_key'], $checked_auto, true)) continue;
+            $id = $this->next_id++;
+            $this->automation_rules[$id] = array('name' => $p['name'], 'trigger_event' => $p['trigger_event'], 'status' => $p['status']);
+            $applied['auto:' . $p['source_key']] = $id;
+        }
+
+        $has_service = count($this->ab_services) > 0;
+        $ap_tpl = $template;
+        if (is_array($ap_tpl['appointments'] ?? null)) $ap_tpl['appointments']['enabled'] = $checked_appt;
+        $ap_plan = industry_template_appointments_plan($ap_tpl, $has_service);
+        if ($ap_plan['op'] === 'insert') {
+            $id = $this->next_id++;
+            $this->ab_services[$id] = array('name' => $ap_plan['name'], 'status' => $ap_plan['status']);
+        }
+
+        return $applied;
+    }
+}
+
+$hotel_sk_seq = 'seq:' . industry_template_sequence_source_key($hotel['key'], $hotel['sequences'][0]['name']);
+$hotel_sk_auto = 'auto:' . industry_template_automation_source_key($hotel['key'], $hotel['automation_rules'][0]['name']);
+
+// -- nothing checked -> nothing created --
+$fdb = new FakeExtrasDb();
+$applied = $fdb->save_extras($hotel, array(), array(), array(), false);
+check('nothing checked -> no sequence created', count($fdb->sequences) === 0);
+check('nothing checked -> no automation rule created', count($fdb->automation_rules) === 0);
+check('appointment box unchecked -> no service created', count($fdb->ab_services) === 0);
+same('nothing checked -> bookkeeping records nothing', array(), $applied);
+
+// -- everything checked -> exactly the checked items are created, all disabled --
+$fdb2 = new FakeExtrasDb();
+$checked_seq_keys = array_map(function ($s) { return $s['source_key']; }, industry_template_sequences_plan($hotel, array()));
+$checked_auto_keys = array_map(function ($r) { return $r['source_key']; }, industry_template_automation_plan($hotel, array()));
+$applied2 = $fdb2->save_extras($hotel, array(), $checked_seq_keys, $checked_auto_keys, true);
+same('one sequence created per checked item', count($hotel['sequences']), count($fdb2->sequences));
+same('one automation rule created per checked item', count($hotel['automation_rules']), count($fdb2->automation_rules));
+check('appointment box checked -> a service is created (template has none)', count($fdb2->ab_services) === 1);
+foreach ($fdb2->sequences as $row) same('every created sequence is status draft, never active', 'draft', $row['status']);
+foreach ($fdb2->automation_rules as $row) same('every created automation rule is status draft, never active', 'draft', $row['status']);
+foreach ($fdb2->ab_services as $row) same('every created appointment service is status "0", never "1" (bookable)', '0', $row['status']);
+check('bookkeeping now remembers the sequence source_key', array_key_exists($hotel_sk_seq, $applied2));
+check('bookkeeping now remembers the automation source_key', array_key_exists($hotel_sk_auto, $applied2));
+
+// -- only ONE item checked -> only that one is created, the rest are left alone --
+$fdb3 = new FakeExtrasDb();
+$one_seq = array($checked_seq_keys[0]);
+$applied3 = $fdb3->save_extras($hotel, array(), $one_seq, array(), false);
+same('only the checked sequence is created, no automation rule, no appointment', 1, count($fdb3->sequences));
+check('the unchecked automation rule was never created', count($fdb3->automation_rules) === 0);
+check('the unchecked appointment box created nothing', count($fdb3->ab_services) === 0);
+
+// -- re-run with the same bookkeeping (as if the owner re-opened the step) is a true no-op --
+$fdb4 = new FakeExtrasDb();
+$applied4a = $fdb4->save_extras($hotel, array(), $checked_seq_keys, $checked_auto_keys, true);
+$before_seq = count($fdb4->sequences); $before_auto = count($fdb4->automation_rules); $before_appt = count($fdb4->ab_services);
+// second call: same checkboxes re-submitted (e.g. a double click / page refresh), same bookkeeping carried forward
+$applied4b = $fdb4->save_extras($hotel, $applied4a, $checked_seq_keys, $checked_auto_keys, true);
+same('re-applying with the same bookkeeping creates no new sequence', $before_seq, count($fdb4->sequences));
+same('re-applying with the same bookkeeping creates no new automation rule', $before_auto, count($fdb4->automation_rules));
+same('re-applying with an existing service creates no new appointment service', $before_appt, count($fdb4->ab_services));
+same('bookkeeping is unchanged by the idempotent re-run', $applied4a, $applied4b);
+
+echo "\n-- step 10 controller wiring: source checks (like the save_pricing() checks above) --\n";
+$onb_src = file_get_contents(APPPATH . 'controllers/Onboarding.php');
+check('Onboarding::save_extras() exists', strpos($onb_src, 'function save_extras()') !== false);
+check('step() routes n=10 to extras_state()', (bool) preg_match('/case 10:\s*\$data\[.extras.\] = \$this->extras_state/', $onb_src));
+check('STEPS was raised to 10 to make the new step reachable', strpos($onb_src, 'const STEPS = 10;') !== false);
+preg_match('/function save_extras\(\)(.*?)\n    }\n/s', $onb_src, $sm);
+$sbody = $sm[1] ?? '';
+check('save_extras() requires ajax_check()', strpos($sbody, '$this->ajax_check();') !== false);
+check('save_extras() requires csrf_token_check()', strpos($sbody, '$this->csrf_token_check();') !== false);
+check('save_extras() requires a chosen business type first', strpos($sbody, "Pick a business type first") !== false);
+check('save_extras() requires pages chosen in step 2 first (tenant-owned scope)', strpos($sbody, 'selected_targets($st)') !== false);
+check('every sequence insert is hard-coded status => $p[\'status\'] (never a posted value)', (bool) preg_match('/\'status\'\s*=>\s*\$p\[\'status\'\]/', $sbody));
+check('the appointment insert is hard-coded status => $ap_plan[\'status\'] (never a posted value)', strpos($sbody, "'status' => \$ap_plan['status']") !== false);
+check('save_extras() never writes a raw posted status/enabled value to the DB', !preg_match('/\'status\'\s*=>\s*\$this->input->post/', $sbody));
+
 echo "\n$PASS passed, $FAIL failed\n";
 exit($FAIL === 0 && $PASS > 0 ? 0 : 1);

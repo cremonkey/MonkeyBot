@@ -88,5 +88,29 @@
     { "key": "timeline", "en": "When are you planning to buy?", "ar": "ناوي تشتري إمتى؟" },
     { "key": "purpose", "en": "Is it to live in or to invest?", "ar": "للسكن ولا للاستثمار؟" },
     { "key": "phone", "en": "What is the best number for a consultant to call you on?", "ar": "إيه أحسن رقم المستشار يكلمك عليه؟" }
-  ]
+  ],
+  "sequences": [
+    {
+      "name": "Viewing follow-up",
+      "steps": [
+        { "delay_hours": 3, "message_en": "Thanks for your interest - would you like to schedule a viewing?", "message_ar": "شكرًا لاهتمامك - حابب نحدد ميعاد معاينة؟" },
+        { "delay_hours": 72, "message_en": "Still looking? We can share more listings that match what you need.", "message_ar": "لسه بتدور؟ ممكن نبعتلك وحدات تانية تناسب طلبك." }
+      ]
+    }
+  ],
+  "automation_rules": [
+    {
+      "name": "New lead -> move to qualifying stage",
+      "trigger": "lead.created",
+      "conditions": [],
+      "actions": [
+        { "type": "move_crm_stage", "stage": "Qualifying" }
+      ]
+    }
+  ],
+  "media": [
+    { "key": "project_brochure_cover", "caption_en": "Cover image for the project brochure", "caption_ar": "صورة غلاف بروشور المشروع" },
+    { "key": "unit_photos", "caption_en": "A few unit/interior photos to share on request", "caption_ar": "صور وحدات/تشطيبات تتبعت لما يتطلب" }
+  ],
+  "appointments": { "enabled": false, "default_duration_minutes": 45, "buffer_minutes": 15 }
 }
