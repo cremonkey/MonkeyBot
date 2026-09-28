@@ -420,6 +420,89 @@ class Automation_gateway
         }
     }
 
+    /**
+     * Task 24 (brief 23): assign the conversation of this customer to a team member.
+     * agent_id <= 0 clears the assignment, same convention as Inbox::assign().
+     */
+    public function assign_agent($user_id, $subscriber_id, $agent_id)
+    {
+        try {
+            if (!$this->CI->db->table_exists('conversations')) return array(false, 'conversations are not available yet', false);
+            $sub = $this->CI->db->select('id, subscribe_id, page_table_id, social_media')
+                ->from('messenger_bot_subscriber')->where('id', (int) $subscriber_id)->where('user_id', (int) $user_id)
+                ->limit(1)->get()->row_array();
+            if (empty($sub)) return array(false, 'customer not found for this account', false);
+
+            $agent_id = (int) $agent_id;
+            if ($agent_id > 0) {
+                if (!$this->CI->db->table_exists('team_members')) return array(false, 'team accounts are not enabled for this account', false);
+                $owns = $this->CI->db->where('id', $agent_id)->where('user_id', (int) $user_id)->get('team_members')->row_array();
+                if (empty($owns)) return array(false, 'team member not found for this account', false);
+            }
+
+            if (!function_exists('conversation_find')) $this->CI->load->helper('conversation');
+            $conv = conversation_find((int) $user_id, (string) $sub['social_media'], (int) $sub['page_table_id'], (string) $sub['subscribe_id']);
+            if (empty($conv)) return array(false, 'no conversation for this customer yet', false);
+
+            $this->CI->db->where('id', (int) $conv['id'])->where('user_id', (int) $user_id)
+                ->update('conversations', array('assigned_user_id' => $agent_id > 0 ? $agent_id : null, 'updated_at' => date('Y-m-d H:i:s')));
+
+            // Task 24 review fix: consistent with Inbox::assign() emitting human.assigned —
+            // an automation assigning a conversation is exactly as much "a human got
+            // assigned" as an agent clicking the same button in the Inbox UI.
+            if (function_exists('event_emit')) {
+                event_emit((int) $user_id, 'human.assigned', 'conversation', $conv['id'], array(
+                    'agent_id' => $agent_id > 0 ? $agent_id : null, 'platform' => $sub['social_media'], 'team_id' => null,
+                ));
+            }
+
+            return array(true, null, false);
+        } catch (Throwable $e) {
+            return array(false, $e->getMessage(), true);
+        }
+    }
+
+    /**
+     * Task 24 (brief 23): a named field on the customer (messenger_bot_subscriber) or deal
+     * (crm_deals), whitelisted — an automation never writes an arbitrary column.
+     */
+    public function update_field($user_id, $target, $id, $field, $value)
+    {
+        try {
+            $target = $target === 'deal' ? 'deal' : 'customer';
+            $allow = $target === 'deal'
+                ? array('title' => 'title', 'value' => 'value', 'currency' => 'currency', 'status' => 'status')
+                : array('full_name' => 'full_name', 'email' => 'email', 'phone' => 'phone_number', 'lead_score' => 'lead_score');
+            if (!isset($allow[$field])) return array(false, 'field not allowed: ' . $field, false);
+            $table = $target === 'deal' ? 'crm_deals' : 'messenger_bot_subscriber';
+            if (!$this->CI->db->table_exists($table)) return array(false, $table . ' not available yet', false);
+
+            $this->CI->db->where('id', (int) $id)->where('user_id', (int) $user_id)
+                ->update($table, array($allow[$field] => $value));
+            if ((int) $this->CI->db->affected_rows() < 1) return array(false, 'row not found for this account', false);
+            return array(true, null, false);
+        } catch (Throwable $e) {
+            return array(false, $e->getMessage(), true);
+        }
+    }
+
+    /**
+     * Task 24 (brief 23): reuses Home::_email_send_function — the same mailer notify_team's
+     * email branch already relies on — so this needs no new SMTP code.
+     */
+    public function notify_customer_email($user_id, $email, $subject, $text)
+    {
+        try {
+            if (!method_exists($this->CI, '_email_send_function')) {
+                return array(false, 'email is only available from a web/cron context', false);
+            }
+            $this->CI->_email_send_function('', nl2br(htmlspecialchars($text)), $email, $subject, '', '', (int) $user_id);
+            return array(true, null, false);
+        } catch (Throwable $e) {
+            return array(false, $e->getMessage(), true);
+        }
+    }
+
     public function sleep_backoff($seconds)
     {
         $s = (int) $seconds;

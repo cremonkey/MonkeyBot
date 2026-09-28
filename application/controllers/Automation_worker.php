@@ -101,12 +101,107 @@ class Automation_worker extends Home
             log_message('error', 'automation_worker: ' . $e->getMessage());
         }
 
+        // Task 24 (brief 23): the inactivity scanner runs inside the same locked tick, after
+        // the queue drain, so it never overlaps another tick and its emitted events are
+        // simply picked up on the NEXT tick (same as any other event) rather than this one.
+        $inactivity = array('scanned' => 0, 'emitted' => 0);
+        try {
+            $inactivity = $this->scan_inactivity();
+        } catch (Throwable $e) {
+            log_message('error', 'automation_worker scan_inactivity: ' . $e->getMessage());
+        }
+
         $this->db->query("SELECT RELEASE_LOCK('" . self::LOCK . "')");
 
         $detail = "events {$seen}, rules matched {$totals['rules']}, ok {$totals['success']}, "
-                . "failed {$totals['failed']}, skipped {$totals['skipped']}, duplicate {$totals['duplicate']}";
+                . "failed {$totals['failed']}, skipped {$totals['skipped']}, duplicate {$totals['duplicate']}, "
+                . "inactivity scanned {$inactivity['scanned']} emitted {$inactivity['emitted']}";
         ops_health_record('automation_worker', $error === null, microtime(true) - $started, $error === null ? $detail : $error);
         echo $detail . "\n";
+    }
+
+    /**
+     * Task 24 review fix (brief 23): the "inactivity" trigger has no natural emitter —
+     * nothing else in the app knows a conversation went quiet, so this tick scans for it and
+     * emits a real `inactivity` event, which then flows through the SAME event-driven
+     * pipeline as every other trigger (no second engine). Threshold: config item
+     * 'automation_inactivity_hours' (default 24).
+     *
+     * Guarantees (the first version of this method got #2 wrong twice — see history):
+     *  1. Only tenants with an ACTIVE rule whose trigger_event is 'inactivity' are scanned
+     *     at all — a tenant with no such rule never has its conversations touched or an
+     *     event written for it. (Automation_engine::inactivity_tenants(), pure.)
+     *  2. Exactly one `inactivity` event per idle SPELL per conversation, not one per tick,
+     *     AND an already-flagged conversation can never starve the rest of the tenant's
+     *     queue. Automation_engine::inactivity_candidate_sql() puts the "already has a newer
+     *     inactivity event than last_inbound_at" exclusion INSIDE the WHERE clause, before
+     *     LIMIT is applied — a flagged row is excluded from the result set entirely, so it
+     *     never occupies a LIMIT slot that a genuinely new-idle conversation needed.
+     *     (Round 1's bug: that exclusion ran in PHP AFTER the LIMIT had already been filled
+     *     by rows that were flagged, which is starvation, not just a missed test case.)
+     * Oldest-`last_inbound_at`-first (ORDER BY, also inside that same query) means that once
+     * the currently-oldest idle conversations are flagged, the NEXT tick's query naturally
+     * surfaces the next-oldest ones — no separate pagination bookkeeping needed.
+     * Automation_engine::inactivity_emit_targets() is kept as a second, pure, defense-in-depth
+     * check on the rows the query returns (belt-and-braces, brief 51: no silent failure from
+     * a single layer's mistake) — with the SQL fix, it should now be a no-op in practice.
+     */
+    public function scan_inactivity($limit = 200)
+    {
+        if (!$this->db->table_exists('conversations') || !$this->db->table_exists('automation_rules')
+            || !$this->db->table_exists('events')) {
+            return array('scanned' => 0, 'emitted' => 0, 'tenants' => 0);
+        }
+        try {
+            $this->load->library('automation_engine');
+            $hours = (float) $this->config->item('automation_inactivity_hours');
+            if ($hours <= 0) $hours = 24.0;
+            $cutoff = date('Y-m-d H:i:s', time() - (int) ($hours * 3600));
+
+            $rule_rows = $this->db->select('user_id, status, trigger_event')->from('automation_rules')
+                ->where('status', 'active')->where('trigger_event', 'inactivity')->get()->result_array();
+            $tenants = Automation_engine::inactivity_tenants($rule_rows);
+
+            $scanned = 0; $emitted = 0;
+            if (empty($tenants)) return array('scanned' => 0, 'emitted' => 0, 'tenants' => 0);
+
+            $per_tenant = max(1, (int) floor(max(1, (int) $limit) / count($tenants)));
+            $sql = Automation_engine::inactivity_candidate_sql();
+
+            foreach ($tenants as $user_id) {
+                $candidates = $this->db->query($sql, array($user_id, $cutoff, $per_tenant))->result_array();
+                if (empty($candidates)) continue;
+                $scanned += count($candidates);
+
+                // Defense-in-depth (see docblock): the SQL above already excludes flagged
+                // rows via its own NOT EXISTS, so re-checking against a fresh read of the
+                // same events is expected to change nothing in practice — it is a second,
+                // independently-implemented layer, not a second copy of the same bug.
+                $ids = array();
+                foreach ($candidates as $c) $ids[] = (int) $c['id'];
+                $existing = $this->db->select('subject_id, created_at')->from('events')
+                    ->where('user_id', $user_id)->where('event_type', 'inactivity')->where('subject_type', 'conversation')
+                    ->where_in('subject_id', $ids)->get()->result_array();
+
+                $targets = Automation_engine::inactivity_emit_targets($candidates, $existing, $hours);
+                if (empty($targets)) continue;
+                $targets = array_flip($targets); // O(1) lookup below
+
+                foreach ($candidates as $c) {
+                    if (!isset($targets[(string) $c['id']])) continue;
+                    $n = event_emit((int) $user_id, 'inactivity', 'conversation', $c['id'], array(
+                        'idle_hours'      => $hours,
+                        'last_inbound_at' => $c['last_inbound_at'],
+                        'platform'        => $c['platform'],
+                    ));
+                    if ($n > 0) $emitted++;
+                }
+            }
+            return array('scanned' => $scanned, 'emitted' => $emitted, 'tenants' => count($tenants));
+        } catch (Throwable $e) {
+            log_message('error', 'automation_worker scan_inactivity: ' . $e->getMessage());
+            return array('scanned' => 0, 'emitted' => 0, 'tenants' => 0);
+        }
     }
 
     /**
