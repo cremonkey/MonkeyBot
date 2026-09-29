@@ -469,6 +469,21 @@ $SEASON_OFFER = json_decode(json_encode($SEASON), true);
 $SEASON_OFFER['accommodation']['rooms'][0]['offers']['5'] = 99999; // must NOT win: this stay crosses the season boundary
 $r = pricing_calc_accommodation($SEASON_OFFER, 'Double Garden View', 5, 2, 0, 0, 0, '2026-01-08');
 same('a written offer is deliberately skipped for a stay that crosses a season boundary', 3 * 6000 + 2 * 4500, $r['total']);
+// review round 3: a season never inherits the base room's offers.
+$EID9 = json_decode(json_encode($BYOOT), true);
+$EID9['accommodation']['rooms'][0]['offers'] = array('4' => 11500);
+$EID9['accommodation']['seasons'] = array(array(
+    'name' => 'Eid', 'start' => '2026-01-01', 'end' => '2026-01-10',
+    'rooms' => array('Double Garden View' => array('nightly' => 9000)), // no offers of its own
+));
+$r = pricing_calc_accommodation($EID9, 'Double Garden View', 4, 2, 0, 0, 0, '2026-01-05');
+same('in-season stay does NOT inherit the base offer (4 x 9000)', 36000, $r['total']);
+$EID9_OWN = json_decode(json_encode($EID9), true);
+$EID9_OWN['accommodation']['seasons'][0]['rooms']['Double Garden View']['offers'] = array('4' => 30000);
+$r = pricing_calc_accommodation($EID9_OWN, 'Double Garden View', 4, 2, 0, 0, 0, '2026-01-05');
+same('in-season stay uses the season\'s OWN offer', 30000, $r['total']);
+$r = pricing_calc_accommodation($EID9, 'Double Garden View', 4, 2, 0, 0, 0, '2026-03-01');
+same('an all-off-season stay still uses the base offer', 11500, $r['total']);
 
 echo "\n== C11: overlapping seasons rejected ==\n";
 $bad = json_decode(json_encode($BYOOT), true);

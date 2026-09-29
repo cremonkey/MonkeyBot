@@ -467,7 +467,9 @@ if (!function_exists('pricing_room_with_season')) {
         if ($ov === null) return $room;
         if (isset($ov['nightly'])) $room['nightly'] = $ov['nightly'];
         if (isset($ov['weekend_nightly'])) $room['weekend_nightly'] = $ov['weekend_nightly'];
-        if (isset($ov['offers']) && is_array($ov['offers'])) $room['offers'] = $ov['offers'];
+        // A season NEVER inherits the base room's written offers: base offers are priced
+        // for off-season nights. Only offers the season override defines itself apply.
+        $room['offers'] = (isset($ov['offers']) && is_array($ov['offers'])) ? $ov['offers'] : array();
         $room['_season'] = (string) ($season['name'] ?? '');
         return $room;
     }
