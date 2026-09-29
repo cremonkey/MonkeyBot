@@ -243,6 +243,22 @@ $r_ambiguous = $tools->execute('t_create_booking', array('service' => 'Massage',
 check('t_create_booking: ambiguous fuzzy match asks instead of guessing', stripos($r_ambiguous, 'Several services match') === 0);
 check('t_create_booking: ambiguous match books nothing', count($CI->db->tables['ab_appointments']) === $before);
 
+// impossible/invalid dates and times: checkdate()/range rejects them BEFORE strtotime can
+// silently roll them over into 1970-01-01 or some other wrong slot. Web-widget path is
+// untouched by this — see the golden submit_booking tests below.
+foreach (array(
+    array('2026-13-45', '10:00', 'month 13 / day 45 (calendar-impossible)'),
+    array('2026-02-30', '10:00', 'Feb 30 (calendar-impossible)'),
+    array('2026-10-10', '25:00', 'hour 25 (out of range)'),
+    array('2020-01-01', '10:00', 'a datetime already in the past'),
+) as $case) {
+    list($d, $t, $label) = $case;
+    $before_n = count($CI->db->tables['ab_appointments']);
+    $r = $tools->execute('t_create_booking', array('service' => 'Haircut', 'date' => $d, 'time' => $t, 'name' => 'X'), array('user_id' => 100, 'capabilities' => array('t_create_booking')));
+    check("t_create_booking: rejects $label", stripos($r, 'not valid') !== false);
+    check("t_create_booking: $label books nothing (no 1970-01-01 row)", count($CI->db->tables['ab_appointments']) === $before_n);
+}
+
 // ============================================================ 5. ab_appointments.source enum — read from the real migration so this can't drift
 $spec17 = file_get_contents(dirname(__DIR__, 2) . '/assets/backup_db/migrations/2026-07-05-spec17.sql');
 preg_match("/source ENUM\\(([^)]+)\\)/", $spec17, $em);

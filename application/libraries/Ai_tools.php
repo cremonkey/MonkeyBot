@@ -420,8 +420,21 @@ class Ai_tools
         $date = trim((string) ($args['date'] ?? ''));
         $time = trim((string) ($args['time'] ?? ''));
         if ($service_name === '' || $date === '' || $time === ''
-            || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !preg_match('/^\d{1,2}:\d{2}$/', $time)) {
+            || !preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $date, $dm) || !preg_match('/^(\d{1,2}):(\d{2})$/', $time, $tm)) {
             return 'Missing or unclear service, date, or time — ask the customer for the exact service, date (YYYY-MM-DD), and time before booking. Never guess.';
+        }
+        // The regex above accepts syntactically-shaped but impossible values (2026-13-45,
+        // 2026-02-30, 25:00) that strtotime() silently rolls over instead of rejecting —
+        // that would have stored the appointment at 1970-01-01. Reject those explicitly,
+        // and reject a slot already in the past, before touching the DB. Web-widget path
+        // (Appointment_booking::submit_booking / ab_create_booking) is deliberately left
+        // exactly as before — this stricter check is t_create_booking-only.
+        if (!checkdate((int) $dm[2], (int) $dm[3], (int) $dm[1]) || (int) $tm[1] > 23 || (int) $tm[2] > 59) {
+            return 'That date or time is not valid — ask the customer for a valid date and time before booking.';
+        }
+        $slot_ts = strtotime($date . ' ' . $time);
+        if ($slot_ts === false || $slot_ts < time()) {
+            return 'That date or time is not valid — ask the customer for a valid date and time before booking.';
         }
         $svc = $this->CI->db->from('ab_services')->where('user_id', $user_id)->where('status', '1')
             ->where('name', $service_name)->limit(1)->get()->row_array();
