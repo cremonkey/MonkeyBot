@@ -36,6 +36,33 @@ if (!function_exists('cu_plat')) { function cu_plat($p) { global $plat_name; ret
           </div>
         </div>
 
+        <?php if (!empty($profile['merge_suggestions'])): ?>
+        <div class="card cu-merge-suggestions">
+          <div class="card-header">
+            <i class="fas fa-code-branch"></i> Possible duplicate
+            <span class="text-muted" dir="rtl">عميل مكرر محتمل</span>
+          </div>
+          <div class="card-body">
+            <?php foreach ($profile['merge_suggestions'] as $s):
+                $other_id = ($s['customer_id_a'] === (int) $customer['id']) ? $s['customer_id_b'] : $s['customer_id_a'];
+                $other_name = ($s['customer_id_a'] === (int) $customer['id']) ? $s['display_name_b'] : $s['display_name_a']; ?>
+              <p class="mb-2">
+                Same verified <?php echo htmlspecialchars(cu_plat($s['matched_platform'])); ?> (<?php echo htmlspecialchars($s['matched_value']); ?>)
+                as <strong><?php echo htmlspecialchars($other_name); ?></strong>.
+                <br><span class="text-muted small" dir="rtl">نفس <?php echo htmlspecialchars(cu_plat($s['matched_platform'])); ?> الموثّق (<?php echo htmlspecialchars($s['matched_value']); ?>) الخاص بـ<?php echo htmlspecialchars($other_name); ?>.</span>
+              </p>
+              <button type="button" class="btn btn-sm btn-outline-warning cu-merge-btn"
+                      data-keep-id="<?php echo (int) $customer['id']; ?>" data-merge-id="<?php echo (int) $other_id; ?>"
+                      data-other-name="<?php echo htmlspecialchars($other_name); ?>">
+                <i class="fas fa-object-ungroup"></i> Merge <span dir="rtl">دمج</span>
+              </button>
+            <?php endforeach; ?>
+            <p class="text-muted small mb-0 mt-2">This never happens automatically — you decide which record survives.
+              <br><span dir="rtl">ده مبيحصلش لوحده أبدًا — إنت اللي بتقرر مين اللي فاضل.</span></p>
+          </div>
+        </div>
+        <?php endif; ?>
+
         <div class="card">
           <div class="card-body">
             <h6>Pipeline</h6>
@@ -149,3 +176,39 @@ if (!function_exists('cu_plat')) { function cu_plat($p) { global $plat_name; ret
     </div>
   </div>
 </section>
+
+<script>
+(function () {
+  // Task 29 (C14): the "Merge" button on a suggestion is the ONLY thing that ever merges two
+  // customers — always behind an explicit confirm, always reversible (an Undo endpoint exists:
+  // customers/unmerge with the returned log_id). Same TOKEN/BASE pattern as admin/inbox/index.php.
+  var TOKEN = "<?php echo $this->session->userdata('csrf_token_session'); ?>", BASE = "<?php echo base_url(); ?>";
+
+  document.querySelectorAll('.cu-merge-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var keepId = btn.getAttribute('data-keep-id');
+      var mergeId = btn.getAttribute('data-merge-id');
+      var otherName = btn.getAttribute('data-other-name');
+      if (!window.confirm('Merge "' + otherName + '" into this customer? This moves their conversations and channels here. / هل تريد دمج "' + otherName + '" في هذا العميل؟ ده هينقل محادثاته وقنواته هنا.')) return;
+
+      var fd = new FormData();
+      fd.append('csrf_token', TOKEN);
+      fd.append('keep_id', keepId);
+      fd.append('merge_id', mergeId);
+
+      btn.disabled = true;
+      fetch(BASE + 'customers/merge', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+          if (resp.status === '1') {
+            window.location.reload();
+          } else {
+            btn.disabled = false;
+            window.alert(resp.message || 'Could not merge. / لم يتم الدمج.');
+          }
+        })
+        .catch(function () { btn.disabled = false; window.alert('Network error. / خطأ في الاتصال.'); });
+    });
+  });
+})();
+</script>

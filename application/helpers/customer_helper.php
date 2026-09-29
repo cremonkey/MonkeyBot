@@ -258,3 +258,320 @@ if (!function_exists('customer_display_name')) {
         return 'Customer #' . (int) ($customer_row['id'] ?? 0);
     }
 }
+
+// ------------------------------------------------------------------ merge (Task 29 / C14, brief §16)
+//
+// REVIEW GATE: nothing here ever merges automatically. customer_merge_suggestions_from_rows()
+// only ever returns candidates for an owner to look at on the Customer 360 profile (a "Merge"
+// button); the only way `customers`/`customer_identities`/`conversations` rows actually move is
+// an explicit customer_merge() call from Customers::merge(), itself CSRF + ajax + tenant-owned
+// gated. Every merge is reversible: customer_merge() records the exact row ids it moved in
+// customer_merge_log (identities_moved, conversations_moved — 2026-10-05c-customer-merge.sql)
+// and customer_unmerge() moves back only those same ids, nothing inferred at unmerge time.
+//
+// Unlike the read-side functions above, these take the real $db (write access) but keep the
+// same "accept $db so a test can inject a fake" convention — no get_instance() in here, exactly
+// like provisioning_helper.php's account creation.
+
+if (!function_exists('customer_merge_log_ready')) {
+    /** Cached table/column guard for the two new customer_merge_log columns this task adds
+     *  (conversations_moved, unmerged_at). Code must work before the migration runs: merge and
+     *  unmerge simply refuse (no partial write) until both columns exist. */
+    function customer_merge_log_ready($db, array &$cache)
+    {
+        if (!array_key_exists('customer_merge_log', $cache)) {
+            $cache['customer_merge_log'] =
+                is_object($db) && method_exists($db, 'table_exists') && $db->table_exists('customer_merge_log')
+                && method_exists($db, 'field_exists')
+                && $db->field_exists('conversations_moved', 'customer_merge_log')
+                && $db->field_exists('unmerged_at', 'customer_merge_log');
+        }
+        return $cache['customer_merge_log'];
+    }
+}
+
+if (!function_exists('customer_merge')) {
+    /**
+     * Moves every customer_identities and conversations row from $merge_id to $keep_id for
+     * tenant $user_id, in one transaction, then marks $merge_id retired
+     * (customers.merged_into_customer_id) and writes one customer_merge_log row recording the
+     * exact ids moved so customer_unmerge() can put them back.
+     *
+     * Both customers must already belong to $user_id (cross-tenant refused, same id-then-
+     * user_id guard as customer_scope_owner()). Self-merge ($keep_id === $merge_id) refused.
+     * A customer already merged into something else (either side) refused — merge chains are
+     * not supported, the owner re-picks a keep id instead.
+     *
+     * An identity on the merged customer that would collide with an identity the keep customer
+     * already has (same platform + channel_account_id + external_id — the table's unique key)
+     * is left where it is rather than moved: two rows can never legitimately claim the same
+     * identity, and silently overwriting one would not be reversible.
+     *
+     * Returns array(bool $ok, array $errors, array|null $result). $result on success:
+     * array('log_id', 'keep_id', 'merge_id', 'identities_moved', 'conversations_moved').
+     */
+    function customer_merge($db, $keep_id, $merge_id, $actor_id, $user_id)
+    {
+        $keep_id = (int) $keep_id;
+        $merge_id = (int) $merge_id;
+        $user_id = (int) $user_id;
+        $actor_id = $actor_id !== null ? (int) $actor_id : null;
+
+        if ($keep_id <= 0 || $merge_id <= 0 || $user_id <= 0) {
+            return array(false, array('Invalid customer.'), null);
+        }
+        if ($keep_id === $merge_id) {
+            return array(false, array('Cannot merge a customer into itself.'), null);
+        }
+
+        $ready_cache = array();
+        if (!customer_merge_log_ready($db, $ready_cache)) {
+            return array(false, array('Merge is not available yet on this install (pending migration).'), null);
+        }
+
+        $keep = $db->select('id, merged_into_customer_id')->from('customers')
+            ->where('id', $keep_id)->where('user_id', $user_id)->get()->row_array();
+        $merge = $db->select('id, merged_into_customer_id')->from('customers')
+            ->where('id', $merge_id)->where('user_id', $user_id)->get()->row_array();
+
+        if (empty($keep) || empty($merge)) {
+            return array(false, array('Both customers must belong to this account.'), null);
+        }
+        if (!empty($keep['merged_into_customer_id'])) {
+            return array(false, array('The customer you are keeping was already merged elsewhere. Pick its surviving record instead.'), null);
+        }
+        if (!empty($merge['merged_into_customer_id'])) {
+            return array(false, array('That customer was already merged.'), null);
+        }
+
+        $db->trans_start();
+
+        // ---- identities: skip anything that would collide with an identity the keep
+        // customer already has (same unique key), everything else moves.
+        $keep_idents = $db->select('platform, channel_account_id, external_id')->from('customer_identities')
+            ->where('customer_id', $keep_id)->where('user_id', $user_id)->get()->result_array();
+        $keep_keys = array();
+        foreach ($keep_idents as $ki) {
+            $keep_keys[$ki['platform'] . '|' . $ki['channel_account_id'] . '|' . $ki['external_id']] = true;
+        }
+
+        $merge_idents = $db->select('id, platform, channel_account_id, external_id')->from('customer_identities')
+            ->where('customer_id', $merge_id)->where('user_id', $user_id)->get()->result_array();
+        $identities_moved = array();
+        foreach ($merge_idents as $mi) {
+            $key = $mi['platform'] . '|' . $mi['channel_account_id'] . '|' . $mi['external_id'];
+            if (isset($keep_keys[$key])) continue; // would collide with an existing identity on $keep_id — leave it
+            $db->where('id', (int) $mi['id'])->where('customer_id', $merge_id)->where('user_id', $user_id)
+                ->update('customer_identities', array('customer_id' => $keep_id));
+            $identities_moved[] = (int) $mi['id'];
+        }
+
+        // ---- conversations: no uniqueness constraint to worry about, every row moves.
+        $merge_convs = $db->select('id')->from('conversations')
+            ->where('customer_id', $merge_id)->where('user_id', $user_id)->get()->result_array();
+        $conversations_moved = array();
+        foreach ($merge_convs as $mc) {
+            $db->where('id', (int) $mc['id'])->where('customer_id', $merge_id)->where('user_id', $user_id)
+                ->update('conversations', array('customer_id' => $keep_id));
+            $conversations_moved[] = (int) $mc['id'];
+        }
+
+        $db->where('id', $merge_id)->where('user_id', $user_id)
+            ->update('customers', array('merged_into_customer_id' => $keep_id, 'updated_at' => date('Y-m-d H:i:s')));
+
+        $db->insert('customer_merge_log', array(
+            'user_id'             => $user_id,
+            'source_customer_id'  => $merge_id,
+            'target_customer_id'  => $keep_id,
+            'method'              => 'manual',
+            'actor_type'          => 'agent',
+            'actor_id'            => $actor_id,
+            'identities_moved'    => json_encode($identities_moved),
+            'conversations_moved' => json_encode($conversations_moved),
+            'note'                => null,
+            'created_at'          => date('Y-m-d H:i:s'),
+        ));
+        $log_id = (int) $db->insert_id();
+
+        $db->trans_complete();
+        if ($db->trans_status() === false) {
+            return array(false, array('Database error while merging. Nothing was changed.'), null);
+        }
+
+        if (function_exists('audit_record')) {
+            audit_record(
+                $user_id, 'customer.merge', 'customer', (string) $merge_id,
+                array('merge_id' => $merge_id),
+                array('keep_id' => $keep_id, 'log_id' => $log_id, 'identities_moved' => $identities_moved, 'conversations_moved' => $conversations_moved),
+                $actor_id, 'user'
+            );
+        }
+
+        return array(true, array(), array(
+            'log_id'              => $log_id,
+            'keep_id'             => $keep_id,
+            'merge_id'            => $merge_id,
+            'identities_moved'    => $identities_moved,
+            'conversations_moved' => $conversations_moved,
+        ));
+    }
+}
+
+if (!function_exists('customer_unmerge')) {
+    /**
+     * Reverses exactly one customer_merge_log row: moves the identities and conversations it
+     * recorded back to the retired (source) customer, clears customers.merged_into_customer_id,
+     * and stamps the log row unmerged_at so a second call on the same $log_id is refused —
+     * nothing is inferred from current state, only the ids this exact merge moved.
+     *
+     * $log_id must belong to tenant $user_id. Returns array(bool $ok, array $errors,
+     * array|null $result). $result on success: array('source_customer_id',
+     * 'target_customer_id', 'identities_restored', 'conversations_restored').
+     */
+    function customer_unmerge($db, $log_id, $actor_id, $user_id)
+    {
+        $log_id = (int) $log_id;
+        $user_id = (int) $user_id;
+        $actor_id = $actor_id !== null ? (int) $actor_id : null;
+
+        if ($log_id <= 0 || $user_id <= 0) {
+            return array(false, array('Invalid merge record.'), null);
+        }
+
+        $ready_cache = array();
+        if (!customer_merge_log_ready($db, $ready_cache)) {
+            return array(false, array('Unmerge is not available yet on this install (pending migration).'), null);
+        }
+
+        $log = $db->select('id, source_customer_id, target_customer_id, identities_moved, conversations_moved, unmerged_at')
+            ->from('customer_merge_log')->where('id', $log_id)->where('user_id', $user_id)->get()->row_array();
+        if (empty($log)) {
+            return array(false, array('Merge record not found for this account.'), null);
+        }
+        if (!empty($log['unmerged_at'])) {
+            return array(false, array('This merge was already undone.'), null);
+        }
+
+        $source_id = (int) $log['source_customer_id'];
+        $target_id = (int) $log['target_customer_id'];
+        $identity_ids = json_decode((string) $log['identities_moved'], true);
+        $identity_ids = is_array($identity_ids) ? array_map('intval', $identity_ids) : array();
+        $conversation_ids = json_decode((string) $log['conversations_moved'], true);
+        $conversation_ids = is_array($conversation_ids) ? array_map('intval', $conversation_ids) : array();
+
+        $db->trans_start();
+
+        if (!empty($identity_ids)) {
+            $db->where_in('id', $identity_ids)->where('user_id', $user_id)->where('customer_id', $target_id)
+                ->update('customer_identities', array('customer_id' => $source_id));
+        }
+        if (!empty($conversation_ids)) {
+            $db->where_in('id', $conversation_ids)->where('user_id', $user_id)->where('customer_id', $target_id)
+                ->update('conversations', array('customer_id' => $source_id));
+        }
+        $db->where('id', $source_id)->where('user_id', $user_id)
+            ->update('customers', array('merged_into_customer_id' => null, 'updated_at' => date('Y-m-d H:i:s')));
+        $db->where('id', $log_id)->where('user_id', $user_id)
+            ->update('customer_merge_log', array('unmerged_at' => date('Y-m-d H:i:s')));
+
+        $db->trans_complete();
+        if ($db->trans_status() === false) {
+            return array(false, array('Database error while undoing the merge. Nothing was changed.'), null);
+        }
+
+        if (function_exists('audit_record')) {
+            audit_record(
+                $user_id, 'customer.unmerge', 'customer', (string) $source_id,
+                array('log_id' => $log_id),
+                array('target_id' => $target_id, 'identities_restored' => $identity_ids, 'conversations_restored' => $conversation_ids),
+                $actor_id, 'user'
+            );
+        }
+
+        return array(true, array(), array(
+            'source_customer_id'    => $source_id,
+            'target_customer_id'    => $target_id,
+            'identities_restored'   => $identity_ids,
+            'conversations_restored'=> $conversation_ids,
+        ));
+    }
+}
+
+if (!function_exists('customer_merge_suggestion_rows')) {
+    /** Raw rows for the suggestion query: every verified identity for this tenant's
+     *  not-already-merged customers, joined to the customer's display name. One query; the
+     *  grouping/pairing logic lives in customer_merge_suggestions_from_rows() so it is
+     *  testable without a DB. */
+    function customer_merge_suggestion_rows($db, $user_id)
+    {
+        return $db->select('ci.customer_id AS customer_id, ci.platform AS platform, ci.external_id AS external_id, c.display_name AS display_name')
+            ->from('customer_identities ci')
+            ->join('customers c', 'c.id = ci.customer_id')
+            ->where('ci.user_id', (int) $user_id)
+            ->where('c.user_id', (int) $user_id)
+            ->where('ci.verified', 1)
+            ->where('c.merged_into_customer_id IS NULL', null, false)
+            ->order_by('ci.external_id', 'ASC')
+            ->get()->result_array();
+    }
+}
+
+if (!function_exists('customer_merge_suggestions_from_rows')) {
+    /**
+     * Groups verified-identity rows by their external_id (the phone number or email string
+     * itself — a verified identity means the tenant confirmed ownership of that exact value),
+     * and turns every group spanning 2+ distinct customers into a suggestion pair. Never
+     * merges anything: this is display-only data for the "Merge" button on the profile page.
+     *
+     * Pure function, no DB — the query lives in customer_merge_suggestion_rows() above so this
+     * is unit-testable with plain arrays.
+     */
+    function customer_merge_suggestions_from_rows(array $rows, $limit = 20)
+    {
+        $groups = array();
+        foreach ($rows as $r) {
+            $value = isset($r['external_id']) ? (string) $r['external_id'] : '';
+            if ($value === '') continue;
+            $cid = (int) ($r['customer_id'] ?? 0);
+            if ($cid <= 0) continue;
+            if (!isset($groups[$value])) $groups[$value] = array();
+            $groups[$value][$cid] = $r; // de-dupe: same customer verified twice on the same value counts once
+        }
+
+        $suggestions = array();
+        $seen_pairs = array();
+        foreach ($groups as $value => $by_customer) {
+            if (count($by_customer) < 2) continue;
+            $customer_ids = array_keys($by_customer);
+            sort($customer_ids);
+            for ($i = 0; $i < count($customer_ids); $i++) {
+                for ($j = $i + 1; $j < count($customer_ids); $j++) {
+                    $a = $customer_ids[$i];
+                    $b = $customer_ids[$j];
+                    $pair_key = $a . ':' . $b;
+                    if (isset($seen_pairs[$pair_key])) continue;
+                    $seen_pairs[$pair_key] = true;
+                    $suggestions[] = array(
+                        'customer_id_a'    => $a,
+                        'customer_id_b'    => $b,
+                        'matched_value'    => (string) $value, // PHP coerces a numeric array key (e.g. a phone number) to int; keep it as the original string
+                        'matched_platform' => $by_customer[$a]['platform'],
+                        'display_name_a'   => customer_display_name(array('id' => $a, 'display_name' => $by_customer[$a]['display_name'])),
+                        'display_name_b'   => customer_display_name(array('id' => $b, 'display_name' => $by_customer[$b]['display_name'])),
+                    );
+                    if (count($suggestions) >= $limit) return $suggestions;
+                }
+            }
+        }
+        return $suggestions;
+    }
+}
+
+if (!function_exists('customer_merge_suggestions')) {
+    /** Convenience wrapper Customers::suggestions() and the profile page call: query + group
+     *  in one step, still tenant-scoped through customer_merge_suggestion_rows(). */
+    function customer_merge_suggestions($db, $user_id, $limit = 20)
+    {
+        return customer_merge_suggestions_from_rows(customer_merge_suggestion_rows($db, $user_id), $limit);
+    }
+}
