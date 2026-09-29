@@ -92,8 +92,11 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
         <ul class="nav nav-tabs" role="tablist">
           <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#tab_items">Products &amp; services</a></li>
           <li class="nav-item pr-stay"><a class="nav-link" data-toggle="tab" href="#tab_rooms">Rooms</a></li>
+          <li class="nav-item pr-stay"><a class="nav-link" data-toggle="tab" href="#tab_seasons">Seasons <small class="text-muted">/ مواسم</small></a></li>
           <li class="nav-item pr-stay"><a class="nav-link" data-toggle="tab" href="#tab_dayuse">Day use</a></li>
           <li class="nav-item pr-stay"><a class="nav-link" data-toggle="tab" href="#tab_children">Children</a></li>
+          <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab_packages">Packages <small class="text-muted">/ باقات</small></a></li>
+          <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab_coupons">Coupons <small class="text-muted">/ كوبونات</small></a></li>
           <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab_json">Advanced (JSON)</a></li>
         </ul>
         <div class="tab-content card"><div class="card-body">
@@ -104,17 +107,37 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
             <div class="table-responsive"><table class="table table-sm"><thead><tr>
               <th class="pr-col-name">Name <small class="text-muted">/ category</small></th><th class="pr-col-w120">Unit</th>
               <th class="pr-col-w120">Price</th><th class="pr-col-wide">Options <small class="text-muted">name = price</small></th>
-              <th class="pr-col-wide">Other names <small class="text-muted">/ note</small></th><th></th></tr></thead>
+              <th class="pr-col-wide">Other names <small class="text-muted">/ note</small></th>
+              <th class="pr-col-wide">Qty discounts <small class="text-muted">min=price, …</small></th><th></th></tr></thead>
               <tbody id="pr_items"></tbody></table></div>
             <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_item"><i class="fas fa-plus"></i> Add product or service</button>
           </div>
           <div class="tab-pane fade" id="tab_rooms">
             <div class="form-row mb-2">
-              <div class="col-md-12"><label>Note shown with room prices</label><input id="pr_note" class="form-control" placeholder="e.g. Price is per room, not per person"></div>
+              <div class="col-md-8"><label>Note shown with room prices</label><input id="pr_note" class="form-control" placeholder="e.g. Price is per room, not per person"></div>
+              <div class="col-md-4"><label class="mb-1">Weekend nights <small class="text-muted d-block">/ ليالي الويك إند</small></label>
+                <div class="pr-weekend-days">
+                  <?php foreach (array(1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun') as $wd => $wl): ?>
+                    <label class="mr-2"><input type="checkbox" class="pr_weekend_day" value="<?php echo $wd; ?>"> <?php echo $wl; ?></label>
+                  <?php endforeach; ?>
+                </div>
+              </div>
             </div>
-            <table class="table table-sm"><thead><tr><th>Room name</th><th class="pr-col-w90">Guests</th><th class="pr-col-w120">Per night</th><th>Package offers <small class="text-muted">nights = total</small></th><th></th></tr></thead>
+            <p class="text-muted mb-1"><small>Minimum stay and a weekend rate are optional — leave blank to price every night the same, as today.
+              <br>الحد الأدنى للإقامة وسعر الويك إند اختياريين.</small></p>
+            <table class="table table-sm"><thead><tr><th>Room name</th><th class="pr-col-w90">Guests</th><th class="pr-col-w120">Per night</th>
+              <th class="pr-col-w90">Min nights</th><th class="pr-col-w120">Weekend/night</th>
+              <th>Package offers <small class="text-muted">nights = total</small></th><th></th></tr></thead>
               <tbody id="pr_rooms"></tbody></table>
             <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_room"><i class="fas fa-plus"></i> Add room</button>
+          </div>
+          <div class="tab-pane fade" id="tab_seasons">
+            <p class="text-muted"><small>A season overrides a room's nightly/weekend rate for stays that check in within its dates. Leave "overrides" empty to skip a room.
+              <br>الموسم بيغيّر سعر الغرفة للحجوزات اللي تاريخ الوصول فيها جوه المدة دي.</small></p>
+            <table class="table table-sm"><thead><tr><th>Season name</th><th class="pr-col-w150">Start</th><th class="pr-col-w150">End</th>
+              <th>Room overrides <small class="text-muted">Room=nightly[/weekend], …</small></th><th></th></tr></thead>
+              <tbody id="pr_seasons"></tbody></table>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_season"><i class="fas fa-plus"></i> Add season</button>
           </div>
           <div class="tab-pane fade" id="tab_dayuse">
             <table class="table table-sm"><thead><tr><th>Package name</th><th class="pr-col-w150">Price per person</th><th></th></tr></thead>
@@ -138,6 +161,24 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
                 <br><small class="text-muted">Unchecked = the AI asks your team for children in the half-price band.</small></div>
             </div>
           </div>
+          <div class="tab-pane fade" id="tab_packages">
+            <p class="text-muted"><small>A fixed-price bundle, e.g. "Spa Day = 1200 جنيه" regardless of what's inside.
+              Quantity discounts are optional: <span dir="ltr">5=1100, 10=1000</span> means the unit price drops once that many are bought.
+              <br>باقة بسعر ثابت. خصم الكمية اختياري.</small></p>
+            <table class="table table-sm"><thead><tr><th>Package name</th><th class="pr-col-w120">Price</th>
+              <th>Quantity discounts <small class="text-muted">min=price, …</small></th><th></th></tr></thead>
+              <tbody id="pr_pkgs"></tbody></table>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_bundle"><i class="fas fa-plus"></i> Add package</button>
+          </div>
+          <div class="tab-pane fade" id="tab_coupons">
+            <p class="text-muted"><small>Applied ONLY when the customer types the code themselves — the AI never offers or guesses a coupon.
+              Dates are optional (blank = always valid).
+              <br>الكوبون بيتطبق لما العميل يكتب الكود بنفسه بس.</small></p>
+            <table class="table table-sm"><thead><tr><th>Code</th><th class="pr-col-w120">Type</th><th class="pr-col-w120">Value</th>
+              <th class="pr-col-w150">Start</th><th class="pr-col-w150">End</th><th></th></tr></thead>
+              <tbody id="pr_coupons"></tbody></table>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="pr_add_coupon"><i class="fas fa-plus"></i> Add coupon</button>
+          </div>
           <div class="tab-pane fade" id="tab_json">
             <p class="text-muted mb-1"><small>Full configuration, including fields not shown in the form (media, room aliases). Edits here replace the form.</small></p>
             <textarea id="pr_json" class="form-control pr-json-area" dir="ltr"></textarea>
@@ -155,7 +196,7 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
       <div class="col-lg-4">
         <div class="card"><div class="card-header"><h4>Test a quote</h4></div><div class="card-body">
           <p class="text-muted"><small>Runs the same calculator the AI uses, on what you see now (even unsaved).</small></p>
-          <select id="t_kind" class="form-control mb-2"><option value="item">Product / service</option><option value="accommodation" class="pr-stay-opt">Stay</option><option value="day_use" class="pr-stay-opt">Day use</option></select>
+          <select id="t_kind" class="form-control mb-2"><option value="item">Product / service</option><option value="package">Package</option><option value="accommodation" class="pr-stay-opt">Stay</option><option value="day_use" class="pr-stay-opt">Day use</option></select>
           <input id="t_item" class="form-control mb-2" placeholder="Product / room / package">
           <div class="form-row t-item">
             <div class="col-7 mb-2"><label class="mb-0"><small>Option</small></label><input id="t_variant" class="form-control" placeholder="optional"></div>
@@ -167,7 +208,9 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
             <div class="col-4"><label class="mb-0"><small>Kids free</small></label><input id="t_cfree" type="number" min="0" value="0" class="form-control"></div>
             <div class="col-4"><label class="mb-0"><small>Kids half</small></label><input id="t_chalf" type="number" min="0" value="0" class="form-control"></div>
             <div class="col-4"><label class="mb-0"><small>Kids full</small></label><input id="t_cfull" type="number" min="0" value="0" class="form-control"></div>
+            <div class="col-12 mt-2"><label class="mb-0"><small>Check-in date (optional, for seasons/weekend)</small></label><input id="t_checkin" type="date" class="form-control"></div>
           </div>
+          <div class="mt-2"><label class="mb-0"><small>Coupon code (optional)</small></label><input id="t_coupon" class="form-control" placeholder="optional"></div>
           <button class="btn btn-outline-primary btn-block mt-3" id="t_run">Calculate</button>
           <div id="t_out" class="mt-3"></div>
         </div></div>
@@ -199,8 +242,11 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
   var splitList = function (t) { return (t || '').split(/[,،]/).map(function (x) { return x.trim(); }).filter(function (x) { return x !== ''; }); };
   function ensure() {
     cfg.catalog = cfg.catalog || {items: []}; cfg.catalog.items = cfg.catalog.items || [];
+    cfg.packages = cfg.packages || [];
+    cfg.coupons = cfg.coupons || [];
     if (stays()) {
       cfg.accommodation = cfg.accommodation || {rooms: []}; cfg.accommodation.rooms = cfg.accommodation.rooms || [];
+      cfg.accommodation.seasons = cfg.accommodation.seasons || [];
       cfg.day_use = cfg.day_use || {packages: []}; cfg.day_use.packages = cfg.day_use.packages || [];
       cfg.children = cfg.children || {free_max_age: 5, free_cap: 2, half_min_age: 6, half_max_age: 11, full_min_age: 12, half_price_known: false};
     }
@@ -209,6 +255,32 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
   function parseOffers(t) {
     var o = {}; (t || '').split(',').forEach(function (p) { var m = p.split('='); if (m.length === 2 && m[0].trim() !== '') o[m[0].trim()] = Number(m[1]); });
     return Object.keys(o).length ? o : undefined;
+  }
+  function tiersText(t) { return (t || []).map(function (x) { return x.min_qty + '=' + x.price; }).join(', '); }
+  function parseTiers(t) {
+    var out = splitList(t).map(function (p) {
+      var m = p.split('='); return m.length === 2 ? {min_qty: Number(m[0].trim()), price: Number(m[1].trim())} : null;
+    }).filter(function (x) { return x && !isNaN(x.min_qty) && !isNaN(x.price); });
+    return out.length ? out : undefined;
+  }
+  function roomOverridesText(rooms) {
+    return Object.keys(rooms || {}).map(function (name) {
+      var o = rooms[name], v = o.nightly != null ? o.nightly : '';
+      if (o.weekend_nightly != null) v += '/' + o.weekend_nightly;
+      return name + '=' + v;
+    }).join(', ');
+  }
+  function parseRoomOverrides(t) {
+    var out = {};
+    splitList(t).forEach(function (p) {
+      var i = p.lastIndexOf('='); if (i < 0) return;
+      var name = p.slice(0, i).trim(), rest = p.slice(i + 1).trim().split('/');
+      if (!name) return;
+      var ov = {}; if (rest[0] !== '' && !isNaN(Number(rest[0]))) ov.nightly = Number(rest[0]);
+      if (rest[1] !== undefined && rest[1] !== '' && !isNaN(Number(rest[1]))) ov.weekend_nightly = Number(rest[1]);
+      out[name] = ov;
+    });
+    return Object.keys(out).length ? out : undefined;
   }
   function variantsText(v) { return (v || []).map(function (x) { return x.name + '=' + (x.price == null ? '' : x.price); }).join(', '); }
   function parseVariants(t, old) {
@@ -237,16 +309,28 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
         '<td><input class="form-control form-control-sm i_vars" placeholder="Small=100, Large=150" value="' + esc(variantsText(it.variants)) + '"></td>' +
         '<td><input class="form-control form-control-sm i_alias mb-1" placeholder="e.g. haircut, قص" value="' + esc((it.aliases || []).join(', ')) + '">' +
         '<input class="form-control form-control-sm i_note" placeholder="Note (optional)" value="' + esc(it.note) + '"></td>' +
+        '<td><input class="form-control form-control-sm i_qd" dir="ltr" placeholder="5=140, 10=120" value="' + esc(tiersText(it.quantity_discounts)) + '"></td>' +
         '<td><button class="btn btn-sm btn-link text-danger i_del" title="Remove">×</button></td></tr>';
-    }).join('') || '<tr class="pr-empty"><td colspan="6" class="text-muted"><small>No products or services yet.</small></td></tr>');
+    }).join('') || '<tr class="pr-empty"><td colspan="7" class="text-muted"><small>No products or services yet.</small></td></tr>');
     if (stays()) {
       $('#pr_note').val(cfg.accommodation.note || '');
+      var wd = cfg.accommodation.weekend_days || [5, 6];
+      $('.pr_weekend_day').each(function () { $(this).prop('checked', wd.indexOf(Number($(this).val())) !== -1); });
       $('#pr_rooms').html(cfg.accommodation.rooms.map(function (r, i) {
         return '<tr data-i="' + i + '"><td><input class="form-control form-control-sm r_name" value="' + esc(r.name) + '"></td>' +
           '<td><input type="number" min="1" class="form-control form-control-sm r_cap" value="' + esc(r.capacity) + '"></td>' +
           '<td><input type="number" min="0" class="form-control form-control-sm r_night" value="' + esc(r.nightly) + '"></td>' +
+          '<td><input type="number" min="1" class="form-control form-control-sm r_min_nights" placeholder="—" value="' + esc(r.min_nights) + '"></td>' +
+          '<td><input type="number" min="0" class="form-control form-control-sm r_weekend" placeholder="—" value="' + esc(r.weekend_nightly) + '"></td>' +
           '<td><input class="form-control form-control-sm r_offers" dir="ltr" placeholder="4=11500" value="' + esc(offersText(r.offers)) + '"></td>' +
           '<td><button class="btn btn-sm btn-link text-danger r_del">×</button></td></tr>';
+      }).join(''));
+      $('#pr_seasons').html(cfg.accommodation.seasons.map(function (s, i) {
+        return '<tr data-i="' + i + '"><td><input class="form-control form-control-sm s_name" value="' + esc(s.name) + '"></td>' +
+          '<td><input type="date" class="form-control form-control-sm s_start" value="' + esc(s.start) + '"></td>' +
+          '<td><input type="date" class="form-control form-control-sm s_end" value="' + esc(s.end) + '"></td>' +
+          '<td><input class="form-control form-control-sm s_rooms" dir="ltr" placeholder="Royal Suite=15000/17000" value="' + esc(roomOverridesText(s.rooms)) + '"></td>' +
+          '<td><button class="btn btn-sm btn-link text-danger s_del">×</button></td></tr>';
       }).join(''));
       $('#pr_packages').html(cfg.day_use.packages.map(function (p, i) {
         return '<tr data-i="' + i + '"><td><input class="form-control form-control-sm p_name" value="' + esc(p.name) + '"></td>' +
@@ -259,6 +343,21 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
       $('#pr_c_free_max').val(c.free_max_age); $('#pr_c_free_cap').val(c.free_cap); $('#pr_c_full_min').val(c.full_min_age);
       $('#pr_c_half_min').val(c.half_min_age); $('#pr_c_half_max').val(c.half_max_age); $('#pr_c_half_known').prop('checked', !!c.half_price_known);
     }
+    $('#pr_pkgs').html((cfg.packages || []).map(function (p, i) {
+      return '<tr data-i="' + i + '"><td><input class="form-control form-control-sm k_name" value="' + esc(p.name) + '"></td>' +
+        '<td><input type="number" min="0" step="any" class="form-control form-control-sm k_price" value="' + esc(p.price) + '"></td>' +
+        '<td><input class="form-control form-control-sm k_qd" dir="ltr" placeholder="5=1100, 10=1000" value="' + esc(tiersText(p.quantity_discounts)) + '"></td>' +
+        '<td><button class="btn btn-sm btn-link text-danger k_del">×</button></td></tr>';
+    }).join('') || '<tr class="pr-empty"><td colspan="4" class="text-muted"><small>No packages yet.</small></td></tr>');
+    $('#pr_coupons').html((cfg.coupons || []).map(function (c, i) {
+      return '<tr data-i="' + i + '"><td><input class="form-control form-control-sm c_code" dir="ltr" value="' + esc(c.code) + '"></td>' +
+        '<td><select class="form-control form-control-sm c_type"><option value="percent"' + (c.type !== 'fixed' ? ' selected' : '') + '>%</option>' +
+        '<option value="fixed"' + (c.type === 'fixed' ? ' selected' : '') + '>' + esc(cfg.currency || 'جنيه') + '</option></select></td>' +
+        '<td><input type="number" min="0" step="any" class="form-control form-control-sm c_value" value="' + esc(c.value) + '"></td>' +
+        '<td><input type="date" class="form-control form-control-sm c_start" value="' + esc(c.start) + '"></td>' +
+        '<td><input type="date" class="form-control form-control-sm c_end" value="' + esc(c.end) + '"></td>' +
+        '<td><button class="btn btn-sm btn-link text-danger c_del">×</button></td></tr>';
+    }).join('') || '<tr class="pr-empty"><td colspan="6" class="text-muted"><small>No coupons yet.</small></td></tr>');
     showStays();
     $('#pr_json').val(JSON.stringify(cfg, null, 2));
   }
@@ -276,16 +375,28 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
       var v = parseVariants($(this).find('.i_vars').val(), it.variants); if (v) it.variants = v; else delete it.variants;
       var a = splitList($(this).find('.i_alias').val()); if (a.length) it.aliases = a; else delete it.aliases;
       opt(it, 'note', $(this).find('.i_note').val().trim());
+      var qd = parseTiers($(this).find('.i_qd').val()); if (qd) it.quantity_discounts = qd; else delete it.quantity_discounts;
     });
     if (!cfg.catalog.items.length && Object.keys(cfg.catalog).length === 1) delete cfg.catalog;   // keep stay-only lists unchanged
     if (stays()) {
       cfg.accommodation.note = $('#pr_note').val();
+      var wd = []; $('.pr_weekend_day:checked').each(function () { wd.push(Number($(this).val())); });
+      if (wd.length && (wd.length !== 2 || wd.indexOf(5) === -1 || wd.indexOf(6) === -1)) cfg.accommodation.weekend_days = wd;
+      else delete cfg.accommodation.weekend_days;   // 2 = the default (Fri+Sat): keep configs unchanged
       $('#pr_rooms tr').each(function () {
         var r = cfg.accommodation.rooms[$(this).data('i')];
         r.name = $(this).find('.r_name').val().trim(); r.capacity = n($(this).find('.r_cap').val());
         r.nightly = n($(this).find('.r_night').val());
         var o = parseOffers($(this).find('.r_offers').val()); if (o) r.offers = o; else delete r.offers;
+        var mn = n($(this).find('.r_min_nights').val()); if (mn) r.min_nights = mn; else delete r.min_nights;
+        var wn = n($(this).find('.r_weekend').val()); if (wn) r.weekend_nightly = wn; else delete r.weekend_nightly;
       });
+      $('#pr_seasons tr').each(function () {
+        var s = cfg.accommodation.seasons[$(this).data('i')];
+        s.name = $(this).find('.s_name').val().trim(); s.start = $(this).find('.s_start').val(); s.end = $(this).find('.s_end').val();
+        var ro = parseRoomOverrides($(this).find('.s_rooms').val()); if (ro) s.rooms = ro; else delete s.rooms;
+      });
+      if (!cfg.accommodation.seasons.length) delete cfg.accommodation.seasons;
       $('#pr_packages tr').each(function () {
         var p = cfg.day_use.packages[$(this).data('i')];
         p.name = $(this).find('.p_name').val().trim(); p.per_person = n($(this).find('.p_price').val());
@@ -295,8 +406,20 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
       c.free_max_age = n($('#pr_c_free_max').val()); c.free_cap = n($('#pr_c_free_cap').val()); c.full_min_age = n($('#pr_c_full_min').val());
       c.half_min_age = n($('#pr_c_half_min').val()); c.half_max_age = n($('#pr_c_half_max').val()); c.half_price_known = $('#pr_c_half_known').is(':checked');
       if (!cfg.day_use.packages.length && !cfg.day_use.nth_free) delete cfg.day_use;
-      if (!cfg.accommodation.rooms.length && !cfg.accommodation.note && !cfg.day_use) delete cfg.accommodation;
+      if (!cfg.accommodation.rooms.length && !cfg.accommodation.note && !cfg.accommodation.seasons && !cfg.day_use) delete cfg.accommodation;
     }
+    $('#pr_pkgs tr[data-i]').each(function () {
+      var p = cfg.packages[$(this).data('i')];
+      p.name = $(this).find('.k_name').val().trim(); p.price = n($(this).find('.k_price').val());
+      var qd = parseTiers($(this).find('.k_qd').val()); if (qd) p.quantity_discounts = qd; else delete p.quantity_discounts;
+    });
+    if (!cfg.packages.length) delete cfg.packages;
+    $('#pr_coupons tr[data-i]').each(function () {
+      var c = cfg.coupons[$(this).data('i')];
+      c.code = $(this).find('.c_code').val().trim(); c.type = $(this).find('.c_type').val(); c.value = n($(this).find('.c_value').val());
+      opt(c, 'start', $(this).find('.c_start').val()); opt(c, 'end', $(this).find('.c_end').val());
+    });
+    if (!cfg.coupons.length) delete cfg.coupons;
     $('#pr_json').val(JSON.stringify(cfg, null, 2));
     return cfg;
   }
@@ -325,6 +448,12 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
   $('#pr_add_pkg').on('click', function () { collect(); ensure(); cfg.day_use.packages.push({name: '', per_person: ''}); render(); });
   $(document).on('click', '.r_del', function () { collect(); cfg.accommodation.rooms.splice($(this).closest('tr').data('i'), 1); render(); });
   $(document).on('click', '.p_del', function () { collect(); cfg.day_use.packages.splice($(this).closest('tr').data('i'), 1); render(); });
+  $('#pr_add_season').on('click', function () { collect(); ensure(); cfg.accommodation.seasons.push({name: '', start: '', end: ''}); render(); });
+  $(document).on('click', '.s_del', function () { collect(); cfg.accommodation.seasons.splice($(this).closest('tr').data('i'), 1); render(); });
+  $('#pr_add_bundle').on('click', function () { collect(); ensure(); cfg.packages.push({name: '', price: ''}); render(); });
+  $(document).on('click', '.k_del', function () { collect(); ensure(); cfg.packages.splice($(this).closest('tr').data('i'), 1); render(); });
+  $('#pr_add_coupon').on('click', function () { collect(); ensure(); cfg.coupons.push({code: '', type: 'percent', value: ''}); render(); });
+  $(document).on('click', '.c_del', function () { collect(); ensure(); cfg.coupons.splice($(this).closest('tr').data('i'), 1); render(); });
   $('a[data-toggle="tab"][href="#tab_json"]').on('show.bs.tab', collect);
   $('#pr_json_apply').on('click', function () {
     try { cfg = JSON.parse($('#pr_json').val()); $('#pr_stays_on').prop('checked', !!(cfg.accommodation || cfg.day_use)); render(); showErrors([]); }
@@ -365,21 +494,29 @@ $e = function ($s) { return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8'); 
       if (r.status === '1') { toast(true, r.message); setTimeout(function () { go(SCOPE); }, 900); } else showErrors(r.errors || ['Failed']);
     }, 'json');
   });
-  $('#t_kind').on('change', function () { var it = $(this).val() === 'item'; $('.t-item').toggle(it); $('.t-stay').toggle(!it); });
+  $('#t_kind').on('change', function () {
+    var v = $(this).val(); $('.t-item').toggle(v === 'item' || v === 'package'); $('.t-stay').toggle(v === 'accommodation' || v === 'day_use');
+  });
   $('#t_run').on('click', function () {
     $.post(BASE + 'pricing/calc', {csrf_token: TOKEN, config_json: JSON.stringify(collect()), kind: $('#t_kind').val(), item: $('#t_item').val(),
-      variant: $('#t_variant').val(), quantity: $('#t_qty').val(),
-      nights: $('#t_nights').val(), adults: $('#t_adults').val(), c_free: $('#t_cfree').val(), c_half: $('#t_chalf').val(), c_full: $('#t_cfull').val()}, function (r) {
+      variant: $('#t_variant').val(), quantity: $('#t_qty').val(), coupon_code: $('#t_coupon').val(),
+      nights: $('#t_nights').val(), adults: $('#t_adults').val(), c_free: $('#t_cfree').val(), c_half: $('#t_chalf').val(), c_full: $('#t_cfull').val(),
+      checkin_date: $('#t_checkin').val()}, function (r) {
       if (r.status !== '1') { $('#t_out').html('<div class="text-danger">' + (r.errors || []).map(esc).join('<br>') + '</div>'); return; }
       var x = r.result;
-      if (!x.ok) { $('#t_out').html('<div class="text-danger">' + esc(x.reason === 'unknown' ? 'Not in this price list — the AI will hand it to your team.' : x.error) + '</div>'); return; }
+      if (!x.ok) {
+        var msg = x.reason === 'unknown' ? 'Not in this price list — the AI will hand it to your team.'
+          : x.reason === 'min_stay' ? ('Minimum stay for ' + x.item + ' is ' + x.min_nights + ' nights (' + x.nights + ' requested) — no price, ask the customer to extend.')
+          : x.error;
+        $('#t_out').html('<div class="text-danger">' + esc(msg) + '</div>'); return;
+      }
       var head = x.total === null ? 'Team confirms price' : esc(x.total) + ' ' + esc(x.currency || '');
       var line = '<b>' + esc(x.item) + '</b>' + (x.variant ? ' · ' + esc(x.variant) : '') + (x.nights ? ' · ' + esc(x.nights) + ' night(s)' : '') +
         (x.kind === 'item' && x.unit_price != null ? ' · ' + esc(x.quantity) + ' × ' + esc(x.unit_price) : '');
       var cands = (x.candidates || []).length ? '<div class="mt-1"><small>The AI will ask which one: ' + x.candidates.map(esc).join(' / ') + '</small></div>' : '';
       $('#t_out').html('<div class="h5 mb-1">' + head + '</div><div>' + line + '</div>' + cands +
         (x.needs_team ? '<div class="badge badge-warning mt-1">AI will ask your team to confirm</div>' : '') +
-        '<ul class="mt-2 mb-0 pl-3">' + (x.notes || []).map(function (n) { return '<li><small>' + esc(n) + '</small></li>'; }).join('') + '</ul>');
+        '<ul class="mt-2 mb-0 pl-3">' + (x.notes || []).concat(x.facts || []).map(function (n) { return '<li><small>' + esc(n) + '</small></li>'; }).join('') + '</ul>');
     }, 'json');
   });
   $('#pr_active').on('change', function () {
