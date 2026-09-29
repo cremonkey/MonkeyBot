@@ -7,7 +7,9 @@ require_once("Home.php");
  * plus whatever optional tables exist for this tenant: conversations, crm_deals (today keyed
  * by the legacy messenger_bot_subscriber.id via customers.legacy_subscriber_id, same as
  * ab_appointments), ecommerce_cart (keyed by subscriber_id = customer_identities.external_id),
- * conversation labels and internal_notes. Nothing here writes anything.
+ * conversation labels and internal_notes. Only merge()/unmerge() (Task 29 / C14, brief §16)
+ * write anything, and only on an explicit, CSRF+ajax+tenant-owned request — see
+ * application/helpers/customer_helper.php's customer_merge()/customer_unmerge().
  *
  * Every query is tenant-scoped through customer_scope_list()/customer_scope_owner()
  * (application/helpers/customer_helper.php), the same pattern Inbox.php uses. The compact
@@ -24,6 +26,10 @@ class Customers extends Home
         entitlement_require('customers');
         // Tenant guard used by every query in this controller (same convention as Inbox.php).
         $this->uid = $this->session->userdata('real_user_id') ?: $this->session->userdata('user_id');
+        // Who is acting (team member id when logged in as a team member, else the account's own
+        // id) — same convention as Inbox.php, used for customer_merge_log.actor_id and the
+        // audit trail on merge/unmerge.
+        $this->actor_id = (int) $this->session->userdata('user_id');
     }
 
     // ------------------------------------------------------------------ shell pages
@@ -38,7 +44,7 @@ class Customers extends Home
     public function profile($customer_id = 0)
     {
         $customer_id = (int) $customer_id;
-        $customer = $this->db->select('id, display_name, phone, email, lead_score, source, created_at, updated_at')
+        $customer = $this->db->select('id, display_name, phone, email, lead_score, source, merged_into_customer_id, created_at, updated_at')
             ->from('customers');
         customer_scope_owner($this->db, $customer_id, $this->uid);
         $customer = $customer->get()->row_array();
@@ -123,7 +129,25 @@ class Customers extends Home
             'notes'           => customer_notes_for($this->db, $this->uid, $cid, $ready),
             'ai_summary'      => $this->ai_summaries_for_customer($cid),
             'events'          => $this->recent_events_for_customer($cid),
+            // Task 29 (C14, brief §16) — merge UI. All three are safe to compute even for a
+            // merged-away customer (merge_suggestions_for() short-circuits in that case below);
+            // none of them ever writes anything.
+            'merge_suggestions' => $this->merge_suggestions_for($customer),
+            'merge_source_log'  => customer_active_merge_as_source($this->db, $this->uid, $cid), // "Merged into #X" banner + Undo, on the retired customer's own profile
+            'recent_merges_in'  => customer_recent_merges_into($this->db, $this->uid, $cid),      // Undo list, on the surviving (keep) customer's profile
         );
+    }
+
+    /**
+     * Merge suggestions that involve this specific customer (Task 29 / C14, brief §16) — the
+     * profile page's "Merge" button. Computed directly for this one customer (review round 1:
+     * not tenant-wide-then-filtered). Only ever suggests, never merges anything. A customer
+     * already merged away is not offered further suggestions — merging it again is meaningless.
+     */
+    private function merge_suggestions_for(array $customer)
+    {
+        if (!empty($customer['merged_into_customer_id'])) return array();
+        return customer_merge_suggestions_for_customer($this->db, $this->uid, (int) $customer['id'], 20);
     }
 
     /** conversations.last_summary — AI summary per conversation (already stored, no model
@@ -161,5 +185,60 @@ class Customers extends Home
         $by_customer = array();
         foreach ($rows as $r) $by_customer[$r['customer_id']][] = $r;
         return $by_customer;
+    }
+
+    // ------------------------------------------------------------------ merge (Task 29 / C14, brief §16)
+    //
+    // REVIEW GATE: these three endpoints are the only way a merge ever happens — nothing in
+    // this codebase merges customers automatically. suggestions() only returns candidates for
+    // the owner to look at; merge() requires an explicit call with both ids; unmerge() reverses
+    // exactly one merge by its log id. All three: ajax_check() + csrf_token_check() + every id
+    // received re-checked against $this->uid inside customer_helper.php (never trust the ids
+    // alone — same pattern as owns_deal()/customer_scope_owner() elsewhere in this file).
+
+    /** AJAX POST: merge $merge_id into $keep_id. Both must belong to this tenant. */
+    public function merge()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+
+        $keep_id = (int) $this->input->post('keep_id');
+        $merge_id = (int) $this->input->post('merge_id');
+
+        list($ok, $errors, $result) = customer_merge($this->db, $keep_id, $merge_id, $this->actor_id, $this->uid);
+        if (!$ok) {
+            echo json_encode(array('status' => '0', 'message' => implode(' ', $errors), 'errors' => $errors));
+            return;
+        }
+        echo json_encode(array('status' => '1', 'message' => 'Merged.', 'result' => $result));
+    }
+
+    /** AJAX POST: undo one merge, by customer_merge_log.id. Must belong to this tenant. */
+    public function unmerge()
+    {
+        $this->ajax_check();
+        $this->csrf_token_check();
+        header('Content-Type: application/json');
+
+        $log_id = (int) $this->input->post('log_id');
+
+        list($ok, $errors, $result) = customer_unmerge($this->db, $log_id, $this->actor_id, $this->uid);
+        if (!$ok) {
+            // $result is still included on a partial restore (review round 1: honest reporting
+            // of what did and didn't come back, not just a bare failure) — null when the
+            // refusal happened before anything was attempted (not found, cross-tenant, etc).
+            echo json_encode(array('status' => '0', 'message' => implode(' ', $errors), 'errors' => $errors, 'result' => $result));
+            return;
+        }
+        echo json_encode(array('status' => '1', 'message' => 'Merge undone.', 'result' => $result));
+    }
+
+    /** AJAX: this tenant's merge suggestions (same verified phone/email on two customers). */
+    public function suggestions()
+    {
+        $this->ajax_check();
+        header('Content-Type: application/json');
+        echo json_encode(array('status' => '1', 'rows' => customer_merge_suggestions($this->db, $this->uid, 50)));
     }
 }
