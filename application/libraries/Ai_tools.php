@@ -409,13 +409,20 @@ class Ai_tools
         if (!empty($r['facts'])) {
             foreach ($r['facts'] as $f) $this->CI->ai_price_facts[] = $f;
         }
+        // A rule line is authoritative (goes to ai_price_facts, above). An invalid/expired
+        // coupon code is NOT a price fact — it must never look like something the guard
+        // should verify a number against — so it only ever reaches the model as a note.
+        $rules_txt = !empty($r['facts']) ? implode('؛ ', $r['facts']) : '';
+        $coupon_note = !empty($r['coupon_note']) ? $r['coupon_note'] : '';
 
         if ($r['total'] === null || !empty($r['needs_team'])) {
             // Partial: we can name the item/basis but not a final total. Do NOT invent one.
             $line = $r['item'];
             if ($type === 'accommodation' && isset($r['nightly'])) $line .= ' - سعر الليلة ' . number_format($r['nightly']) . ' ' . $cur;
             $msg = 'ITEM: ' . $line . ($notes ? ' | ' . $notes : '')
-                 . ' | NO FINAL TOTAL: some of this needs the team to confirm (say so and ask for the customer\'s WhatsApp; do not state a total).';
+                 . ' | NO FINAL TOTAL: some of this needs the team to confirm (say so and ask for the customer\'s WhatsApp; do not state a total).'
+                 . ($rules_txt !== '' ? ' | RULES APPLIED: ' . $rules_txt : '')
+                 . ($coupon_note !== '' ? ' | NOTE: ' . $coupon_note : '');
             $this->CI->ai_price_facts[] = $line . ($notes ? ' (' . $notes . ')' : '');
             return $msg;
         }
@@ -430,6 +437,8 @@ class Ai_tools
         $this->CI->ai_price_facts[] = $fact;
 
         return 'AUTHORITATIVE TOTAL (quote it exactly): ' . $fact . ($notes ? ' | ' . $notes : '')
+             . ($rules_txt !== '' ? ' | RULES APPLIED: ' . $rules_txt : '')
+             . ($coupon_note !== '' ? ' | NOTE: ' . $coupon_note : '')
              . ' | Present this total to the customer and move to close.';
     }
 
@@ -461,10 +470,14 @@ class Ai_tools
         if ($r['reason'] === 'variant') {
             return 'ITEM: ' . $r['item'] . ' | CHOOSE AN OPTION: the price depends on the option (' . implode(' / ', $r['candidates']) . '). Ask the customer which option they want. Do not say any price yet.';
         }
+        $rules_txt = !empty($r['facts']) ? implode('؛ ', $r['facts']) : '';
+        $coupon_note = !empty($r['coupon_note']) ? $r['coupon_note'] : '';
         if ($r['total'] === null || !empty($r['needs_team'])) {
             $this->CI->ai_price_facts[] = $label . ': السعر يتأكد من الفريق' . ($notes ? ' (' . $notes . ')' : '');
             return 'ITEM: ' . $label . ($notes ? ' | ' . $notes : '')
-                 . ' | NO FINAL TOTAL: this price is confirmed by the team (say so and ask for the customer\'s WhatsApp; do not state any number).';
+                 . ' | NO FINAL TOTAL: this price is confirmed by the team (say so and ask for the customer\'s WhatsApp; do not state any number).'
+                 . ($rules_txt !== '' ? ' | RULES APPLIED: ' . $rules_txt : '')
+                 . ($coupon_note !== '' ? ' | NOTE: ' . $coupon_note : '');
         }
         $unit = $r['unit_word'] !== '' ? ' ' . $r['unit_word'] : '';
         $unit_price = pricing_fmt($r['unit_price']) . ' ' . $cur;
@@ -476,6 +489,8 @@ class Ai_tools
             foreach ($r['facts'] as $f) $this->CI->ai_price_facts[] = $f;
         }
         return 'AUTHORITATIVE TOTAL (quote it exactly): ' . $fact . ($notes ? ' | ' . $notes : '')
+             . ($rules_txt !== '' ? ' | RULES APPLIED: ' . $rules_txt : '')
+             . ($coupon_note !== '' ? ' | NOTE: ' . $coupon_note : '')
              . ' | Present this price to the customer and move to close.';
     }
 
@@ -497,9 +512,13 @@ class Ai_tools
         }
         $cur = $r['currency'];
         $label = $r['item'];
+        $rules_txt = !empty($r['facts']) ? implode('؛ ', $r['facts']) : '';
+        $coupon_note = !empty($r['coupon_note']) ? $r['coupon_note'] : '';
         if ($r['total'] === null || !empty($r['needs_team'])) {
             $this->CI->ai_price_facts[] = $label . ': السعر يتأكد من الفريق';
-            return 'ITEM: ' . $label . ' | NO FINAL TOTAL: this price is confirmed by the team (say so and ask for the customer\'s WhatsApp; do not state any number).';
+            return 'ITEM: ' . $label . ' | NO FINAL TOTAL: this price is confirmed by the team (say so and ask for the customer\'s WhatsApp; do not state any number).'
+                 . ($rules_txt !== '' ? ' | RULES APPLIED: ' . $rules_txt : '')
+                 . ($coupon_note !== '' ? ' | NOTE: ' . $coupon_note : '');
         }
         $fact = ((float) $r['quantity'] === 1.0)
             ? $label . ' = ' . pricing_fmt($r['total']) . ' ' . $cur
@@ -509,6 +528,8 @@ class Ai_tools
             foreach ($r['facts'] as $f) $this->CI->ai_price_facts[] = $f;
         }
         return 'AUTHORITATIVE TOTAL (quote it exactly): ' . $fact
+             . ($rules_txt !== '' ? ' | RULES APPLIED: ' . $rules_txt : '')
+             . ($coupon_note !== '' ? ' | NOTE: ' . $coupon_note : '')
              . ' | Present this price to the customer and move to close.';
     }
 

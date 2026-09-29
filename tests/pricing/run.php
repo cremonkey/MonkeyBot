@@ -99,6 +99,7 @@ require APPPATH . 'helpers/media_helper.php';
 require APPPATH . 'helpers/pricing_helper.php';
 require APPPATH . 'helpers/ai_agent_helper.php';
 require APPPATH . 'libraries/Ai_tools.php';
+require __DIR__ . '/golden_pre_task26_fixtures.php';
 
 function fresh_db($migrated = true)
 {
@@ -363,14 +364,28 @@ same('media_find exact room', 'Double Pool View', media_find($BYOOT, 'Double Poo
 same('media_find ambiguous "Pool View" -> null', null, media_find($BYOOT, 'Pool View'));
 same('media_match reports the ambiguity', 3, count(media_match($BYOOT, 'Pool View')['candidates']));
 
+
 // ---------------------------------------------------------------------------
 // C11 (task 26) — pricing extensions: seasons, weekday/weekend, min stay,
-// packages, quantity discounts, coupons. Every new field is optional, and the
-// golden fixtures above (BYOOT/SALON, none of which use these fields) already
-// prove the byte-identical gate: pricing_calc_* was re-run over a wide matrix
-// of BYOOT rooms/packages/items before and after this change and compared
-// with var_export equality (outside this suite, per the task brief) — 0 diffs.
+// packages, quantity discounts, coupons. Every new field is optional. The
+// byte-identical gate is proved two ways:
+//  (a) pricing_calc_* was re-run over a wide matrix of BYOOT rooms/packages/
+//      items before and after this change and compared with var_export
+//      equality (outside this suite, per the task brief) — 0 diffs besides a
+//      new, always-empty 'facts'/'coupon_note' key.
+//  (b) below: pricing_tool_definition()/pricing_prompt_rule() for BYOOT, a
+//      catalog-only config (SALON) and BYOOT+catalog (SHOP) are compared
+//      FULL-ARRAY against fixtures captured from the pre-task-26 code
+//      (git show 81d76070^:application/helpers/pricing_helper.php).
 // ---------------------------------------------------------------------------
+echo "\n== C11: byte-identical gate on pricing_tool_definition / pricing_prompt_rule ==\n";
+same('BYOOT tool definition unchanged (full array)', $GOLDEN_BYOOT_DEF, pricing_tool_definition($BYOOT));
+same('SALON (catalog-only) tool definition unchanged (full array)', $GOLDEN_SALON_DEF, pricing_tool_definition($SALON));
+same('BYOOT+catalog tool definition unchanged (full array)', $GOLDEN_BYOOTPLUS_DEF, pricing_tool_definition(array_merge($BYOOT, array('catalog' => $SHOP['catalog']))));
+same('BYOOT prompt rule unchanged (full string)', $GOLDEN_BYOOT_RULE, pricing_prompt_rule($BYOOT));
+same('SALON prompt rule unchanged (full string)', $GOLDEN_SALON_RULE, pricing_prompt_rule($SALON));
+same('BYOOT+catalog prompt rule unchanged (full string)', $GOLDEN_BYOOTPLUS_RULE, pricing_prompt_rule(array_merge($BYOOT, array('catalog' => $SHOP['catalog']))));
+
 echo "\n== C11: minimum stay ==\n";
 $MINSTAY = json_decode(json_encode($BYOOT), true);
 $MINSTAY['accommodation']['rooms'][0]['min_nights'] = 3; // Double Garden View
@@ -388,11 +403,16 @@ $WKND['accommodation']['rooms'][0]['weekend_nightly'] = 6000; // nightly 4500, w
 // 2026-10-01 is a Thursday; default weekend = Fri(5), Sat(6) -> 1 weekday + 1 weekend night
 $r = pricing_calc_accommodation($WKND, 'Double Garden View', 2, 2, 0, 0, 0, '2026-10-01');
 same('weekday+weekend: mixed total (4500 + 6000)', 10500, $r['total']);
-check('weekday+weekend: fact recorded', in_array('1 ليلة ويك إند بسعر 6,000', $r['facts']), var_export($r['facts'], true));
+check('weekday+weekend: per-night fact recorded', in_array('1 ليلة ويك إند', $r['facts']), var_export($r['facts'], true));
 $r0 = pricing_calc_accommodation($BYOOT, 'Double Garden View', 2, 2, 0, 0, 0, '2026-10-01');
 same('no weekend_nightly configured -> unaffected by a date', 9000, $r0['total']);
+check('no weekend_nightly configured -> no facts either', empty($r0['facts']));
 $r = pricing_calc_accommodation($WKND, 'Double Garden View', 2, 2, 0, 0, 0); // no date given
 same('weekend rate needs a check-in date: falls back to flat nightly', 9000, $r['total']);
+// a DIFFERENT room in the same config that configures nothing new stays untouched, even
+// though this config now has a seasonal room elsewhere (point-in-review #2 regression guard)
+$r = pricing_calc_accommodation($WKND, 'Double Pool View', 4, 2, 0, 0, 0);
+same('an unrelated room in a config with a seasonal room still uses its offer as before', 15500, $r['total']);
 
 echo "\n== C11: seasons ==\n";
 $SEASON = json_decode(json_encode($BYOOT), true);
@@ -402,11 +422,31 @@ $SEASON['accommodation']['seasons'] = array(array(
 ));
 $r = pricing_calc_accommodation($SEASON, 'Double Garden View', 1, 2, 0, 0, 0, '2026-01-05');
 same('season override applies inside its dates', 6000, $r['total']);
-check('season fact recorded', in_array('موسم Eid مطبّق', $r['facts']));
+check('season fact recorded per night', in_array('1 ليلة بسعر موسم Eid', $r['facts']), var_export($r['facts'], true));
 $r = pricing_calc_accommodation($SEASON, 'Double Garden View', 1, 2, 0, 0, 0, '2026-03-01');
 same('season override does not apply outside its dates', 4500, $r['total']);
 $r = pricing_calc_accommodation($SEASON, 'Double Garden View', 1, 2, 0, 0, 0);
 same('season override needs a check-in date', 4500, $r['total']);
+// crossing the season boundary: check in 2026-01-08 for 5 nights (01-08..01-12) — the
+// season ends 01-10, so nights 08/09/10 are IN season (6000) and 11/12 are OUT (4500).
+$r = pricing_calc_accommodation($SEASON, 'Double Garden View', 5, 2, 0, 0, 0, '2026-01-08');
+same('a stay crossing a season boundary is priced per night', 3 * 6000 + 2 * 4500, $r['total']);
+check('crossing boundary: in-season night count in facts', in_array('3 ليلة بسعر موسم Eid', $r['facts']), var_export($r['facts'], true));
+
+echo "\n== C11: overlapping seasons rejected ==\n";
+$bad = json_decode(json_encode($BYOOT), true);
+$bad['accommodation']['seasons'] = array(
+    array('name' => 'Eid', 'start' => '2026-01-01', 'end' => '2026-01-10'),
+    array('name' => 'Winter', 'start' => '2026-01-05', 'end' => '2026-01-20'),
+);
+$errs = pricing_validate_config($bad);
+check('overlapping seasons rejected', count($errs) > 0 && strpos(implode('|', $errs), 'overlap') !== false, implode('|', $errs));
+$ok = json_decode(json_encode($BYOOT), true);
+$ok['accommodation']['seasons'] = array(
+    array('name' => 'Eid', 'start' => '2026-01-01', 'end' => '2026-01-10'),
+    array('name' => 'Summer', 'start' => '2026-06-01', 'end' => '2026-08-31'),
+);
+same('non-overlapping seasons accepted', array(), pricing_validate_config($ok));
 
 echo "\n== C11: packages ==\n";
 $PKG = json_decode(json_encode($SALON), true);
@@ -445,17 +485,20 @@ $CPN['coupons'] = array(
 );
 $r = pricing_calc_item($CPN, 'haircut', '', 1, 'SAVE10');
 same('coupon: 10% off 150 -> 135', 135, $r['total']);
-check('coupon: fact recorded with code', strpos(implode('|', $r['facts']), 'SAVE10') !== false);
+check('coupon: applied rule lands in facts (authoritative)', strpos(implode('|', $r['facts']), 'SAVE10') !== false);
+check('coupon: applied rule has no coupon_note', empty($r['coupon_note']));
 $r = pricing_calc_item($CPN, 'haircut', '', 1, 'FLAT50');
 same('coupon: fixed 50 off 150 -> 100', 100, $r['total']);
 $r = pricing_calc_item($CPN, 'haircut', '', 1);
 same('no coupon given: total unaffected (default null)', 150, $r['total']);
-check('no coupon given: no facts', empty($r['facts']));
+check('no coupon given: no facts, no coupon_note', empty($r['facts']) && empty($r['coupon_note']));
 $r = pricing_calc_item($CPN, 'haircut', '', 1, 'OLD');
 same('expired coupon: not applied', 150, $r['total']);
-check('expired coupon: a note explains it was not applied', strpos(implode('|', $r['facts']), 'مش صالح') !== false);
+check('expired coupon: NOT a price fact', empty($r['facts']), var_export($r['facts'], true));
+has('expired coupon: explained via coupon_note instead', $r['coupon_note'], 'مش صالح');
 $r = pricing_calc_item($CPN, 'haircut', '', 1, 'NOPE');
 same('unknown coupon code: not applied, total unaffected', 150, $r['total']);
+check('unknown coupon code: not a price fact either', empty($r['facts']));
 
 echo "\n== C11: validation rejects bad new fields ==\n";
 $bad = json_decode(json_encode($BYOOT), true);
@@ -484,22 +527,51 @@ same('coupons: a valid coupon on a catalog-only config passes', array(), pricing
 $ok = array('packages' => array(array('name' => 'Bridal Day', 'price' => 2000)));
 same('packages-only config passes and satisfies "needs at least one section"', array(), pricing_validate_config($ok));
 
-echo "\n== C11: tool definition / prompt rule gain packages+coupons without breaking the catalog-only shape ==\n";
-$def = pricing_tool_definition($PKG);
-check('tool definition includes package + coupon_code param', in_array('package', $def['params']['properties']['type']['enum']) && isset($def['params']['properties']['coupon_code']));
+echo "\n== C11: tool definition / prompt rule gain packages+coupons+seasons only when configured ==\n";
+$def = pricing_tool_definition($PKG); // SALON + packages, NO coupons
+check('packages-only extension: enum includes package', in_array('package', $def['params']['properties']['type']['enum']));
+check('packages-only extension: coupon_code absent (no coupons configured)', !isset($def['params']['properties']['coupon_code']));
+$PKG_CPN = $PKG; $PKG_CPN['coupons'] = array(array('code' => 'X', 'type' => 'percent', 'value' => 10));
+$def = pricing_tool_definition($PKG_CPN);
+check('coupons configured -> coupon_code param appears', isset($def['params']['properties']['coupon_code']));
 $def = pricing_tool_definition($SALON);
-check('catalog-only (no packages) tool definition still excludes package', !in_array('package', $def['params']['properties']['type']['enum']));
+check('catalog-only (no packages/coupons) tool definition still excludes package + coupon_code',
+    !in_array('package', $def['params']['properties']['type']['enum']) && !isset($def['params']['properties']['coupon_code']));
+// accommodation-only tenant (no catalog, no packages) that configures seasons/weekend must
+// still get checkin_date — the early-return legacy path must not swallow it (review #2).
+$def = pricing_tool_definition($SEASON);
+check('accommodation-only + seasons: checkin_date reachable', isset($def['params']['properties']['checkin_date']), var_export(array_keys($def['params']['properties']), true));
+same('accommodation-only + seasons: enum stays accommodation/day_use (no item/package)', array('accommodation', 'day_use'), $def['params']['properties']['type']['enum']);
+$def = pricing_tool_definition($WKND);
+check('accommodation-only + weekend_nightly: checkin_date reachable', isset($def['params']['properties']['checkin_date']));
+$BYOOT_CPN = json_decode(json_encode($BYOOT), true);
+$BYOOT_CPN['coupons'] = array(array('code' => 'X', 'type' => 'percent', 'value' => 10));
+$def = pricing_tool_definition($BYOOT_CPN);
+check('accommodation-only + coupons: coupon_code reachable, no checkin_date (no seasonal room)',
+    isset($def['params']['properties']['coupon_code']) && !isset($def['params']['properties']['checkin_date']));
 
-echo "\n== C11: Ai_tools wires package type + facts into ai_price_facts ==\n";
+echo "\n== C11: Ai_tools wires package type + facts + coupon note ==\n";
 $CI->db = $db = fresh_db(true);
 $db->insert('facebook_rx_fb_page_info', array('user_id' => 7, 'page_id' => 'PAGE_A', 'page_name' => 'A', 'instagram_business_account_id' => ''));
-$db->insert('pricing_config', array('user_id' => 7, 'channel_type' => 'fb', 'target_id' => '1', 'status' => '1',
-    'config_json' => json_encode($PKG, JSON_UNESCAPED_UNICODE)));
+$db->insert('facebook_rx_fb_page_info', array('user_id' => 7, 'page_id' => 'PAGE_D', 'page_name' => 'D', 'instagram_business_account_id' => ''));
+seed_row($db, 7, 'fb', '1', $PKG);
+seed_row($db, 7, 'fb', '2', $CPN);
+$tools2 = new Ai_tools();
+$ctx2 = function ($p) { return array('user_id' => 7, 'page_id' => $p, 'subscribe_id' => 's', 'social_media' => 'fb'); };
 $CI->ai_price_facts = array();
-$out = $tools->execute('calculate_price', array('type' => 'package', 'item' => 'Bridal Day', 'quantity' => 2), $ctx('PAGE_A'));
+$out = $tools2->execute('calculate_price', array('type' => 'package', 'item' => 'Bridal Day', 'quantity' => 2), $ctx2('PAGE_A'));
 has('package type priced via Ai_tools', $out, '3,600');
 has('package result lands in ai_price_facts', implode('|', $CI->ai_price_facts), '3,600');
 check('quantity-discount rule itemised in ai_price_facts', strpos(implode('|', $CI->ai_price_facts), 'خصم كمية') !== false, implode('|', $CI->ai_price_facts));
+has('the applied rule is ALSO appended to the tool result text', $out, 'RULES APPLIED');
+
+$CI->ai_price_facts = array();
+$outc = $tools2->execute('calculate_price', array('type' => 'item', 'item' => 'haircut', 'coupon_code' => 'OLD'), $ctx2('PAGE_D'));
+has('an invalid coupon note reaches the model in the tool result', $outc, 'NOTE:');
+check('an invalid coupon note NEVER lands in ai_price_facts', strpos(implode('|', $CI->ai_price_facts), 'مش صالح') === false, implode('|', $CI->ai_price_facts));
+$outv = $tools2->execute('calculate_price', array('type' => 'item', 'item' => 'haircut', 'coupon_code' => 'SAVE10'), $ctx2('PAGE_D'));
+has('a valid coupon is quoted in the total', $outv, '135');
+has('a valid coupon rule also appears in the tool result text', $outv, 'RULES APPLIED');
 
 echo "\n$PASS passed, $FAIL failed\n";
 exit($FAIL === 0 ? 0 : 1);
