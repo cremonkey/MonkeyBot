@@ -232,3 +232,19 @@
   border: var(--mb-border-width-1) solid var(--color-border);
   border-radius: var(--radius-sm);
 }
+
+/* ------------------------------------------------------------------ */
+/* API keys (follow-up to Task 28, application/views/admin/api_keys/index.php) */
+/* ------------------------------------------------------------------ */
+.ak-page .ak-usage-example {
+  background: var(--color-surface-alt);
+  border: var(--mb-border-width-1) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.ak-page #ak_new_token_value {
+  font-family: monospace;
+}

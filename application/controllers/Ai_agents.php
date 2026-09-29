@@ -93,6 +93,41 @@ class Ai_agents extends Home
             'ai_tools_enabled'=>$this->input->post('ai_tools_enabled',true)=='1'?'1':'0',
             'status'=>'1',
         );
+        // Task 27 (C12): structured builder fields. Guarded by a cached field_exists() so
+        // this controller works unchanged before the migration lands. Free-text tokens only
+        // (role/goal/tone); capabilities/restrictions come in as comma-separated token lists
+        // from the UI and are re-encoded to JSON here — never trust client-built JSON.
+        $this->load->helper('ai_agent');
+        if (ai_agent_builder_columns_exist()) {
+            $fields['role'] = strip_tags(trim((string)$this->input->post('role', true))) ?: null;
+            $fields['goal'] = strip_tags(trim((string)$this->input->post('goal', true))) ?: null;
+            $fields['tone'] = strip_tags(trim((string)$this->input->post('tone', true))) ?: null;
+
+            $caps_raw = (string) $this->input->post('capabilities_tokens', true);
+            if (trim($caps_raw) === '') {
+                $fields['capabilities_json'] = null; // no tokens typed = today's default tool set
+            } else {
+                $caps = array_values(array_filter(array_map('trim', explode(',', $caps_raw)), function ($v) { return $v !== ''; }));
+                $fields['capabilities_json'] = json_encode($caps, JSON_UNESCAPED_UNICODE);
+            }
+
+            $restrictions = array();
+            $link_domains_raw = (string) $this->input->post('allowed_link_domains_tokens', true);
+            if (trim($link_domains_raw) !== '') {
+                $restrictions['allowed_link_domains'] = array_values(array_filter(array_map('trim', explode(',', $link_domains_raw)), function ($v) { return $v !== ''; }));
+            }
+            $max_discount = $this->input->post('max_discount', true);
+            if ($max_discount !== null && $max_discount !== '') {
+                $restrictions['max_discount'] = (float) $max_discount;
+            }
+            $topics_raw = (string) $this->input->post('forbidden_topics_tokens', true);
+            if (trim($topics_raw) !== '') {
+                $restrictions['forbidden_topics'] = array_values(array_filter(array_map('trim', explode(',', $topics_raw)), function ($v) { return $v !== ''; }));
+            }
+            $escalation = trim((string) $this->input->post('escalation_rules', true));
+            if ($escalation !== '') $restrictions['escalation_rules'] = $escalation;
+            $fields['restrictions_json'] = empty($restrictions) ? null : json_encode($restrictions, JSON_UNESCAPED_UNICODE);
+        }
         if ($id > 0 && $this->owns_profile($id)) {
             $this->db->where('id',$id)->where('user_id',$this->uid)->update('ai_agent_profiles', $fields);
         } else {

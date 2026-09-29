@@ -194,3 +194,185 @@ if (!function_exists('ai_agent_preview_reply')) {
         return array('status' => '1', 'reply' => $reply, 'chars' => mb_strlen($sp));
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// Task 27 (C12) — AI Employee Builder: structured fields, per-tool toggles, deterministic
+// restrictions enforced after generation. See migrations/2026-10-05b-agent-builder.sql.
+//
+// REVIEW GATE: a profile with NULL capabilities_json / restrictions_json (every profile
+// saved before this task, or one whose owner never touched the builder fields) must behave
+// exactly as before this task: the same tool set Ai_tools::catalog() always offered, and no
+// new post-generation gate ever runs. Every function below only acts when the relevant
+// column is both present (migration applied) and non-NULL/non-empty for that profile.
+// ---------------------------------------------------------------------------------------
+
+if (!function_exists('ai_agent_builder_columns_exist')) {
+    /** Cached per-request: has the C12 migration run? One field_exists() call ever. */
+    function ai_agent_builder_columns_exist()
+    {
+        static $exists = null;
+        if ($exists === null) {
+            try {
+                $CI =& get_instance();
+                $exists = (bool) $CI->db->field_exists('capabilities_json', 'ai_agent_profiles');
+            } catch (Exception $e) {
+                $exists = false;
+            }
+        }
+        return $exists;
+    }
+}
+
+if (!function_exists('ai_agent_capabilities')) {
+    /**
+     * Decode a profile's capabilities_json into an array of enabled tool names, or NULL
+     * when the profile has no per-tool restriction (migration not applied, column empty,
+     * or invalid JSON) — NULL is the "offer today's default tool set" sentinel used by
+     * Ai_tools::catalog().
+     *
+     * @return string[]|null
+     */
+    function ai_agent_capabilities($ai_profile)
+    {
+        if (!is_array($ai_profile) || empty($ai_profile['capabilities_json'])) return null;
+        $dec = json_decode((string) $ai_profile['capabilities_json'], true);
+        if (!is_array($dec)) return null;
+        // tolerate {"tools":[...]} as well as a bare list
+        if (isset($dec['tools']) && is_array($dec['tools'])) $dec = $dec['tools'];
+        $out = array();
+        foreach ($dec as $name) {
+            if (is_string($name) && $name !== '') $out[] = $name;
+        }
+        return $out; // may be empty array = "no tools enabled", distinct from NULL
+    }
+}
+
+if (!function_exists('ai_agent_restrictions')) {
+    /**
+     * Decode a profile's restrictions_json. Missing/invalid -> all-empty array so callers
+     * can always index it; each key is only enforced by the caller when actually set.
+     *
+     * @return array{allowed_link_domains:array,max_discount:?float,forbidden_topics:array,escalation_rules:string}
+     */
+    function ai_agent_restrictions($ai_profile)
+    {
+        $out = array('allowed_link_domains' => array(), 'max_discount' => null, 'forbidden_topics' => array(), 'escalation_rules' => '');
+        if (!is_array($ai_profile) || empty($ai_profile['restrictions_json'])) return $out;
+        $dec = json_decode((string) $ai_profile['restrictions_json'], true);
+        if (!is_array($dec)) return $out;
+        if (!empty($dec['allowed_link_domains']) && is_array($dec['allowed_link_domains'])) {
+            foreach ($dec['allowed_link_domains'] as $d) { $d = trim((string) $d); if ($d !== '') $out['allowed_link_domains'][] = strtolower($d); }
+        }
+        if (isset($dec['max_discount']) && is_numeric($dec['max_discount'])) $out['max_discount'] = (float) $dec['max_discount'];
+        if (!empty($dec['forbidden_topics']) && is_array($dec['forbidden_topics'])) {
+            foreach ($dec['forbidden_topics'] as $t) { $t = trim((string) $t); if ($t !== '') $out['forbidden_topics'][] = $t; }
+        }
+        if (!empty($dec['escalation_rules'])) $out['escalation_rules'] = (string) $dec['escalation_rules'];
+        return $out;
+    }
+}
+
+if (!function_exists('ai_agent_url_host')) {
+    /** Bare registrable-ish host for a URL, lowercased, no leading www. */
+    function ai_agent_url_host($url)
+    {
+        $host = (string) parse_url((string) $url, PHP_URL_HOST);
+        $host = strtolower($host);
+        if (strpos($host, 'www.') === 0) $host = substr($host, 4);
+        return $host;
+    }
+}
+
+if (!function_exists('ai_agent_enforce_restrictions')) {
+    /**
+     * Deterministic, post-generation enforcement of a profile's restrictions. Runs after
+     * the model produced text and after the existing price/media guards. Never throws
+     * (fails open on internal errors — the reply already passed the built-in guards).
+     *
+     * Order: forbidden_topics -> max_discount -> allowed_link_domains. The first match
+     * that requires a hand-off stops further checks (one hand-off per reply is enough).
+     *
+     * @return array{text:string, blocked:bool, reason:string}
+     */
+    function ai_agent_enforce_restrictions($ai_profile, $user_id, $social_media, $page_id, $subscribe_id, $human, $text)
+    {
+        $res = array('text' => $text, 'blocked' => false, 'reason' => '');
+        if (!is_array($ai_profile) || !ai_agent_builder_columns_exist()) return $res;
+        $r = ai_agent_restrictions($ai_profile);
+        if (empty($r['forbidden_topics']) && $r['max_discount'] === null && empty($r['allowed_link_domains'])) return $res;
+
+        try {
+            $CI =& get_instance();
+            $CI->load->helper('ai_safety');
+
+            // 1) forbidden topics — keyword match against what the customer asked AND what
+            // the bot is about to say, so a topic mentioned only in the reply is still caught.
+            if (!empty($r['forbidden_topics'])) {
+                $hay = mb_strtolower((string) $human . ' ' . (string) $text, 'UTF-8');
+                foreach ($r['forbidden_topics'] as $topic) {
+                    if ($topic !== '' && mb_strpos($hay, mb_strtolower($topic, 'UTF-8')) !== false) {
+                        $res['text'] = ai_price_guard_handoff_text($human);
+                        $res['blocked'] = true;
+                        $res['reason'] = 'forbidden_topic:' . $topic;
+                        ai_price_guard_flag_handoff($user_id, $social_media, $page_id, $subscribe_id, 'agent_builder: forbidden topic "' . $topic . '"');
+                        return $res;
+                    }
+                }
+            }
+
+            // 2) max_discount — reuses the price guard's hand-off path. Any percentage in
+            // the reply above the ceiling (e.g. "20% off", "خصم 25%") is unverifiable by
+            // definition (the ceiling is a policy, not a written price) so it is handed off
+            // rather than sent, exactly like an unverifiable price.
+            if ($r['max_discount'] !== null && preg_match_all('/(\d{1,3}(?:\.\d+)?)\s*%/u', (string) $res['text'], $pm)) {
+                foreach ($pm[1] as $pct) {
+                    if ((float) $pct > $r['max_discount']) {
+                        $res['text'] = ai_price_guard_handoff_text($human);
+                        $res['blocked'] = true;
+                        $res['reason'] = 'max_discount:' . $pct;
+                        ai_price_guard_flag_handoff($user_id, $social_media, $page_id, $subscribe_id, 'agent_builder: discount ' . $pct . '% exceeds ceiling ' . $r['max_discount'] . '%');
+                        return $res;
+                    }
+                }
+            }
+
+            // 3) allowed_link_domains — strip any link whose host is neither on the
+            // owner's allow-list NOR one of the tenant's own configured media/album hosts
+            // (pricing_config's photo albums, SPEC-31) — an owner-set restriction is never
+            // meant to also block the resort's own gallery links the bot is supposed to
+            // send. A non-matching link is simply removed rather than escalated, since a
+            // link is rarely the whole reply.
+            if (!empty($r['allowed_link_domains'])) {
+                $CI->load->helper('media');
+                $allow_hosts = $r['allowed_link_domains'];
+                try {
+                    $CI->load->helper('pricing');
+                    $mcfg = pricing_get_config($user_id, pricing_resolve_scope($user_id, $social_media, $page_id));
+                    if (!empty($mcfg)) {
+                        foreach (media_all_urls($mcfg) as $album_url) $allow_hosts[] = ai_agent_url_host($album_url);
+                    }
+                } catch (Throwable $ignore) { /* exemption is best-effort; the owner's own list still applies */ }
+
+                $urls = media_extract_urls($res['text']);
+                foreach ($urls as $u) {
+                    $host = ai_agent_url_host($u);
+                    $ok = false;
+                    foreach ($allow_hosts as $d) {
+                        if ($d !== '' && ($host === $d || (strlen($host) > strlen($d) && substr($host, -strlen($d) - 1) === '.' . $d))) { $ok = true; break; }
+                    }
+                    if (!$ok) {
+                        // Only collapse the run of spaces the removed link leaves behind —
+                        // never touch newlines, so the reply's paragraph structure survives.
+                        $res['text'] = preg_replace('/ {2,}/', ' ', str_replace($u, '', $res['text']));
+                        $res['reason'] = trim($res['reason'] . ' link_stripped:' . $host);
+                    }
+                }
+                $res['text'] = trim($res['text']);
+            }
+        } catch (Throwable $e) {
+            log_message('error', 'ai_agent_enforce_restrictions: ' . $e->getMessage());
+            return array('text' => $text, 'blocked' => false, 'reason' => 'error');
+        }
+        return $res;
+    }
+}
