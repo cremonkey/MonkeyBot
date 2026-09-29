@@ -132,31 +132,12 @@ class Appointment_booking extends Home
         $service_id = (int)$this->input->post('service_id');
         $date = $this->input->post('date'); $time = $this->input->post('time');
         $name = strip_tags((string)$this->input->post('name')); $phone = strip_tags((string)$this->input->post('phone')); $email = strip_tags((string)$this->input->post('email'));
-        if (!$uid || !$service_id || !$date || !$time || $name==='') { echo json_encode(['status'=>'0','message'=>'Missing fields']); return; }
-        $svc = $this->db->from('ab_services')->where('id',$service_id)->where('user_id',$uid)->get()->row_array();
-        if (!$svc) { echo json_encode(['status'=>'0','message'=>'Invalid service']); return; }
-        $starts = date('Y-m-d H:i:s', strtotime($date.' '.$time));
-        $ends = date('Y-m-d H:i:s', strtotime($starts.' +'.$svc['duration_min'].' minutes'));
-        // prevent double-book via interval overlap (not just exact start)
-        $clash = $this->db->from('ab_appointments')->where('user_id',$uid)
-            ->where('starts_at <', $ends)->where('ends_at >', $starts)
-            ->where_in('status',array('pending','confirmed'))->count_all_results();
-        if ($clash) { echo json_encode(['status'=>'0','message'=>'That slot was just taken.']); return; }
-        $key = substr(md5(uniqid('bk',true)),0,16);
-        $this->basic->insert_data('ab_appointments', array('user_id'=>$uid,'service_id'=>$service_id,'customer_name'=>$name,'customer_phone'=>$phone,'customer_email'=>$email,'starts_at'=>$starts,'ends_at'=>$ends,'status'=>'pending','booking_key'=>$key,'source'=>'web','created_at'=>date('Y-m-d H:i:s')));
-
-        // Event Engine (brief 22). Wrapped: the customer has a confirmed booking either way.
-        try {
-            $this->load->helper('event');
-            event_emit($uid, 'appointment.created', 'appointment', (int) $this->db->insert_id(), array(
-                'service_id' => $service_id, 'service_name' => $svc['name'] ?? '',
-                'starts_at'  => $starts, 'ends_at' => $ends, 'source' => 'web',
-                'full_name'  => $name, 'phone' => $phone, 'email' => $email,
-                'booking_key'=> $key,
-            ));
-        } catch (Throwable $e) { log_message('error', 'appointment event_emit: ' . $e->getMessage()); }
-
-        echo json_encode(['status'=>'1','message'=>'Booked for '.$starts.'. Reference: '.$key]);
+        // Task 27 (C12): shared with Ai_tools::t_create_booking via appointment_booking_helper
+        // so the web widget and the AI booking tool insert through the exact same validation,
+        // clash check, and event emission. Behaviour here is unchanged.
+        $this->load->helper('appointment_booking');
+        $res = ab_create_booking($uid, $service_id, $date, $time, $name, $phone, $email, 'web');
+        echo json_encode(['status'=>$res['status'],'message'=>$res['message']]);
     }
 
     // cron: appointment_booking/reminder/<api_key>

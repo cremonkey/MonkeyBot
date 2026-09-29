@@ -118,6 +118,43 @@ class Ai_tools
                     ),
             );
         }
+
+        // Task 27 (C12): t_create_booking is opt-in only — never part of the default
+        // catalog, even after per-tool filtering below, unless the profile's capabilities
+        // explicitly include it (checked again in execute()). Appended before filtering so
+        // a profile that enables it gets the definition; every other profile never sees it.
+        $capabilities = is_array($context) && array_key_exists('capabilities', $context) ? $context['capabilities'] : null;
+        if (is_array($capabilities) && in_array('t_create_booking', $capabilities, true)
+            && $this->CI->db->table_exists('ab_services')) {
+            $tools[] = array(
+                'name' => 't_create_booking',
+                'description' => "Book an appointment for an explicit service, date and time the customer confirmed. NEVER call this on a vague request ('I want to book something', 'do you have availability') — first ask which service, which date, and which time, and only call this once all three are explicit and the customer confirmed them.",
+                'params' => array(
+                    'type' => 'object',
+                    'properties' => array(
+                        'service' => array('type' => 'string', 'description' => 'The exact service name the customer chose.'),
+                        'date' => array('type' => 'string', 'description' => 'Appointment date, YYYY-MM-DD.'),
+                        'time' => array('type' => 'string', 'description' => 'Appointment time, HH:MM (24h).'),
+                        'name' => array('type' => 'string', 'description' => "Customer's name."),
+                        'phone' => array('type' => 'string', 'description' => 'Customer phone or WhatsApp number.'),
+                        'email' => array('type' => 'string', 'description' => 'Customer email, if given.'),
+                    ),
+                    'required' => array('service', 'date', 'time'),
+                ),
+            );
+        }
+
+        // Task 27 (C12): per-tool enablement. NULL capabilities (migration not applied, no
+        // restrictions_json, or invalid JSON) is the sentinel for "offer today's default
+        // tool set" — the exact list built above, untouched. This branch must be the ONLY
+        // place that can shrink the catalog, so the review gate (no structured fields ==
+        // identical behaviour) holds for every existing profile.
+        if (is_array($capabilities)) {
+            $tools = array_values(array_filter($tools, function ($t) use ($capabilities) {
+                return in_array($t['name'], $capabilities, true);
+            }));
+        }
+
         return $tools;
     }
 
@@ -160,6 +197,13 @@ class Ai_tools
                 case 'save_lead_to_crm':  return $this->t_save_lead($user_id, $args, $context);
                 case 'calculate_price':   return $this->t_calculate_price($user_id, $args, $context);
                 case 'get_room_media':    return $this->t_room_media($user_id, $args, $context);
+                case 't_create_booking':
+                    // Defense in depth: execute() re-checks capabilities even though
+                    // catalog() already withheld the definition — a tool must never run
+                    // just because a caller guessed its name.
+                    $caps = is_array($context) && array_key_exists('capabilities', $context) ? $context['capabilities'] : null;
+                    if (!is_array($caps) || !in_array('t_create_booking', $caps, true)) return 'Error: unknown tool.';
+                    return $this->t_create_booking($user_id, $args, $context);
                 default: return 'Error: unknown tool.';
             }
         } catch (Exception $e) {
@@ -306,6 +350,44 @@ class Ai_tools
      * Ambiguous or unknown names return an instruction to ask, never a guess:
      * a wrong album is the customer-visible twin of a cross-mapped price.
      */
+    /**
+     * Task 27 (C12) — books an appointment using the exact same insert path as the public
+     * booking widget (appointment_booking_helper.php, reused, not duplicated). Only ever
+     * reached when the profile's capabilities include 't_create_booking' — checked again
+     * here in execute() as well as at the catalog() level. Never books on vague input: the
+     * model can only call this tool with an explicit service/date/time (all three are
+     * 'required' in the tool schema), and the underlying helper re-validates everything and
+     * is itself tenant-scoped (the service lookup filters by user_id).
+     */
+    protected function t_create_booking($user_id, $args, $context = array())
+    {
+        $this->CI->load->helper('appointment_booking');
+        $service_name = trim((string) ($args['service'] ?? ''));
+        $date = trim((string) ($args['date'] ?? ''));
+        $time = trim((string) ($args['time'] ?? ''));
+        if ($service_name === '' || $date === '' || $time === '') {
+            return 'Missing service, date, or time — ask the customer for the exact service, date, and time before booking.';
+        }
+        $svc = $this->CI->db->from('ab_services')->where('user_id', $user_id)->where('status', '1')
+            ->where('name', $service_name)->limit(1)->get()->row_array();
+        if (empty($svc)) {
+            // fuzzy fallback: a customer/model rarely types the service name exactly
+            $svc = $this->CI->db->from('ab_services')->where('user_id', $user_id)->where('status', '1')
+                ->like('name', $service_name)->limit(1)->get()->row_array();
+        }
+        if (empty($svc)) {
+            return 'No matching service "' . $service_name . '". Ask the customer which service they want from the ones you actually offer.';
+        }
+        $name = trim((string) ($args['name'] ?? 'Customer'));
+        $phone = trim((string) ($args['phone'] ?? ''));
+        $email = trim((string) ($args['email'] ?? ''));
+        $res = ab_create_booking($user_id, (int) $svc['id'], $date, $time, $name !== '' ? $name : 'Customer', $phone, $email, 'ai');
+        if ($res['status'] !== '1') {
+            return 'Booking failed: ' . $res['message'] . '. Ask the customer for a different date/time or hand off if this keeps happening.';
+        }
+        return 'Booked ' . $svc['name'] . ' for ' . $res['starts_at'] . '. Reference: ' . $res['booking_key'] . '. Tell the customer their booking is confirmed and give them the reference.';
+    }
+
     protected function t_room_media($user_id, $args, $context = array())
     {
         $this->CI->load->helper('pricing');

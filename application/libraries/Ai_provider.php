@@ -126,6 +126,13 @@ class Ai_provider
     protected function openai_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $instruction, $description, $human, $temperature, $context, $cfg = array(), $purpose = 'chat_reply')
     {
         $CI->load->library('Ai_tools');
+        // Task 27 (C12): per-tool enablement rides along on $context so Ai_tools::catalog()
+        // can filter without a second parameter threading through every caller. NULL
+        // capabilities (the default/unset case) leaves the catalog exactly as it was.
+        if (!isset($context['capabilities']) && isset($cfg['capabilities_json'])) {
+            $CI->load->helper('ai_agent');
+            $context['capabilities'] = ai_agent_capabilities($cfg);
+        }
         $tools = $CI->ai_tools->openai_tools($context);   // page-aware calculate_price
         $last = null;
         for ($round = 0; $round < self::MAX_TOOL_ROUNDS; $round++) {
@@ -157,6 +164,10 @@ class Ai_provider
     protected function anthropic_tool_loop($CI, $api_key, $messages, $model, $max_tokens, $system, $temperature, $context, $cfg = array(), $purpose = 'chat_reply')
     {
         $CI->load->library('Ai_tools');
+        if (!isset($context['capabilities']) && isset($cfg['capabilities_json'])) {
+            $CI->load->helper('ai_agent');
+            $context['capabilities'] = ai_agent_capabilities($cfg);
+        }
         $tools = $CI->ai_tools->anthropic_tools($context);
         // Anthropic keeps its own running message array (with tool_use/tool_result blocks)
         $convo = array();
