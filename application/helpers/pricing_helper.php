@@ -211,6 +211,7 @@ if (!function_exists('pricing_config_sections')) {
             'accommodation' => is_array($cfg) && $has($cfg['accommodation']['rooms'] ?? null),
             'day_use'       => is_array($cfg) && $has($cfg['day_use']['packages'] ?? null),
             'catalog'       => is_array($cfg) && $has($cfg['catalog']['items'] ?? null),
+            'packages'      => is_array($cfg) && $has($cfg['packages'] ?? null),
         );
     }
 }
@@ -265,22 +266,30 @@ if (!function_exists('pricing_tool_definition')) {
             ),
         );
         $s = pricing_config_sections($cfg);
-        if (!$s['catalog']) return $legacy;
+        if (!$s['catalog'] && !$s['packages']) return $legacy;
 
         $enum = array(); $desc = array(); $props = array();
         if ($s['accommodation']) { $enum[] = 'accommodation'; $desc[] = 'accommodation = overnight stay'; }
         if ($s['day_use'])       { $enum[] = 'day_use';       $desc[] = 'day_use = day visit without staying'; }
-        $enum[] = 'item'; $desc[] = 'item = a product or service from the price list';
+        if ($s['catalog'])       { $enum[] = 'item';          $desc[] = 'item = a product or service from the price list'; }
+        if ($s['packages'])      { $enum[] = 'package';       $desc[] = 'package = a fixed-price bundle from the price list'; }
         $props['type'] = array('type' => 'string', 'enum' => $enum, 'description' => implode('; ', $desc) . '.');
-        $props['item'] = array('type' => 'string', 'description' => "type item: the product/service the customer asked about, in their own words (Arabic or English)." );
+        $props['item'] = array('type' => 'string', 'description' => "type item/package: the product/service/package the customer asked about, in their own words (Arabic or English)." );
         $props['variant'] = array('type' => 'string', 'description' => 'type item: the option/size/variant if the customer named one, else leave empty.');
-        $props['quantity'] = array('type' => 'number', 'description' => 'type item: how many (pieces, hours, sessions, kg...). Default 1.');
-        $how = "for item pass the item name + variant (if named) + quantity";
+        $props['quantity'] = array('type' => 'number', 'description' => 'type item/package: how many (pieces, hours, sessions, kg...). Default 1.');
+        $props['coupon_code'] = array('type' => 'string', 'description' => 'A discount coupon code — ONLY if the customer typed one themselves. Never invent or suggest a code.');
+        $how = array();
+        if ($s['catalog'])  $how[] = 'for item pass the item name + variant (if named) + quantity';
+        if ($s['packages']) $how[] = 'for package pass the package name + quantity';
         if ($s['accommodation'] || $s['day_use']) {
             foreach ($legacy['params']['properties'] as $k => $v) if ($k !== 'type') $props[$k] = $v;
-            if ($s['accommodation']) $how .= "; for accommodation pass nights + how many adults and children (by age band)";
-            if ($s['day_use'])       $how .= "; for day_use pass the package and how many adults and children";
+            if ($s['accommodation']) {
+                $how[] = 'for accommodation pass nights + how many adults and children (by age band)';
+                $props['checkin_date'] = array('type' => 'string', 'description' => 'Accommodation only: check-in date (YYYY-MM-DD) if the customer gave one — needed for seasonal/weekend pricing.');
+            }
+            if ($s['day_use'])       $how[] = 'for day_use pass the package and how many adults and children';
         }
+        $how = implode('; ', $how);
         return array(
             'name' => 'calculate_price',
             'description' => "Compute an EXACT price from this page's price list. ALWAYS call this instead of stating or multiplying a price yourself: " . $how . ". It resolves the item name (Arabic nicknames too), applies the real prices" . ($s['accommodation'] || $s['day_use'] ? ' and offers' : '') . ", and defers to the team for anything it cannot price (price on request, unclear item). If the name matches several items it tells you to ask which one. Quote its total verbatim.",
@@ -340,6 +349,202 @@ if (!function_exists('pricing_catalog_index')) {
     }
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * C11 (task 26) — pricing extensions: seasons, weekday/weekend rates, minimum
+ * stay, packages, quantity discounts, coupons. Every new field is OPTIONAL —
+ * a config that does not set them produces byte-identical output to before
+ * this change. New calculator params are appended AFTER the original ones
+ * with safe defaults, so every existing call site is untouched.
+ *
+ * accommodation.rooms[].min_nights   int >= 1, reject shorter stays (no price).
+ * accommodation.rooms[].weekend_nightly  nightly rate for a "weekend" night.
+ * accommodation.weekend_days         list of ISO weekdays (1=Mon..7=Sun) that
+ *                                     count as weekend; default [5,6] (Fri,Sat).
+ *   Weekday/weekend only applies when a check-in date is given (it needs real
+ *   dates to know which nights are weekend), and only when a fixed offers[n]
+ *   price is not already used for this exact night count.
+ * accommodation.seasons[] = {name, start:'Y-m-d', end:'Y-m-d',
+ *   rooms:{room_name:{nightly?, weekend_nightly?, offers?}}}
+ *   The season whose [start,end] contains the check-in date overrides the
+ *   matching room's nightly/weekend_nightly/offers for that stay.
+ * packages[] = {name, price, quantity_discounts?}  — a fixed-price bundle,
+ *   priced like a catalog item (see pricing_calc_package).
+ * catalog.items[].quantity_discounts[] = {min_qty, price} — best (highest
+ *   min_qty <= quantity) tier replaces the unit price.
+ * coupons[] = {code, type:'percent'|'fixed', value, start?, end?} — applied
+ *   ONLY when the caller passes an explicit $coupon_code (never guessed from
+ *   the config), and only within [start,end] when those are set.
+ * ---------------------------------------------------------------------------
+ */
+if (!function_exists('pricing_weekend_days')) {
+    /** ISO weekday numbers (1=Mon..7=Sun) counted as "weekend". Default Fri+Sat. */
+    function pricing_weekend_days($cfg)
+    {
+        $acc = isset($cfg['accommodation']) && is_array($cfg['accommodation']) ? $cfg['accommodation'] : array();
+        $d = isset($acc['weekend_days']) && is_array($acc['weekend_days']) ? $acc['weekend_days'] : array(5, 6);
+        $out = array();
+        foreach ($d as $n) { $n = (int) $n; if ($n >= 1 && $n <= 7) $out[] = $n; }
+        return empty($out) ? array(5, 6) : array_values(array_unique($out));
+    }
+}
+
+if (!function_exists('pricing_find_season')) {
+    /** The season row (if any) whose [start,end] contains $date ('Y-m-d'), else null. */
+    function pricing_find_season($cfg, $date)
+    {
+        if (empty($date) || !is_string($date)) return null;
+        $ts = strtotime($date);
+        if ($ts === false) return null;
+        $seasons = isset($cfg['accommodation']['seasons']) && is_array($cfg['accommodation']['seasons']) ? $cfg['accommodation']['seasons'] : array();
+        foreach ($seasons as $s) {
+            if (!is_array($s) || empty($s['start']) || empty($s['end'])) continue;
+            $st = strtotime((string) $s['start']); $en = strtotime((string) $s['end']);
+            if ($st === false || $en === false) continue;
+            if ($ts >= $st && $ts <= $en) return $s;
+        }
+        return null;
+    }
+}
+
+if (!function_exists('pricing_room_with_season')) {
+    /** $room with any season override for this room name merged in (season wins). */
+    function pricing_room_with_season($room, $season)
+    {
+        if (empty($season) || !is_array($season) || empty($room['name'])) return $room;
+        $rooms = isset($season['rooms']) && is_array($season['rooms']) ? $season['rooms'] : array();
+        $ov = isset($rooms[$room['name']]) && is_array($rooms[$room['name']]) ? $rooms[$room['name']] : null;
+        if ($ov === null) return $room;
+        if (isset($ov['nightly'])) $room['nightly'] = $ov['nightly'];
+        if (isset($ov['weekend_nightly'])) $room['weekend_nightly'] = $ov['weekend_nightly'];
+        if (isset($ov['offers']) && is_array($ov['offers'])) $room['offers'] = $ov['offers'];
+        $room['_season'] = (string) ($season['name'] ?? '');
+        return $room;
+    }
+}
+
+if (!function_exists('pricing_weekday_weekend_total')) {
+    /**
+     * Sum of per-night rates from $checkin_date over $nights nights, using
+     * $room['weekend_nightly'] on weekend nights (per pricing_weekend_days) and
+     * $room['nightly'] otherwise. Returns null when weekend_nightly is not set
+     * (nothing to differ from the flat rate) or the date is invalid.
+     */
+    function pricing_weekday_weekend_total($cfg, $room, $checkin_date, $nights)
+    {
+        if (empty($room['weekend_nightly']) || empty($checkin_date)) return null;
+        $ts = strtotime((string) $checkin_date);
+        if ($ts === false) return null;
+        $weekend_days = pricing_weekend_days($cfg);
+        $total = 0; $weekend_nights = 0;
+        for ($i = 0; $i < $nights; $i++) {
+            $dow = (int) date('N', strtotime("+$i day", $ts));
+            if (in_array($dow, $weekend_days, true)) { $total += (float) $room['weekend_nightly']; $weekend_nights++; }
+            else $total += (float) $room['nightly'];
+        }
+        return array((int) round($total), $weekend_nights);
+    }
+}
+
+if (!function_exists('pricing_find_coupon')) {
+    /** The coupon row for $code (case-insensitive) if it exists and is within its validity window today, else null. */
+    function pricing_find_coupon($cfg, $code)
+    {
+        $code = trim((string) $code);
+        if ($code === '') return null;
+        $coupons = isset($cfg['coupons']) && is_array($cfg['coupons']) ? $cfg['coupons'] : array();
+        $today = date('Y-m-d');
+        foreach ($coupons as $c) {
+            if (!is_array($c) || trim((string) ($c['code'] ?? '')) === '') continue;
+            if (mb_strtolower(trim((string) $c['code'])) !== mb_strtolower($code)) continue;
+            if (!empty($c['start']) && $today < substr((string) $c['start'], 0, 10)) return null;
+            if (!empty($c['end']) && $today > substr((string) $c['end'], 0, 10)) return null;
+            return $c;
+        }
+        return null;
+    }
+}
+
+if (!function_exists('pricing_apply_coupon')) {
+    /**
+     * Applies $coupon_code (explicit, never inferred) to $total.
+     * @return array [new_total, fact_line_or_null] — fact_line is an itemised string for
+     *               ai_price_facts, or null when there is nothing to apply/report.
+     */
+    function pricing_apply_coupon($cfg, $total, $coupon_code)
+    {
+        $coupon_code = trim((string) $coupon_code);
+        if ($coupon_code === '' || $total === null) return array($total, null);
+        $c = pricing_find_coupon($cfg, $coupon_code);
+        if ($c === null) return array($total, 'كود الخصم "' . $coupon_code . '" مش صالح أو منتهي');
+        $type = ($c['type'] ?? '') === 'fixed' ? 'fixed' : 'percent';
+        $value = (float) ($c['value'] ?? 0);
+        $discount = $type === 'percent' ? ($total * $value / 100) : $value;
+        $discount = min($discount, $total);
+        $new_total = pricing_money($total - $discount);
+        $label = $type === 'percent' ? ($value . '%') : (pricing_fmt($discount) . ' ' . (isset($cfg['currency']) ? $cfg['currency'] : 'جنيه'));
+        $fact = 'كوبون ' . trim((string) $c['code']) . ' (' . $label . ' خصم): -' . pricing_fmt($discount) . ' -> الإجمالي ' . pricing_fmt($new_total);
+        return array($new_total, $fact);
+    }
+}
+
+if (!function_exists('pricing_quantity_tier_price')) {
+    /** The unit price from $tiers (list of {min_qty,price}) that applies to $qty, or null. */
+    function pricing_quantity_tier_price($tiers, $qty)
+    {
+        if (!is_array($tiers) || empty($tiers)) return null;
+        $best = null;
+        foreach ($tiers as $t) {
+            if (!is_array($t) || !isset($t['min_qty'], $t['price'])) continue;
+            $min = (float) $t['min_qty'];
+            if ($qty >= $min && ($best === null || $min > $best['min_qty'])) $best = array('min_qty' => $min, 'price' => (float) $t['price']);
+        }
+        return $best;
+    }
+}
+
+if (!function_exists('pricing_calc_package')) {
+    /**
+     * Fixed-price bundle from cfg.packages: {name, price, quantity_discounts?}.
+     * Same contract as pricing_calc_item (unknown -> ok=false; otherwise a total,
+     * with an optional quantity-discount tier and/or coupon applied).
+     */
+    function pricing_calc_package($cfg, $name, $quantity = 1, $coupon_code = null)
+    {
+        $cur = isset($cfg['currency']) && $cfg['currency'] !== '' ? $cfg['currency'] : 'جنيه';
+        $packages = isset($cfg['packages']) && is_array($cfg['packages']) ? $cfg['packages'] : array();
+        if (empty($packages)) return array('ok' => false, 'reason' => 'no_packages', 'error' => 'no packages configured');
+        $name = trim((string) $name);
+        if ($name === '') return array('ok' => false, 'reason' => 'no_item', 'error' => 'no package given');
+        $q = is_numeric($quantity) ? (float) $quantity : 1.0;
+        if ($q <= 0) $q = 1.0;
+        $qty = (floor($q) == $q) ? (int) $q : $q;
+
+        $found = null;
+        foreach ($packages as $p) {
+            if (is_array($p) && isset($p['name']) && mb_stripos((string) $p['name'], $name) !== false) { $found = $p; break; }
+        }
+        if ($found === null) return array('ok' => false, 'reason' => 'unknown', 'error' => 'unknown package', 'item' => $name);
+        if (!isset($found['price']) || !is_numeric($found['price']) || (float) $found['price'] <= 0) {
+            return array('ok' => true, 'kind' => 'package', 'item' => $found['name'], 'quantity' => $qty, 'currency' => $cur,
+                'reason' => 'price_on_request', 'unit_price' => null, 'total' => null, 'needs_team' => true, 'notes' => array(), 'facts' => array());
+        }
+        $price = (float) $found['price'];
+        $facts = array();
+        $tier = pricing_quantity_tier_price($found['quantity_discounts'] ?? null, $q);
+        if ($tier !== null) {
+            $price = $tier['price'];
+            $facts[] = 'خصم كمية (' . $tier['min_qty'] . '+): سعر الوحدة ' . pricing_fmt($price) . ' ' . $cur;
+        }
+        $total = pricing_money(round($price * 100) * $q / 100);
+        list($total, $cfact) = pricing_apply_coupon($cfg, $total, $coupon_code);
+        if ($cfact !== null) $facts[] = $cfact;
+        return array('ok' => true, 'kind' => 'package', 'item' => $found['name'], 'quantity' => $qty, 'currency' => $cur,
+            'reason' => 'ok', 'unit_price' => pricing_money($price), 'total' => $total, 'needs_team' => false,
+            'notes' => array(), 'facts' => $facts);
+    }
+}
+
 if (!function_exists('pricing_calc_item')) {
     /**
      * Exact, deterministic price for a catalog item: unit price x quantity, where a named
@@ -350,7 +555,7 @@ if (!function_exists('pricing_calc_item')) {
      * Names resolve through media_match() — the same alias-aware resolver rooms and
      * photo albums use.
      */
-    function pricing_calc_item($cfg, $name, $variant = '', $quantity = 1)
+    function pricing_calc_item($cfg, $name, $variant = '', $quantity = 1, $coupon_code = null)
     {
         $cur = isset($cfg['currency']) && $cfg['currency'] !== '' ? $cfg['currency'] : 'جنيه';
         $index = pricing_catalog_index($cfg);
@@ -368,7 +573,7 @@ if (!function_exists('pricing_calc_item')) {
         $qty = (floor($q) == $q) ? (int) $q : $q;
 
         $m = media_match($cfg, $name, $index);
-        $base = array('ok' => true, 'kind' => 'item', 'quantity' => $qty, 'currency' => $cur, 'notes' => array(), 'candidates' => array());
+        $base = array('ok' => true, 'kind' => 'item', 'quantity' => $qty, 'currency' => $cur, 'notes' => array(), 'candidates' => array(), 'facts' => array());
         if ($m['hit'] === null) {
             if (empty($m['candidates'])) return array('ok' => false, 'reason' => 'unknown', 'error' => 'unknown item', 'item' => $name);
             return array_merge($base, array('reason' => 'ambiguous', 'item' => $name, 'total' => null, 'needs_team' => true,
@@ -417,10 +622,19 @@ if (!function_exists('pricing_calc_item')) {
         if ($price === null) {
             return array_merge($out, array('reason' => 'price_on_request', 'unit_price' => null, 'total' => null, 'needs_team' => true));
         }
+        $facts = array();
+        $tier = pricing_quantity_tier_price($it['quantity_discounts'] ?? null, $q);
+        if ($tier !== null) {
+            $price = $tier['price'];
+            $facts[] = 'خصم كمية (' . $tier['min_qty'] . '+): سعر الوحدة ' . pricing_fmt($price) . ' ' . $cur;
+        }
         // exact: work in integer piastres so 0.1 + 0.2 style float drift can never show up
         $total = round(round($price * 100) * $q) / 100;
+        $total = pricing_money($total);
+        list($total, $cfact) = pricing_apply_coupon($cfg, $total, $coupon_code);
+        if ($cfact !== null) $facts[] = $cfact;
         return array_merge($out, array('reason' => 'ok', 'unit_price' => pricing_money($price),
-            'total' => pricing_money($total), 'needs_team' => false));
+            'total' => $total, 'needs_team' => false, 'facts' => $facts));
     }
 }
 
@@ -465,7 +679,7 @@ if (!function_exists('pricing_headcount')) {
 }
 
 if (!function_exists('pricing_calc_day_use')) {
-    function pricing_calc_day_use($cfg, $package_name, $adults, $c_free, $c_half, $c_full)
+    function pricing_calc_day_use($cfg, $package_name, $adults, $c_free, $c_half, $c_full, $coupon_code = null)
     {
         $du = isset($cfg['day_use']) ? $cfg['day_use'] : array();
         $packages = isset($du['packages']) ? $du['packages'] : array();
@@ -497,18 +711,22 @@ if (!function_exists('pricing_calc_day_use')) {
         }
 
         $total = (int) round($billable_people * (float) $pkg['per_person']);
+        $facts = array();
+        list($total, $cfact) = pricing_apply_coupon($cfg, $total, $coupon_code);
+        if ($cfact !== null) $facts[] = $cfact;
         return array(
             'ok' => true, 'kind' => 'day_use', 'item' => $pkg['name'],
             'per_person' => (int) $pkg['per_person'], 'people' => $people,
             'total' => $total, 'needs_team' => $needs_team,
             'notes' => array_filter(array_merge($notes, array($offer_note))),
             'currency' => isset($cfg['currency']) ? $cfg['currency'] : 'جنيه',
+            'facts' => $facts,
         );
     }
 }
 
 if (!function_exists('pricing_calc_accommodation')) {
-    function pricing_calc_accommodation($cfg, $room_name, $nights, $adults, $c_free, $c_half, $c_full)
+    function pricing_calc_accommodation($cfg, $room_name, $nights, $adults, $c_free, $c_half, $c_full, $checkin_date = null, $coupon_code = null)
     {
         $acc = isset($cfg['accommodation']) ? $cfg['accommodation'] : array();
         $rooms = isset($acc['rooms']) ? $acc['rooms'] : array();
@@ -549,19 +767,41 @@ if (!function_exists('pricing_calc_accommodation')) {
             return array('ok' => true, 'kind' => 'accommodation', 'item' => $chosen['name'],
                 'nights' => $nights, 'total' => null, 'needs_team' => true,
                 'notes' => array('العدد أكبر من أكبر غرفة (' . $chosen['name'] . ' بتستوعب ' . $chosen['capacity'] . ') - يتأكد من الفريق'),
-                'currency' => isset($cfg['currency']) ? $cfg['currency'] : 'جنيه');
+                'currency' => isset($cfg['currency']) ? $cfg['currency'] : 'جنيه', 'facts' => array());
         }
 
-        // per-night vs a written multi-night offer price
-        $offers = isset($chosen['offers']) ? $chosen['offers'] : array();
+        // minimum stay (optional per room): reject shorter stays outright, no price.
+        if (isset($chosen['min_nights']) && (int) $chosen['min_nights'] > 0 && $nights < (int) $chosen['min_nights']) {
+            return array('ok' => false, 'reason' => 'min_stay', 'error' => 'stay shorter than minimum',
+                'item' => $chosen['name'], 'min_nights' => (int) $chosen['min_nights'], 'nights' => $nights);
+        }
+
+        // seasons (optional): a season covering the check-in date can override this
+        // room's nightly / weekend_nightly / offers for the whole stay.
+        $season = pricing_find_season($cfg, $checkin_date);
+        $priced_room = pricing_room_with_season($chosen, $season);
+        $facts = array();
+        if (isset($priced_room['_season'])) $facts[] = 'موسم ' . $priced_room['_season'] . ' مطبّق';
+
+        // per-night vs a written multi-night offer price, else weekday/weekend (if dated), else flat
+        $offers = isset($priced_room['offers']) ? $priced_room['offers'] : array();
         $total = null; $basis = '';
         if (isset($offers[(string) $nights])) {
             $total = (int) $offers[(string) $nights];
             $basis = 'سعر عرض الـ' . $nights . ' ليالي';
         } else {
-            $total = (int) $chosen['nightly'] * $nights;
-            $basis = $nights == 1 ? 'سعر الليلة' : ($nights . ' ليالي × سعر الليلة');
+            $ww = pricing_weekday_weekend_total($cfg, $priced_room, $checkin_date, $nights);
+            if ($ww !== null) {
+                list($total, $weekend_nights) = $ww;
+                $basis = $nights . ' ليالي (منها ' . $weekend_nights . ' ويك إند) × سعر الليلة المناسب';
+                if ($weekend_nights > 0) $facts[] = $weekend_nights . ' ليلة ويك إند بسعر ' . pricing_fmt($priced_room['weekend_nightly']);
+            } else {
+                $total = (int) $priced_room['nightly'] * $nights;
+                $basis = $nights == 1 ? 'سعر الليلة' : ($nights . ' ليالي × سعر الليلة');
+            }
         }
+        list($total, $cfact) = pricing_apply_coupon($cfg, $total, $coupon_code);
+        if ($cfact !== null) $facts[] = $cfact;
 
         // half-band children imply an unknown surcharge unless the config sets a price
         $needs_team = false; $notes = array();
@@ -586,9 +826,9 @@ if (!function_exists('pricing_calc_accommodation')) {
 
         return array('ok' => true, 'kind' => 'accommodation', 'item' => $chosen['name'],
             'capacity' => (int) $chosen['capacity'], 'nights' => $nights,
-            'nightly' => (int) $chosen['nightly'], 'basis' => $basis,
+            'nightly' => (int) $priced_room['nightly'], 'basis' => $basis,
             'total' => $total, 'needs_team' => $needs_team, 'notes' => $notes,
-            'currency' => isset($cfg['currency']) ? $cfg['currency'] : 'جنيه');
+            'currency' => isset($cfg['currency']) ? $cfg['currency'] : 'جنيه', 'facts' => $facts);
     }
 }
 
@@ -599,6 +839,29 @@ if (!function_exists('pricing_calc_accommodation')) {
  * know (media, room aliases, future fields) are preserved untouched.
  * ---------------------------------------------------------------------------
  */
+if (!function_exists('pricing_validate_quantity_discounts')) {
+    /** @return string[] errors for a quantity_discounts list ({min_qty, price} tiers) with a given label prefix. */
+    function pricing_validate_quantity_discounts($label, $tiers)
+    {
+        $e = array();
+        $num = function ($v) { return is_numeric($v) && (float) $v >= 0; };
+        if (!is_array($tiers)) { $e[] = "$label: quantity discounts must be a list."; return $e; }
+        $seen = array();
+        foreach (array_values($tiers) as $j => $t) {
+            $tlabel = "$label: quantity discount #" . ($j + 1);
+            if (!is_array($t)) { $e[] = "$tlabel: must be an object."; continue; }
+            if (!$num($t['min_qty'] ?? null) || (float) ($t['min_qty'] ?? 0) <= 0) $e[] = "$tlabel: minimum quantity must be > 0.";
+            else {
+                $mk = (float) $t['min_qty'];
+                if (isset($seen[$mk])) $e[] = "$tlabel: duplicate minimum quantity.";
+                $seen[$mk] = true;
+            }
+            if (!$num($t['price'] ?? null) || (float) ($t['price'] ?? 0) <= 0) $e[] = "$tlabel: tier price must be > 0.";
+        }
+        return $e;
+    }
+}
+
 if (!function_exists('pricing_validate_config')) {
     /** @return string[] human-readable errors; empty = valid */
     function pricing_validate_config($cfg)
@@ -623,6 +886,8 @@ if (!function_exists('pricing_validate_config')) {
                     $seen[$k] = true;
                     if (!$isInt($r['capacity'] ?? null) || (int) $r['capacity'] < 1) $e[] = "$label: capacity must be a whole number ≥ 1.";
                     if (!$num($r['nightly'] ?? null) || (float) $r['nightly'] <= 0) $e[] = "$label: nightly price must be > 0.";
+                    if (isset($r['min_nights']) && (!$isInt($r['min_nights']) || (int) $r['min_nights'] < 1)) $e[] = "$label: minimum stay must be a whole number ≥ 1.";
+                    if (isset($r['weekend_nightly']) && (!$num($r['weekend_nightly']) || (float) $r['weekend_nightly'] <= 0)) $e[] = "$label: weekend nightly price must be > 0.";
                     if (isset($r['offers'])) {
                         if (!is_array($r['offers'])) $e[] = "$label: offers must be an object {nights: total}.";
                         else foreach ($r['offers'] as $nights => $total) {
@@ -630,6 +895,36 @@ if (!function_exists('pricing_validate_config')) {
                             if (!$num($total) || (float) $total <= 0) $e[] = "$label: offer total for $nights nights must be > 0.";
                             elseif ($num($r['nightly'] ?? null) && (float) $total > (float) $r['nightly'] * (int) $nights)
                                 $e[] = "$label: the $nights-night offer ($total) costs more than $nights × nightly — check it.";
+                        }
+                    }
+                }
+            }
+            if (isset($cfg['accommodation']['weekend_days'])) {
+                $wd = $cfg['accommodation']['weekend_days'];
+                if (!is_array($wd) || empty($wd)) $e[] = 'accommodation.weekend_days must be a non-empty list of weekdays (1=Mon..7=Sun).';
+                else foreach ($wd as $d) if (!$isInt($d) || (int) $d < 1 || (int) $d > 7) $e[] = 'accommodation.weekend_days: each day must be 1 (Mon) to 7 (Sun).';
+            }
+            if (isset($cfg['accommodation']['seasons'])) {
+                $seasons = $cfg['accommodation']['seasons'];
+                if (!is_array($seasons)) $e[] = 'accommodation.seasons must be a list.';
+                else foreach (array_values($seasons) as $i => $s) {
+                    $label = 'Season #' . ($i + 1);
+                    if (!is_array($s)) { $e[] = "$label: must be an object."; continue; }
+                    $sname = trim((string) ($s['name'] ?? ''));
+                    if ($sname === '') $e[] = "$label: name is required.";
+                    else $label = "Season \"$sname\"";
+                    $st = isset($s['start']) ? strtotime((string) $s['start']) : false;
+                    $en = isset($s['end']) ? strtotime((string) $s['end']) : false;
+                    if (empty($s['start']) || $st === false) $e[] = "$label: start date is required (YYYY-MM-DD).";
+                    if (empty($s['end']) || $en === false) $e[] = "$label: end date is required (YYYY-MM-DD).";
+                    if ($st !== false && $en !== false && $en < $st) $e[] = "$label: end date must be on or after the start date.";
+                    if (isset($s['rooms'])) {
+                        if (!is_array($s['rooms'])) $e[] = "$label: rooms must be an object {room name: overrides}.";
+                        else foreach ($s['rooms'] as $rname => $ov) {
+                            if (!is_array($ov)) { $e[] = "$label: override for \"$rname\" must be an object."; continue; }
+                            if (isset($ov['nightly']) && (!$num($ov['nightly']) || (float) $ov['nightly'] <= 0)) $e[] = "$label: \"$rname\" nightly override must be > 0.";
+                            if (isset($ov['weekend_nightly']) && (!$num($ov['weekend_nightly']) || (float) $ov['weekend_nightly'] <= 0)) $e[] = "$label: \"$rname\" weekend nightly override must be > 0.";
+                            if (isset($ov['offers']) && !is_array($ov['offers'])) $e[] = "$label: \"$rname\" offers override must be an object.";
                         }
                     }
                 }
@@ -699,12 +994,59 @@ if (!function_exists('pricing_validate_config')) {
                         $e[] = "$label: other names must be a list of words.";
                     if (isset($it['category']) && !is_string($it['category'])) $e[] = "$label: category must be text.";
                     if (isset($it['note']) && !is_string($it['note'])) $e[] = "$label: note must be text.";
+                    if (isset($it['quantity_discounts'])) $e = array_merge($e, pricing_validate_quantity_discounts($label, $it['quantity_discounts']));
                 }
             }
         }
-        if (!isset($cfg['accommodation']) && !isset($cfg['day_use']) && !isset($cfg['catalog']))
+        if (isset($cfg['packages'])) {
+            $pkgs = $cfg['packages'];
+            if (!is_array($pkgs)) $e[] = 'packages must be a list.';
+            else {
+                $seen = array();
+                foreach (array_values($pkgs) as $i => $p) {
+                    $label = 'Package #' . ($i + 1);
+                    if (!is_array($p)) { $e[] = "$label: must be an object."; continue; }
+                    $name = trim((string) ($p['name'] ?? ''));
+                    if ($name === '') { $e[] = "$label: name is required."; continue; }
+                    $label = "Package \"$name\"";
+                    $k = mb_strtolower($name);
+                    if (isset($seen[$k])) $e[] = "$label: duplicate package name.";
+                    $seen[$k] = true;
+                    $por = !empty($p['price_on_request']);
+                    if (!$por && (!$num($p['price'] ?? null) || (float) $p['price'] <= 0)) $e[] = "$label: price must be > 0 (or tick \"price on request\").";
+                    if (isset($p['quantity_discounts'])) $e = array_merge($e, pricing_validate_quantity_discounts($label, $p['quantity_discounts']));
+                }
+            }
+        }
+        if (isset($cfg['coupons'])) {
+            $coupons = $cfg['coupons'];
+            if (!is_array($coupons)) $e[] = 'coupons must be a list.';
+            else {
+                $seen = array();
+                foreach (array_values($coupons) as $i => $c) {
+                    $label = 'Coupon #' . ($i + 1);
+                    if (!is_array($c)) { $e[] = "$label: must be an object."; continue; }
+                    $code = trim((string) ($c['code'] ?? ''));
+                    if ($code === '') { $e[] = "$label: code is required."; continue; }
+                    $label = "Coupon \"$code\"";
+                    $k = mb_strtolower($code);
+                    if (isset($seen[$k])) $e[] = "$label: duplicate coupon code.";
+                    $seen[$k] = true;
+                    $type = $c['type'] ?? 'percent';
+                    if (!in_array($type, array('percent', 'fixed'), true)) $e[] = "$label: type must be percent or fixed.";
+                    if (!$num($c['value'] ?? null) || (float) ($c['value'] ?? 0) <= 0) $e[] = "$label: value must be > 0.";
+                    elseif ($type === 'percent' && (float) $c['value'] > 100) $e[] = "$label: percent value cannot exceed 100.";
+                    $st = isset($c['start']) && $c['start'] !== '' ? strtotime((string) $c['start']) : null;
+                    $en = isset($c['end']) && $c['end'] !== '' ? strtotime((string) $c['end']) : null;
+                    if ($st === false) $e[] = "$label: start date is invalid (YYYY-MM-DD).";
+                    if ($en === false) $e[] = "$label: end date is invalid (YYYY-MM-DD).";
+                    if ($st && $en && $en < $st) $e[] = "$label: end date must be on or after the start date.";
+                }
+            }
+        }
+        if (!isset($cfg['accommodation']) && !isset($cfg['day_use']) && !isset($cfg['catalog']) && !isset($cfg['packages']))
             $e[] = 'Add at least one product or service (or rooms / day-use packages).';
-        elseif (!isset($cfg['accommodation']) && !isset($cfg['day_use']) && empty($cfg['catalog']['items']))
+        elseif (!isset($cfg['accommodation']) && !isset($cfg['day_use']) && empty($cfg['catalog']['items']) && empty($cfg['packages']))
             $e[] = 'Add at least one product or service.';
         return $e;
     }

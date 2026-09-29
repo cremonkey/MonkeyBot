@@ -375,8 +375,11 @@ class Ai_tools
 
         $req = (string) ($args['type'] ?? '');
         $sections = pricing_config_sections($cfg);
-        if ($req === 'item' || ($req !== 'accommodation' && $req !== 'day_use' && $sections['catalog'] && !$sections['day_use'])) {
+        if ($req === 'item' || ($req !== 'accommodation' && $req !== 'day_use' && $req !== 'package' && $sections['catalog'] && !$sections['day_use'])) {
             return $this->_price_item($cfg, $args);
+        }
+        if ($req === 'package') {
+            return $this->_price_package($cfg, $args);
         }
 
         $type    = $req === 'accommodation' ? 'accommodation' : 'day_use';
@@ -386,16 +389,26 @@ class Ai_tools
         $c_free  = (int) ($args['children_under_5'] ?? 0);
         $c_half  = (int) ($args['children_6_to_11'] ?? 0);
         $c_full  = (int) ($args['children_12_plus'] ?? 0);
+        $checkin = trim((string) ($args['checkin_date'] ?? ''));
+        $coupon  = trim((string) ($args['coupon_code'] ?? ''));
         if ($adults <= 0 && $c_free <= 0 && $c_half <= 0 && $c_full <= 0) $adults = ($type === 'accommodation') ? 2 : 1;
 
         $r = $type === 'accommodation'
-            ? pricing_calc_accommodation($cfg, $item, $nights, $adults, $c_free, $c_half, $c_full)
-            : pricing_calc_day_use($cfg, $item, $adults, $c_free, $c_half, $c_full);
+            ? pricing_calc_accommodation($cfg, $item, $nights, $adults, $c_free, $c_half, $c_full, $checkin !== '' ? $checkin : null, $coupon !== '' ? $coupon : null)
+            : pricing_calc_day_use($cfg, $item, $adults, $c_free, $c_half, $c_full, $coupon !== '' ? $coupon : null);
 
-        if (empty($r['ok'])) return 'Could not price this exactly; tell the customer the team will confirm and ask for their contact number.';
+        if (empty($r['ok'])) {
+            if (($r['reason'] ?? '') === 'min_stay') {
+                return 'MINIMUM STAY NOT MET: ' . $r['item'] . ' requires at least ' . $r['min_nights'] . ' nights (' . $r['nights'] . ' requested). Tell the customer the minimum stay and ask if they want to extend it. Do not state a price.';
+            }
+            return 'Could not price this exactly; tell the customer the team will confirm and ask for their contact number.';
+        }
 
         $cur = $r['currency'];
         $notes = !empty($r['notes']) ? implode('؛ ', $r['notes']) : '';
+        if (!empty($r['facts'])) {
+            foreach ($r['facts'] as $f) $this->CI->ai_price_facts[] = $f;
+        }
 
         if ($r['total'] === null || !empty($r['needs_team'])) {
             // Partial: we can name the item/basis but not a final total. Do NOT invent one.
@@ -430,7 +443,8 @@ class Ai_tools
     {
         if (!isset($this->CI->ai_price_facts) || !is_array($this->CI->ai_price_facts)) $this->CI->ai_price_facts = array();
         $name = trim((string) ($args['item'] ?? ($args['room_or_package'] ?? '')));
-        $r = pricing_calc_item($cfg, $name, (string) ($args['variant'] ?? ''), $args['quantity'] ?? 1);
+        $coupon = trim((string) ($args['coupon_code'] ?? ''));
+        $r = pricing_calc_item($cfg, $name, (string) ($args['variant'] ?? ''), $args['quantity'] ?? 1, $coupon !== '' ? $coupon : null);
         if (empty($r['ok'])) {
             if (($r['reason'] ?? '') === 'unknown') {
                 return 'UNKNOWN ITEM: "' . $name . '" is not in this page\'s price list. Do not say any price for it: tell the customer the team will confirm it and ask for their WhatsApp number.';
@@ -458,7 +472,43 @@ class Ai_tools
             ? $label . ' = ' . $unit_price . ($unit !== '' ? ' /' . $unit : '')
             : $label . ' × ' . $r['quantity'] . $unit . ' = ' . pricing_fmt($r['total']) . ' ' . $cur . ' (' . $unit_price . ' للواحد)';
         $this->CI->ai_price_facts[] = $fact;
+        if (!empty($r['facts'])) {
+            foreach ($r['facts'] as $f) $this->CI->ai_price_facts[] = $f;
+        }
         return 'AUTHORITATIVE TOTAL (quote it exactly): ' . $fact . ($notes ? ' | ' . $notes : '')
+             . ' | Present this price to the customer and move to close.';
+    }
+
+    /**
+     * Fixed-price bundle (type 'package'), same contract as _price_item.
+     */
+    protected function _price_package($cfg, $args)
+    {
+        if (!isset($this->CI->ai_price_facts) || !is_array($this->CI->ai_price_facts)) $this->CI->ai_price_facts = array();
+        $name = trim((string) ($args['item'] ?? ($args['room_or_package'] ?? '')));
+        $coupon = trim((string) ($args['coupon_code'] ?? ''));
+        $r = pricing_calc_package($cfg, $name, $args['quantity'] ?? 1, $coupon !== '' ? $coupon : null);
+        if (empty($r['ok'])) {
+            if (($r['reason'] ?? '') === 'unknown') {
+                return 'UNKNOWN PACKAGE: "' . $name . '" is not in this page\'s price list. Do not say any price for it: tell the customer the team will confirm it and ask for their WhatsApp number.';
+            }
+            if (($r['reason'] ?? '') === 'no_item') return 'NO PACKAGE GIVEN: ask the customer which package they mean.';
+            return 'Could not price this exactly; tell the customer the team will confirm and ask for their contact number.';
+        }
+        $cur = $r['currency'];
+        $label = $r['item'];
+        if ($r['total'] === null || !empty($r['needs_team'])) {
+            $this->CI->ai_price_facts[] = $label . ': السعر يتأكد من الفريق';
+            return 'ITEM: ' . $label . ' | NO FINAL TOTAL: this price is confirmed by the team (say so and ask for the customer\'s WhatsApp; do not state any number).';
+        }
+        $fact = ((float) $r['quantity'] === 1.0)
+            ? $label . ' = ' . pricing_fmt($r['total']) . ' ' . $cur
+            : $label . ' × ' . $r['quantity'] . ' = ' . pricing_fmt($r['total']) . ' ' . $cur;
+        $this->CI->ai_price_facts[] = $fact;
+        if (!empty($r['facts'])) {
+            foreach ($r['facts'] as $f) $this->CI->ai_price_facts[] = $f;
+        }
+        return 'AUTHORITATIVE TOTAL (quote it exactly): ' . $fact
              . ' | Present this price to the customer and move to close.';
     }
 
