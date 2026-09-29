@@ -11,6 +11,48 @@ if (!function_exists('cu_plat')) { function cu_plat($p) { global $plat_name; ret
   </div>
 
   <div class="section-body">
+
+    <?php if (!empty($customer['merged_into_customer_id'])): ?>
+    <div class="alert alert-warning cu-merged-banner">
+      <i class="fas fa-code-branch"></i>
+      Merged into <a href="<?php echo base_url('customers/profile/' . (int) $customer['merged_into_customer_id']); ?>">customer #<?php echo (int) $customer['merged_into_customer_id']; ?></a>.
+      This record is read-only until undone.
+      <br><span dir="rtl">تم دمجه في <a href="<?php echo base_url('customers/profile/' . (int) $customer['merged_into_customer_id']); ?>">العميل رقم <?php echo (int) $customer['merged_into_customer_id']; ?></a>. هذا السجل للقراءة فقط لحد ما يتراجع الدمج.</span>
+      <?php if (!empty($profile['merge_source_log'])): ?>
+        <button type="button" class="btn btn-sm btn-outline-secondary ml-2 cu-unmerge-btn"
+                data-log-id="<?php echo (int) $profile['merge_source_log']['log_id']; ?>">
+          <i class="fas fa-undo"></i> Undo merge <span dir="rtl">تراجع عن الدمج</span>
+        </button>
+      <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    <?php if (!empty($profile['recent_merges_in'])): ?>
+    <div class="card cu-recent-merges">
+      <div class="card-header">
+        <i class="fas fa-history"></i> Recently merged into this customer
+        <span class="text-muted" dir="rtl">دُمج فيه مؤخرًا</span>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+          <?php foreach ($profile['recent_merges_in'] as $m): ?>
+            <tr>
+              <td><?php echo htmlspecialchars($m['source_display_name'] ?: ('Customer #' . (int) $m['source_customer_id'])); ?>
+                <span class="text-muted small">(<?php echo htmlspecialchars($m['created_at']); ?>)</span></td>
+              <td class="text-right">
+                <button type="button" class="btn btn-sm btn-outline-secondary cu-unmerge-btn" data-log-id="<?php echo (int) $m['log_id']; ?>">
+                  <i class="fas fa-undo"></i> Undo <span dir="rtl">تراجع</span>
+                </button>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <?php endif; ?>
+
     <div class="row">
       <!-- LEFT: identity + score -->
       <div class="col-lg-4 mb-3">
@@ -59,6 +101,8 @@ if (!function_exists('cu_plat')) { function cu_plat($p) { global $plat_name; ret
             <?php endforeach; ?>
             <p class="text-muted small mb-0 mt-2">This never happens automatically — you decide which record survives.
               <br><span dir="rtl">ده مبيحصلش لوحده أبدًا — إنت اللي بتقرر مين اللي فاضل.</span></p>
+            <p class="text-muted small mb-0 mt-1">Only shown for a <strong>verified</strong> phone or email — a channel you have confirmed belongs to the customer, not just typed the same way twice.
+              <br><span dir="rtl">بيظهر بس لو الرقم أو الإيميل <strong>موثّق</strong> — يعني اتأكدنا إنه فعلاً بتاع العميل، مش مجرد نفس الكتابة.</span></p>
           </div>
         </div>
         <?php endif; ?>
@@ -205,6 +249,33 @@ if (!function_exists('cu_plat')) { function cu_plat($p) { global $plat_name; ret
           } else {
             btn.disabled = false;
             window.alert(resp.message || 'Could not merge. / لم يتم الدمج.');
+          }
+        })
+        .catch(function () { btn.disabled = false; window.alert('Network error. / خطأ في الاتصال.'); });
+    });
+  });
+
+  // Review round 1: every merge is reversible from the UI, not just via the API — the banner
+  // on a merged-away customer's own profile and the "Recently merged into this customer" list
+  // on the surviving customer's profile both use this same confirm-gated Undo button.
+  document.querySelectorAll('.cu-unmerge-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var logId = btn.getAttribute('data-log-id');
+      if (!window.confirm('Undo this merge? Everything it moved goes back to where it was. / هل تريد التراجع عن هذا الدمج؟ كل حاجة اتنقلت هترجع مكانها.')) return;
+
+      var fd = new FormData();
+      fd.append('csrf_token', TOKEN);
+      fd.append('log_id', logId);
+
+      btn.disabled = true;
+      fetch(BASE + 'customers/unmerge', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+          if (resp.status === '1') {
+            window.location.reload();
+          } else {
+            btn.disabled = false;
+            window.alert(resp.message || 'Could not undo the merge. / لم يتم التراجع عن الدمج.');
           }
         })
         .catch(function () { btn.disabled = false; window.alert('Network error. / خطأ في الاتصال.'); });

@@ -60,11 +60,16 @@ echo "== customer_scope_list(): tenant guard is always first, filters appended a
 
 $q = new FakeQB();
 customer_scope_list($q, 555, array());
-check('no filters -> tenant guard is the only call', $q->calls, array(array('where', 'c.user_id', 555)));
+check('no filters -> tenant guard, then the merged-away exclusion, nothing else', $q->calls, array(
+    array('where', 'c.user_id', 555),
+    array('where', 'c.merged_into_customer_id IS NULL', null),
+));
 
 $q = new FakeQB();
 customer_scope_list($q, 555, array('search' => "o'brien", 'channel' => 'wa'));
 check('with filters -> tenant guard is still the first call', $q->calls[0], array('where', 'c.user_id', 555));
+check('...and the merged-away exclusion is always the second call, before any filter (review round 1: merged customers never show in a list)',
+    $q->calls[1], array('where', 'c.merged_into_customer_id IS NULL', null));
 $has_or_where_bypass = false;
 foreach ($q->calls as $c) {
     if ($c[0] === 'where' && $c === array('where', "EXISTS (SELECT 1 FROM customer_identities ci WHERE ci.customer_id = c.id AND ci.user_id = 555 AND ci.platform = 'wa')", null)) {
@@ -259,24 +264,41 @@ $q2 = $db2->select('*')->from('customers');
 customer_scope_owner($q2, 42, 2); // tenant B asking for its own row
 check('...but tenant B reading its own row still works (guard is not overzealous)', $q2->get()->row_array(), $tenantBsRow);
 
+
+
 // ============================================================================================
 // Task 29 (C14, brief §16) — customer_merge()/customer_unmerge()/merge suggestions.
 // REVIEW GATE: nothing here ever merges automatically — every merge below is an explicit
 // customer_merge() call, and every one is proven reversible by an immediately-following
-// customer_unmerge() that restores exactly the moved rows, no more, no less.
+// customer_unmerge() that restores exactly the moved rows, no more, no less. Review round 1
+// added: crm_deals/sequence_enrollments move+restore, row locks (FOR UPDATE) on the guard
+// reads, and honest partial-restore reporting (never silently claim a full undo).
 
-/** In-memory fake CI DB supporting the small subset customer_merge()/customer_unmerge() use:
- *  select/from/where/where_in/get/row_array/result_array, update, insert/insert_id,
- *  trans_start/trans_complete/trans_status, table_exists/field_exists. Good enough to prove
- *  real row-level behaviour (which ids moved, which stayed) without a real database. */
+/** Minimal query() result wrapper for FakeMergeDB::query() (the FOR UPDATE lock reads). */
+class FakeMergeQueryResult
+{
+    private $rows;
+    public function __construct(array $rows) { $this->rows = $rows; }
+    public function row_array() { return $this->rows ? $this->rows[0] : array(); }
+    public function result_array() { return $this->rows; }
+}
+
+/** In-memory fake CI DB supporting the subset customer_merge()/customer_unmerge() use:
+ *  select/from/where/where_in/get/row_array/result_array, update (+ affected_rows()),
+ *  insert/insert_id, trans_start/trans_complete/trans_status/trans_rollback,
+ *  table_exists/field_exists, and query() for the two "SELECT ... FOR UPDATE" row locks. Good
+ *  enough to prove real row-level behaviour (which ids moved, which stayed, which lock reads
+ *  were issued) without a real database. */
 class FakeMergeDB
 {
     public $tables;
     public $table_exists_map = array();
     public $field_exists_map = array();
+    public $query_log = array(); // every raw query() call, so a test can assert FOR UPDATE was used
     private $ai = array();
     private $q;
     private $last_id = 0;
+    private $last_affected = 0;
     private $trans_ok = true;
 
     public function __construct(array $seed)
@@ -301,12 +323,29 @@ class FakeMergeDB
     public function where($a, $b = null, $escape = null) { $this->q['where'][] = array($a, $b, false); return $this; }
     public function where_in($col, $vals) { $this->q['where'][] = array($col, $vals, true); return $this; }
 
+    /** Strips a table alias prefix ("l.user_id" -> "user_id") — this fake has no real join
+     *  execution (single-table row store), so an aliased column is matched against the row's
+     *  own field of the same name, same as customer_recent_merges_into()'s "l." prefixes. */
+    private function strip_alias($col) { return strpos($col, '.') !== false ? substr($col, strrpos($col, '.') + 1) : $col; }
+
     private function matches(array $r, array $wheres)
     {
         foreach ($wheres as $w) {
             list($col, $val, $is_in) = $w;
-            if ($is_in) { if (!in_array($r[$col] ?? null, $val)) return false; }
-            else { if (($r[$col] ?? null) != $val) return false; }
+            if ($is_in) {
+                if (!in_array($r[$this->strip_alias($col)] ?? null, $val)) return false;
+                continue;
+            }
+            // Raw "<col> IS NULL" fragments (customer_active_merge_as_source()/
+            // customer_recent_merges_into() use "unmerged_at IS NULL") — a missing key counts
+            // as NULL (an inserted log row has no unmerged_at until it's actually stamped).
+            if ($val === null && is_string($col) && preg_match('/^([\w.]+)\s+IS\s+NULL$/i', trim($col), $m)) {
+                $field = $this->strip_alias($m[1]);
+                $current = array_key_exists($field, $r) ? $r[$field] : null;
+                if ($current !== null) return false;
+                continue;
+            }
+            if (($r[$this->strip_alias($col)] ?? null) != $val) return false;
         }
         return true;
     }
@@ -330,13 +369,17 @@ class FakeMergeDB
     public function update($table, $data)
     {
         $wheres = $this->q['where']; $this->reset();
+        $affected = 0;
         foreach ($this->tables[$table] as $id => $r) {
             if ($this->matches($r, $wheres)) {
                 foreach ($data as $k => $v) $this->tables[$table][$id][$k] = $v;
+                $affected++;
             }
         }
+        $this->last_affected = $affected;
         return true;
     }
+    public function affected_rows() { return $this->last_affected; }
 
     public function insert($table, $data)
     {
@@ -345,12 +388,33 @@ class FakeMergeDB
         $data['id'] = $id;
         $this->tables[$table][$id] = $data;
         $this->last_id = $id;
+        $this->last_affected = 1;
         return true;
     }
     public function insert_id() { return $this->last_id; }
 
+    /** The only raw query() this fake needs to understand: customer_merge_lock_customer()'s
+     *  "SELECT id, merged_into_customer_id FROM customers WHERE id = ? AND user_id = ? FOR
+     *  UPDATE". Anything else returns an empty result rather than guessing. */
+    public function query($sql, $binds = array())
+    {
+        $this->query_log[] = $sql;
+        $norm = preg_replace('/\s+/', ' ', trim($sql));
+        if ($norm === 'SELECT id, merged_into_customer_id FROM customers WHERE id = ? AND user_id = ? FOR UPDATE') {
+            $id = (int) ($binds[0] ?? 0);
+            $uid = (int) ($binds[1] ?? 0);
+            $rows = array();
+            foreach (($this->tables['customers'] ?? array()) as $r) {
+                if ((int) $r['id'] === $id && (int) $r['user_id'] === $uid) $rows[] = $r;
+            }
+            return new FakeMergeQueryResult($rows);
+        }
+        return new FakeMergeQueryResult(array());
+    }
+
     public function trans_start() { $this->trans_ok = true; }
     public function trans_complete() { }
+    public function trans_rollback() { $this->trans_ok = false; }
     public function trans_status() { return $this->trans_ok; }
 
     public function table_exists($t) { return isset($this->tables[$t]) || !empty($this->table_exists_map[$t]); }
@@ -370,7 +434,7 @@ function fresh_merge_db()
             11 => array('id' => 11, 'customer_id' => 2, 'user_id' => 1, 'platform' => 'fb', 'channel_account_id' => 0, 'external_id' => '200'),
             12 => array('id' => 12, 'customer_id' => 2, 'user_id' => 1, 'platform' => 'wa', 'channel_account_id' => 0, 'external_id' => '999'),
             13 => array('id' => 13, 'customer_id' => 1, 'user_id' => 1, 'platform' => 'tg', 'channel_account_id' => 0, 'external_id' => 'dupe'),
-            14 => array('id' => 14, 'customer_id' => 2, 'user_id' => 1, 'platform' => 'tg', 'channel_account_id' => 0, 'external_id' => 'dupe'), // collides with 13
+            14 => array('id' => 14, 'customer_id' => 2, 'user_id' => 1, 'platform' => 'tg', 'channel_account_id' => 0, 'external_id' => 'dupe'), // "collides" with 13 (unreachable with the real unique key, exercises the defensive skip anyway)
         ),
         'conversations' => array(
             100 => array('id' => 100, 'customer_id' => 2, 'user_id' => 1),
@@ -378,10 +442,39 @@ function fresh_merge_db()
             102 => array('id' => 102, 'customer_id' => 1, 'user_id' => 1), // already keep's, must not move / duplicate
             103 => array('id' => 103, 'customer_id' => 3, 'user_id' => 2), // other tenant, must never be touched
         ),
+        'crm_deals' => array(
+            200 => array('id' => 200, 'customer_id' => 2, 'user_id' => 1),
+            201 => array('id' => 201, 'customer_id' => 1, 'user_id' => 1), // already keep's
+        ),
+        'sequence_enrollments' => array(
+            300 => array('id' => 300, 'customer_id' => 2, 'user_id' => 1),
+        ),
         'customer_merge_log' => array(),
     ));
 }
-function merge_log_ready($db) { $db->table_exists_map['customer_merge_log'] = true; $db->field_exists_map['customer_merge_log'] = array('conversations_moved' => true, 'unmerged_at' => true); return $db; }
+
+/** Marks the two new customer_merge_log columns (deals_moved/enrollments_moved on top of the
+ *  original conversations_moved/unmerged_at) as present — the state after
+ *  2026-10-05c-customer-merge.sql has run. */
+function merge_log_ready($db)
+{
+    $db->table_exists_map['customer_merge_log'] = true;
+    $db->field_exists_map['customer_merge_log'] = array(
+        'conversations_moved' => true, 'deals_moved' => true, 'enrollments_moved' => true, 'unmerged_at' => true,
+    );
+    return $db;
+}
+
+/** Marks crm_deals.customer_id and sequence_enrollments.customer_id as present (2026-10-04c /
+ *  2026-09-26) — an install that has run those migrations. */
+function merge_children_ready($db)
+{
+    foreach (array('crm_deals', 'sequence_enrollments') as $t) {
+        $db->table_exists_map[$t] = true;
+        $db->field_exists_map[$t] = array('customer_id' => true, 'user_id' => true);
+    }
+    return $db;
+}
 
 $audit_calls = array();
 if (!function_exists('audit_record')) {
@@ -401,32 +494,47 @@ check('customers table untouched', $db->tables['customers'][2]['merged_into_cust
 check('no log row written', $db->tables['customer_merge_log'], array());
 
 echo "== customer_merge(): self-merge refused ==\n";
-$db = merge_log_ready(fresh_merge_db());
+$db = merge_log_ready(merge_children_ready(fresh_merge_db()));
 list($ok, $errors) = customer_merge($db, 1, 1, 9, 1);
 check('self-merge refused', $ok, false);
 check('self-merge error message', $errors, array('Cannot merge a customer into itself.'));
 
 echo "== customer_merge(): cross-tenant refused (merge_id belongs to another tenant) ==\n";
-$db = merge_log_ready(fresh_merge_db());
+$db = merge_log_ready(merge_children_ready(fresh_merge_db()));
 list($ok, $errors) = customer_merge($db, 1, 3, 9, 1); // customer 3 is user_id 2
 check('cross-tenant merge_id refused', $ok, false);
 check('customer 3 (tenant 2) untouched', $db->tables['customers'][3]['merged_into_customer_id'], null);
 
 echo "== customer_merge(): cross-tenant refused (keep_id belongs to another tenant) ==\n";
-$db = merge_log_ready(fresh_merge_db());
+$db = merge_log_ready(merge_children_ready(fresh_merge_db()));
 list($ok, $errors) = customer_merge($db, 3, 2, 9, 1); // keep_id 3 is user_id 2, acting as tenant 1
 check('cross-tenant keep_id refused', $ok, false);
 check('customer 2 untouched', $db->tables['customers'][2]['merged_into_customer_id'], null);
 
-echo "== customer_merge(): happy path moves the right rows, skips colliding identities, logs everything ==\n";
+echo "== customer_merge(): both customer guard reads are row-locked (SELECT ... FOR UPDATE) ==\n";
+$db = merge_log_ready(merge_children_ready(fresh_merge_db()));
+customer_merge($db, 1, 2, 9, 1);
+check('exactly 2 FOR UPDATE lock reads issued (keep, then merge)', count($db->query_log), 2);
+check('both lock reads use FOR UPDATE', strpos($db->query_log[0], 'FOR UPDATE') !== false && strpos($db->query_log[1], 'FOR UPDATE') !== false, true);
+
+echo "== customer_merge(): crm_deals/sequence_enrollments not moved when their columns don't exist yet (older install) ==\n";
+$db = merge_log_ready(fresh_merge_db()); // merge_children_ready() NOT called
+list($ok, $errors, $result) = customer_merge($db, 1, 2, 9, 1);
+check('merge still succeeds', $ok, true);
+check('deals_moved empty (crm_deals.customer_id not ready)', $result['deals_moved'], array());
+check('enrollments_moved empty (sequence_enrollments.customer_id not ready)', $result['enrollments_moved'], array());
+check('crm_deals row 200 was NOT touched', $db->tables['crm_deals'][200]['customer_id'], 2);
+check('sequence_enrollments row 300 was NOT touched', $db->tables['sequence_enrollments'][300]['customer_id'], 2);
+
+echo "== customer_merge(): happy path moves the right rows in every table, skips colliding identities, logs everything ==\n";
 $audit_calls = array();
-$db = merge_log_ready(fresh_merge_db());
+$db = merge_log_ready(merge_children_ready(fresh_merge_db()));
 list($ok, $errors, $result) = customer_merge($db, 1, 2, 9, 1);
 check('merge succeeds', $ok, true);
 check('no errors', $errors, array());
 
 $moved_idents = $result['identities_moved']; sort($moved_idents);
-check('identities 11 and 12 moved (14 skipped: would collide with 13 on customer 1)', $moved_idents, array(11, 12));
+check('identities 11 and 12 moved (14 skipped: defensive collision guard against 13)', $moved_idents, array(11, 12));
 check('identity 14 (the collision) stayed on customer 2', $db->tables['customer_identities'][14]['customer_id'], 2);
 check('identity 13 (the pre-existing one) untouched', $db->tables['customer_identities'][13]['customer_id'], 1);
 check('identity 11 now belongs to customer 1', $db->tables['customer_identities'][11]['customer_id'], 1);
@@ -437,6 +545,13 @@ check('conversations 100 and 101 moved', $moved_convs, array(100, 101));
 check('conversation 102 (already keep\'s) untouched', $db->tables['conversations'][102]['customer_id'], 1);
 check('conversation 103 (other tenant) untouched', $db->tables['conversations'][103]['customer_id'], 3);
 
+check('deal 200 moved to customer 1', $db->tables['crm_deals'][200]['customer_id'], 1);
+check('deal 201 (already keep\'s) untouched', $db->tables['crm_deals'][201]['customer_id'], 1);
+check('result.deals_moved is exactly [200]', $result['deals_moved'], array(200));
+
+check('sequence enrollment 300 moved to customer 1', $db->tables['sequence_enrollments'][300]['customer_id'], 1);
+check('result.enrollments_moved is exactly [300]', $result['enrollments_moved'], array(300));
+
 check('customer 2 marked merged into 1', $db->tables['customers'][2]['merged_into_customer_id'], 1);
 check('customer 1 (the keep side) not marked merged', $db->tables['customers'][1]['merged_into_customer_id'], null);
 
@@ -446,18 +561,24 @@ check('log row: source is the merged customer', (int) $log['source_customer_id']
 check('log row: target is the keep customer', (int) $log['target_customer_id'], 1);
 check('log row: identities_moved JSON matches', json_decode($log['identities_moved'], true), array(11, 12));
 check('log row: conversations_moved JSON matches', json_decode($log['conversations_moved'], true), array(100, 101));
+check('log row: deals_moved JSON matches', json_decode($log['deals_moved'], true), array(200));
+check('log row: enrollments_moved JSON matches', json_decode($log['enrollments_moved'], true), array(300));
 check('log row: not yet unmerged', $log['unmerged_at'] ?? null, null);
 check('audit_record() was called for the merge', count($audit_calls) === 1 && $audit_calls[0][1] === 'customer.merge', true);
 
-echo "== customer_unmerge(): restores exactly the moved rows, no more no less ==\n";
+echo "== customer_unmerge(): restores exactly the moved rows in every table, no more no less ==\n";
 $audit_calls = array();
 list($ok, $errors, $undo) = customer_unmerge($db, $log_id, 9, 1);
 check('unmerge succeeds', $ok, true);
+check('unmerge reports fully_restored', $undo['fully_restored'], true);
 check('identities 11 and 12 restored to customer 2', array($db->tables['customer_identities'][11]['customer_id'], $db->tables['customer_identities'][12]['customer_id']), array(2, 2));
 check('identity 13 (never moved) still on customer 1', $db->tables['customer_identities'][13]['customer_id'], 1);
 check('identity 14 (never moved, stayed on 2 throughout) still on customer 2', $db->tables['customer_identities'][14]['customer_id'], 2);
 check('conversations 100 and 101 restored to customer 2', array($db->tables['conversations'][100]['customer_id'], $db->tables['conversations'][101]['customer_id']), array(2, 2));
 check('conversation 102 (never touched) still on customer 1', $db->tables['conversations'][102]['customer_id'], 1);
+check('deal 200 restored to customer 2', $db->tables['crm_deals'][200]['customer_id'], 2);
+check('deal 201 (never touched) still on customer 1', $db->tables['crm_deals'][201]['customer_id'], 1);
+check('sequence enrollment 300 restored to customer 2', $db->tables['sequence_enrollments'][300]['customer_id'], 2);
 check('customer 2 no longer marked merged', $db->tables['customers'][2]['merged_into_customer_id'], null);
 check('log row stamped unmerged_at', empty($db->tables['customer_merge_log'][$log_id]['unmerged_at']), false);
 check('audit_record() was called for the unmerge', count($audit_calls) === 1 && $audit_calls[0][1] === 'customer.unmerge', true);
@@ -468,11 +589,43 @@ check('second unmerge of the same log refused', $ok, false);
 check('second unmerge error message', $errors, array('This merge was already undone.'));
 
 echo "== customer_unmerge(): cross-tenant refused (log row belongs to another tenant) ==\n";
-$db2 = merge_log_ready(fresh_merge_db());
+$db2 = merge_log_ready(merge_children_ready(fresh_merge_db()));
 list(, , $r2) = customer_merge($db2, 1, 2, 9, 1);
 list($ok, $errors) = customer_unmerge($db2, $r2['log_id'], 9, 2); // tenant 2 trying to undo tenant 1's merge
 check('cross-tenant unmerge refused', $ok, false);
 check('nothing reverted for tenant 2\'s attempt', $db2->tables['customers'][2]['merged_into_customer_id'], 1);
+
+echo "== customer_unmerge(): refuses outright, no state change, if the target was itself merged since ==\n";
+$db3 = merge_log_ready(merge_children_ready(fresh_merge_db()));
+list(, , $r3) = customer_merge($db3, 1, 2, 9, 1); // merge 2 into 1
+// Now customer 1 (the target of that merge) is itself merged away into a third customer —
+// simulate directly (bypassing the helper, as a second, later, otherwise-unrelated merge would).
+$db3->tables['customers'][1]['merged_into_customer_id'] = 999;
+list($ok, $errors) = customer_unmerge($db3, $r3['log_id'], 9, 1);
+check('unmerge refused outright', $ok, false);
+check('refusal message names the real cause', $errors, array('The customer that received this merge has itself since been merged elsewhere. Undo that merge first.'));
+check('no state change: identities still on customer 1 (the target), not reverted to 2', $db3->tables['customer_identities'][11]['customer_id'], 1);
+check('no state change: customer 2 still marked merged (unmerged_at not stamped)', $db3->tables['customers'][2]['merged_into_customer_id'], 1);
+
+echo "== customer_unmerge(): partial restore is reported honestly, not silently marked complete ==\n";
+$db4 = merge_log_ready(merge_children_ready(fresh_merge_db()));
+list(, , $r4) = customer_merge($db4, 1, 2, 9, 1); // identities 11,12 + conversations 100,101 + deal 200 + enrollment 300 all move to customer 1
+// Simulate one recorded row having moved again for some unrelated reason after the merge (not
+// through customer_unmerge() or a second customer_merge() — e.g. hand-edited data, or a bug
+// elsewhere): conversation 100 now belongs to some other customer, not the merge target.
+$db4->tables['conversations'][100]['customer_id'] = 777;
+list($ok, $errors, $undo4) = customer_unmerge($db4, $r4['log_id'], 9, 1);
+check('unmerge reports NOT ok (partial)', $ok, false);
+check('error message explains it is a partial restore', strpos($errors[0], 'Only part of this merge could be restored') === 0, true);
+check('fully_restored is false', $undo4['fully_restored'], false);
+check('identities: both still fully restored (11, 12)', $undo4['identities_restored'], array(11, 12));
+check('conversations: only 101 restored, 100 honestly left out (it was not where recorded)', $undo4['conversations_restored'], array(101));
+check('conversation 101 really did move back to customer 2', $db4->tables['conversations'][101]['customer_id'], 2);
+check('conversation 100 was left alone (still on 777, not silently reassigned)', $db4->tables['conversations'][100]['customer_id'], 777);
+check('deals: fully restored', $undo4['deals_restored'], array(200));
+check('enrollments: fully restored', $undo4['enrollments_restored'], array(300));
+check('because the restore was partial, customer 2 is NOT cleared of merged_into_customer_id', $db4->tables['customers'][2]['merged_into_customer_id'], 1);
+check('because the restore was partial, the log row is NOT stamped unmerged_at', $db4->tables['customer_merge_log'][$r4['log_id']]['unmerged_at'] ?? null, null);
 
 echo "== customer_merge(): nothing merges without the explicit call (static audit) ==\n";
 $helper_src = file_get_contents(__DIR__ . '/../../application/helpers/customer_helper.php');
@@ -491,18 +644,35 @@ check('unmerge() is csrf_token_check()-gated',
     strpos(substr($controller_src, strpos($controller_src, 'public function unmerge()')), '$this->csrf_token_check();') !== false, true);
 check('suggestions() is ajax_check()-gated (read-only, no csrf needed, same as customers_data())',
     strpos(substr($controller_src, strpos($controller_src, 'public function suggestions()')), '$this->ajax_check();') !== false, true);
+check('Customers::unmerge() is the only controller entry point calling customer_unmerge(',
+    substr_count($controller_src, 'customer_unmerge($this->db,'), 1);
 
 // ============================================================================================
-echo "== customer_merge_suggestion_rows(): query is scoped to tenant + verified + not-merged ==\n";
+echo "== customer_scope_list(): merged-away customers excluded from every Customer 360 list (review round 1) ==\n";
+$q = new FakeQB();
+$q->rows = array(
+    array('id' => 1, 'user_id' => 555, 'merged_into_customer_id' => null),
+);
+customer_scope_list($q, 555, array());
+$has_exclusion = in_array(array('where', 'c.merged_into_customer_id IS NULL', null), $q->calls);
+check('customer list query excludes merged-away customers (c.merged_into_customer_id IS NULL)', $has_exclusion, true);
+
+// ============================================================================================
+echo "== customer_merge_suggestion_rows_for_customer()/customer_merge_suggestions_for_customer(): computed directly for one customer ==\n";
 
 $q = new FakeQB();
-customer_merge_suggestion_rows($q, 7);
-$has_tenant_filter = in_array(array('where', 'ci.user_id', 7), $q->calls) && in_array(array('where', 'c.user_id', 7), $q->calls);
-check('scoped to the tenant on both sides of the join', $has_tenant_filter, true);
-check('only verified identities', in_array(array('where', 'ci.verified', 1), $q->calls), true);
-check('excludes already-merged customers', in_array(array('where', 'c.merged_into_customer_id IS NULL', null), $q->calls), true);
+$q->rows = array(array('platform' => 'wa', 'external_id' => '2010000000', 'display_name' => 'Sara'));
+customer_merge_suggestion_rows_for_customer($q, 7, 1);
+$self_call_present = false;
+foreach ($q->calls as $c) { if ($c[0] === 'where' && $c[1] === 'ci.customer_id' && $c[2] === 1) $self_call_present = true; }
+check('queries this customer\'s own identities first (ci.customer_id = $customer_id)', $self_call_present, true);
+$verified_only = in_array(array('where', 'ci.verified', 1), $q->calls);
+check('only verified identities considered', $verified_only, true);
+$excludes_self_from_others = false;
+foreach ($q->calls as $c) { if ($c[0] === 'where' && $c[1] === 'ci.customer_id !=' && $c[2] === 1) $excludes_self_from_others = true; }
+check('the "other customers" lookup excludes this customer itself', $excludes_self_from_others, true);
 
-echo "== customer_merge_suggestions_from_rows(): pairs only same-value, 2+ customers, never auto-merges ==\n";
+echo "== customer_merge_suggestions_from_rows(): groups by (platform, external_id), never auto-merges ==\n";
 
 $rows = array(
     array('customer_id' => 1, 'platform' => 'wa', 'external_id' => '2010000000', 'display_name' => 'Sara'),
@@ -525,6 +695,12 @@ check('rows with an empty external_id are ignored, never grouped together', cust
     array('customer_id' => 7, 'platform' => 'wa', 'external_id' => '', 'display_name' => 'Y'),
 )), array());
 
+check('the SAME value on two DIFFERENT platforms is NOT a match (grouped by platform + external_id, review round 1)',
+    customer_merge_suggestions_from_rows(array(
+        array('customer_id' => 8, 'platform' => 'wa', 'external_id' => 'shared', 'display_name' => 'A'),
+        array('customer_id' => 9, 'platform' => 'tg', 'external_id' => 'shared', 'display_name' => 'B'),
+    )), array());
+
 $limited = customer_merge_suggestions_from_rows(array(
     array('customer_id' => 1, 'platform' => 'wa', 'external_id' => 'v1', 'display_name' => 'A'),
     array('customer_id' => 2, 'platform' => 'wa', 'external_id' => 'v1', 'display_name' => 'B'),
@@ -532,6 +708,43 @@ $limited = customer_merge_suggestions_from_rows(array(
     array('customer_id' => 4, 'platform' => 'wa', 'external_id' => 'v2', 'display_name' => 'D'),
 ), 1);
 check('limit is respected', count($limited), 1);
+
+// ============================================================================================
+echo "== customer_active_merge_as_source() / customer_recent_merges_into(): Undo UI data ==\n";
+
+$db5 = merge_log_ready(merge_children_ready(fresh_merge_db()));
+list(, , $r5) = customer_merge($db5, 1, 2, 9, 1);
+
+$active = customer_active_merge_as_source($db5, 1, 2);
+check('customer 2 (the retired side) has an active merge record pointing at customer 1', $active['target_customer_id'] ?? null, 1);
+check('customer 1 (the keep side) has no active merge AS SOURCE (it was never merged away)', customer_active_merge_as_source($db5, 1, 1), null);
+
+$recent = customer_recent_merges_into($db5, 1, 1);
+check('customer 1 (the keep side) shows exactly one recent merge into it', count($recent), 1);
+check('that recent merge is from customer 2', (int) $recent[0]['source_customer_id'], 2);
+
+customer_unmerge($db5, $r5['log_id'], 9, 1);
+check('after undo, customer 2 no longer shows an active merge as source', customer_active_merge_as_source($db5, 1, 2), null);
+check('after undo, customer 1 no longer shows it in recent merges (only NOT-yet-unmerged rows list)', customer_recent_merges_into($db5, 1, 1), array());
+
+// ============================================================================================
+echo "== static audit: Customers::profile() surfaces the merge banner + Undo list (review round 1) ==\n";
+
+check('build_profile() includes merge_source_log (the "Merged into #X" banner + Undo)',
+    strpos($controller_src, "'merge_source_log'") !== false, true);
+check('build_profile() includes recent_merges_in (the keep-side Undo list)',
+    strpos($controller_src, "'recent_merges_in'") !== false, true);
+check('build_profile() calls customer_active_merge_as_source($this->db, $this->uid, ...)',
+    strpos($controller_src, 'customer_active_merge_as_source($this->db, $this->uid,') !== false, true);
+check('build_profile() calls customer_recent_merges_into($this->db, $this->uid, ...)',
+    strpos($controller_src, 'customer_recent_merges_into($this->db, $this->uid,') !== false, true);
+check('profile()\'s customer SELECT includes merged_into_customer_id (needed for the banner)',
+    strpos($controller_src, 'merged_into_customer_id') !== false, true);
+
+$view_src = file_get_contents(__DIR__ . '/../../application/views/admin/customers/profile.php');
+check('profile view renders an Undo control wired to customers/unmerge', strpos($view_src, 'cu-unmerge-btn') !== false, true);
+check('profile view mentions verified identities are what suggestions require (review round 1 UI note)',
+    stripos($view_src, 'verified') !== false, true);
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
