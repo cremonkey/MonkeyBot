@@ -336,25 +336,38 @@ if (!function_exists('ai_agent_enforce_restrictions')) {
                 }
             }
 
-            // 3) allowed_link_domains — strip/replace any link whose host is not on the
-            // allow-list. Unlike the SPEC-31 media gate (which checks against configured
-            // albums) this is an owner-set allow-list of domains; a non-matching link is
-            // simply removed rather than escalated, since a link is rarely the whole reply.
+            // 3) allowed_link_domains — strip any link whose host is neither on the
+            // owner's allow-list NOR one of the tenant's own configured media/album hosts
+            // (pricing_config's photo albums, SPEC-31) — an owner-set restriction is never
+            // meant to also block the resort's own gallery links the bot is supposed to
+            // send. A non-matching link is simply removed rather than escalated, since a
+            // link is rarely the whole reply.
             if (!empty($r['allowed_link_domains'])) {
                 $CI->load->helper('media');
+                $allow_hosts = $r['allowed_link_domains'];
+                try {
+                    $CI->load->helper('pricing');
+                    $mcfg = pricing_get_config($user_id, pricing_resolve_scope($user_id, $social_media, $page_id));
+                    if (!empty($mcfg)) {
+                        foreach (media_all_urls($mcfg) as $album_url) $allow_hosts[] = ai_agent_url_host($album_url);
+                    }
+                } catch (Throwable $ignore) { /* exemption is best-effort; the owner's own list still applies */ }
+
                 $urls = media_extract_urls($res['text']);
                 foreach ($urls as $u) {
                     $host = ai_agent_url_host($u);
                     $ok = false;
-                    foreach ($r['allowed_link_domains'] as $d) {
-                        if ($host === $d || (strlen($host) > strlen($d) && substr($host, -strlen($d) - 1) === '.' . $d)) { $ok = true; break; }
+                    foreach ($allow_hosts as $d) {
+                        if ($d !== '' && ($host === $d || (strlen($host) > strlen($d) && substr($host, -strlen($d) - 1) === '.' . $d))) { $ok = true; break; }
                     }
                     if (!$ok) {
-                        $res['text'] = str_replace($u, '', $res['text']);
+                        // Only collapse the run of spaces the removed link leaves behind —
+                        // never touch newlines, so the reply's paragraph structure survives.
+                        $res['text'] = preg_replace('/ {2,}/', ' ', str_replace($u, '', $res['text']));
                         $res['reason'] = trim($res['reason'] . ' link_stripped:' . $host);
                     }
                 }
-                $res['text'] = trim(preg_replace('/\s{2,}/', ' ', $res['text']));
+                $res['text'] = trim($res['text']);
             }
         } catch (Throwable $e) {
             log_message('error', 'ai_agent_enforce_restrictions: ' . $e->getMessage());

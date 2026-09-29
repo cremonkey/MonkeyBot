@@ -133,11 +133,18 @@ class Appointment_booking extends Home
         $date = $this->input->post('date'); $time = $this->input->post('time');
         $name = strip_tags((string)$this->input->post('name')); $phone = strip_tags((string)$this->input->post('phone')); $email = strip_tags((string)$this->input->post('email'));
         // Task 27 (C12): shared with Ai_tools::t_create_booking via appointment_booking_helper
-        // so the web widget and the AI booking tool insert through the exact same validation,
-        // clash check, and event emission. Behaviour here is unchanged.
+        // so the web widget and the AI booking tool insert through the exact same clash
+        // check and event emission. The helper returns a code, not wording, so this method
+        // renders EXACTLY the same messages it always did — the web widget's JSON is
+        // byte-identical to before this task.
         $this->load->helper('appointment_booking');
         $res = ab_create_booking($uid, $service_id, $date, $time, $name, $phone, $email, 'web');
-        echo json_encode(['status'=>$res['status'],'message'=>$res['message']]);
+        switch ($res['code']) {
+            case 'missing_fields': echo json_encode(['status'=>'0','message'=>'Missing fields']); return;
+            case 'invalid_service': echo json_encode(['status'=>'0','message'=>'Invalid service']); return;
+            case 'clash': echo json_encode(['status'=>'0','message'=>'That slot was just taken.']); return;
+        }
+        echo json_encode(['status'=>'1','message'=>'Booked for '.$res['starts_at'].'. Reference: '.$res['booking_key']]);
     }
 
     // cron: appointment_booking/reminder/<api_key>

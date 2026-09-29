@@ -350,44 +350,6 @@ class Ai_tools
      * Ambiguous or unknown names return an instruction to ask, never a guess:
      * a wrong album is the customer-visible twin of a cross-mapped price.
      */
-    /**
-     * Task 27 (C12) — books an appointment using the exact same insert path as the public
-     * booking widget (appointment_booking_helper.php, reused, not duplicated). Only ever
-     * reached when the profile's capabilities include 't_create_booking' — checked again
-     * here in execute() as well as at the catalog() level. Never books on vague input: the
-     * model can only call this tool with an explicit service/date/time (all three are
-     * 'required' in the tool schema), and the underlying helper re-validates everything and
-     * is itself tenant-scoped (the service lookup filters by user_id).
-     */
-    protected function t_create_booking($user_id, $args, $context = array())
-    {
-        $this->CI->load->helper('appointment_booking');
-        $service_name = trim((string) ($args['service'] ?? ''));
-        $date = trim((string) ($args['date'] ?? ''));
-        $time = trim((string) ($args['time'] ?? ''));
-        if ($service_name === '' || $date === '' || $time === '') {
-            return 'Missing service, date, or time — ask the customer for the exact service, date, and time before booking.';
-        }
-        $svc = $this->CI->db->from('ab_services')->where('user_id', $user_id)->where('status', '1')
-            ->where('name', $service_name)->limit(1)->get()->row_array();
-        if (empty($svc)) {
-            // fuzzy fallback: a customer/model rarely types the service name exactly
-            $svc = $this->CI->db->from('ab_services')->where('user_id', $user_id)->where('status', '1')
-                ->like('name', $service_name)->limit(1)->get()->row_array();
-        }
-        if (empty($svc)) {
-            return 'No matching service "' . $service_name . '". Ask the customer which service they want from the ones you actually offer.';
-        }
-        $name = trim((string) ($args['name'] ?? 'Customer'));
-        $phone = trim((string) ($args['phone'] ?? ''));
-        $email = trim((string) ($args['email'] ?? ''));
-        $res = ab_create_booking($user_id, (int) $svc['id'], $date, $time, $name !== '' ? $name : 'Customer', $phone, $email, 'ai');
-        if ($res['status'] !== '1') {
-            return 'Booking failed: ' . $res['message'] . '. Ask the customer for a different date/time or hand off if this keeps happening.';
-        }
-        return 'Booked ' . $svc['name'] . ' for ' . $res['starts_at'] . '. Reference: ' . $res['booking_key'] . '. Tell the customer their booking is confirmed and give them the reference.';
-    }
-
     protected function t_room_media($user_id, $args, $context = array())
     {
         $this->CI->load->helper('pricing');
@@ -439,6 +401,58 @@ class Ai_tools
         $this->CI->load->helper('pricing');
         $scope = pricing_resolve_scope($uid, (string) ($context['social_media'] ?? ''), (string) ($context['page_id'] ?? ''));
         return pricing_get_config($uid, $scope);
+    }
+
+    /**
+     * Task 27 (C12) — books an appointment using the exact same clash-check + insert as the
+     * public booking widget (appointment_booking_helper.php: ab_create_booking(), reused,
+     * not duplicated — Appointment_booking::submit_booking() calls the same function and
+     * still renders its own pre-existing messages, unchanged). Only ever reached when the
+     * profile's capabilities include 't_create_booking' — checked again here in execute()
+     * as well as at the catalog() level. Never books on vague input: THIS method (not the
+     * shared helper, which stays as permissive as the web widget always was) requires an
+     * explicit, well-formed service/date/time before it will even look up a service.
+     */
+    protected function t_create_booking($user_id, $args, $context = array())
+    {
+        $this->CI->load->helper('appointment_booking');
+        $service_name = trim((string) ($args['service'] ?? ''));
+        $date = trim((string) ($args['date'] ?? ''));
+        $time = trim((string) ($args['time'] ?? ''));
+        if ($service_name === '' || $date === '' || $time === ''
+            || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !preg_match('/^\d{1,2}:\d{2}$/', $time)) {
+            return 'Missing or unclear service, date, or time — ask the customer for the exact service, date (YYYY-MM-DD), and time before booking. Never guess.';
+        }
+        $svc = $this->CI->db->from('ab_services')->where('user_id', $user_id)->where('status', '1')
+            ->where('name', $service_name)->limit(1)->get()->row_array();
+        $matches = array();
+        if (empty($svc)) {
+            // fuzzy fallback: a customer/model rarely types the service name exactly.
+            // More than one match is NOT resolved by guessing — ask which one, book nothing.
+            $matches = $this->CI->db->from('ab_services')->where('user_id', $user_id)->where('status', '1')
+                ->like('name', $service_name)->get()->result_array();
+            if (count($matches) === 1) $svc = $matches[0];
+        }
+        if (empty($svc)) {
+            if (count($matches) > 1) {
+                $names = implode(', ', array_map(function ($m) { return $m['name']; }, $matches));
+                return 'Several services match "' . $service_name . '" (' . $names . '). Ask the customer which one they mean before booking anything.';
+            }
+            return 'No matching service "' . $service_name . '". Ask the customer which service they want from the ones you actually offer.';
+        }
+        $name = trim((string) ($args['name'] ?? 'Customer'));
+        $phone = trim((string) ($args['phone'] ?? ''));
+        $email = trim((string) ($args['email'] ?? ''));
+        // ab_appointments.source ENUM('chat','web','manual') — this IS a chat booking.
+        $res = ab_create_booking($user_id, (int) $svc['id'], $date, $time, $name !== '' ? $name : 'Customer', $phone, $email, 'chat');
+        switch ($res['code']) {
+            case 'missing_fields':
+            case 'invalid_service':
+                return 'No matching service "' . $service_name . '". Ask the customer which service they want from the ones you actually offer.';
+            case 'clash':
+                return 'That slot is already booked. Ask the customer for a different date/time, or hand off if this keeps happening.';
+        }
+        return 'Booked ' . $svc['name'] . ' for ' . $res['starts_at'] . '. Reference: ' . $res['booking_key'] . '. Tell the customer their booking is confirmed and give them the reference.';
     }
 
     protected function t_calculate_price($user_id, $args, $context = array())

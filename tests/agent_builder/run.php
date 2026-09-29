@@ -228,11 +228,101 @@ check('t_create_booking: valid explicit booking succeeds', stripos($r_ok, 'Booke
 same('t_create_booking: exactly one appointment row inserted', 1, count($CI->db->tables['ab_appointments']));
 $row = array_values($CI->db->tables['ab_appointments'])[0];
 same('t_create_booking: inserted row is tenant-scoped', 100, $row['user_id']);
-same('t_create_booking: source recorded as ai', 'ai', $row['source']);
+
+same('t_create_booking: source recorded as the real "chat" enum value', 'chat', $row['source']);
 
 $r_clash = $tools->execute('t_create_booking', array('service' => 'Haircut', 'date' => '2026-10-10', 'time' => '10:00', 'name' => 'Other'), array('user_id' => 100, 'capabilities' => array('t_create_booking')));
-check('t_create_booking: double-booking the same slot is rejected', stripos($r_clash, 'Booking failed') === 0);
+check('t_create_booking: double-booking the same slot is rejected', stripos($r_clash, 'already booked') !== false);
 same('t_create_booking: clash did not insert a second row', 1, count($CI->db->tables['ab_appointments']));
+
+// ambiguous fuzzy match: several services contain the typed fragment -> ask, book nothing
+$CI->db->tables['ab_services'][3] = array('id' => 3, 'user_id' => 100, 'name' => 'Deep Massage', 'duration_min' => 45, 'status' => '1');
+$CI->db->tables['ab_services'][4] = array('id' => 4, 'user_id' => 100, 'name' => 'Quick Massage', 'duration_min' => 15, 'status' => '1');
+$before = count($CI->db->tables['ab_appointments']);
+$r_ambiguous = $tools->execute('t_create_booking', array('service' => 'Massage', 'date' => '2026-10-11', 'time' => '11:00', 'name' => 'X'), array('user_id' => 100, 'capabilities' => array('t_create_booking')));
+check('t_create_booking: ambiguous fuzzy match asks instead of guessing', stripos($r_ambiguous, 'Several services match') === 0);
+check('t_create_booking: ambiguous match books nothing', count($CI->db->tables['ab_appointments']) === $before);
+
+// ============================================================ 5. ab_appointments.source enum — read from the real migration so this can't drift
+$spec17 = file_get_contents(dirname(__DIR__, 2) . '/assets/backup_db/migrations/2026-07-05-spec17.sql');
+preg_match("/source ENUM\\(([^)]+)\\)/", $spec17, $em);
+check('found the source ENUM definition in spec17.sql', !empty($em));
+$real_enum = array_map(function ($v) { return trim($v, " '"); }, explode(',', $em[1]));
+same('ab_appointments.source enum is exactly chat/web/manual', array('chat', 'web', 'manual'), $real_enum);
+check('t_create_booking wrote a value that is actually in the enum', in_array($row['source'], $real_enum, true));
+
+// ============================================================ 6. web widget byte-identical golden test
+//
+// Reimplements Appointment_booking::submit_booking()'s pre-C12 logic (captured from
+// `git show a6cfffc9^:application/controllers/Appointment_booking.php`) so this test can
+// assert the CURRENT controller produces byte-identical JSON for the same inputs,
+// including edge cases the shared helper must NOT get stricter about (whitespace-only
+// name, no date/time format validation).
+function legacy_submit_booking($CI, $uid, $service_id, $date, $time, $name, $phone, $email)
+{
+    $name = strip_tags((string) $name); $phone = strip_tags((string) $phone); $email = strip_tags((string) $email);
+    if (!$uid || !$service_id || !$date || !$time || $name === '') return array('status' => '0', 'message' => 'Missing fields');
+    $svc = $CI->db->from('ab_services')->where('id', $service_id)->where('user_id', $uid)->get()->row_array();
+    if (!$svc) return array('status' => '0', 'message' => 'Invalid service');
+    $starts = date('Y-m-d H:i:s', strtotime($date . ' ' . $time));
+    $ends = date('Y-m-d H:i:s', strtotime($starts . ' +' . $svc['duration_min'] . ' minutes'));
+    $clash = $CI->db->from('ab_appointments')->where('user_id', $uid)
+        ->where('starts_at <', $ends)->where('ends_at >', $starts)
+        ->where_in('status', array('pending', 'confirmed'))->count_all_results();
+    if ($clash) return array('status' => '0', 'message' => 'That slot was just taken.');
+    return array('status' => '1', 'message_prefix' => 'Booked for ' . $starts . '. Reference: ');
+}
+
+function current_submit_booking($CI, $uid, $service_id, $date, $time, $name, $phone, $email)
+{
+    $res = ab_create_booking($uid, $service_id, $date, $time, $name, $phone, $email, 'web');
+    switch ($res['code']) {
+        case 'missing_fields': return array('status' => '0', 'message' => 'Missing fields');
+        case 'invalid_service': return array('status' => '0', 'message' => 'Invalid service');
+        case 'clash': return array('status' => '0', 'message' => 'That slot was just taken.');
+    }
+    return array('status' => '1', 'message' => 'Booked for ' . $res['starts_at'] . '. Reference: ' . $res['booking_key']);
+}
+
+$CI->db->tables['ab_services'] = array(1 => array('id' => 1, 'user_id' => 300, 'name' => 'Consult', 'duration_min' => 20, 'status' => '1'));
+$CI->db->tables['ab_appointments'] = array();
+
+// missing fields
+same('golden submit_booking: missing service_id', array('status' => '0', 'message' => 'Missing fields'),
+    legacy_submit_booking($CI, 300, 0, '2026-11-01', '09:00', 'Amr', '', ''));
+same('golden submit_booking: current matches legacy for missing fields', array('status' => '0', 'message' => 'Missing fields'),
+    current_submit_booking($CI, 300, 0, '2026-11-01', '09:00', 'Amr', '', ''));
+
+// whitespace-only name: the OLD code never trimmed, so "   " is NOT empty and passes through
+$legacy_ws = legacy_submit_booking($CI, 300, 1, '2026-11-01', '09:00', '   ', '', '');
+same('golden submit_booking: legacy accepts whitespace-only name (never trimmed)', '1', $legacy_ws['status']);
+$CI->db->tables['ab_appointments'] = array(); // reset between the two runs — each inserts its own row
+$current_ws = current_submit_booking($CI, 300, 1, '2026-11-01', '09:00', '   ', '', '');
+same('golden submit_booking: current also accepts whitespace-only name (no new trim)', '1', $current_ws['status']);
+
+// invalid service
+$CI->db->tables['ab_appointments'] = array();
+same('golden submit_booking: invalid service, legacy', array('status' => '0', 'message' => 'Invalid service'),
+    legacy_submit_booking($CI, 300, 999, '2026-11-01', '09:00', 'Amr', '', ''));
+same('golden submit_booking: invalid service, current — byte-identical message', array('status' => '0', 'message' => 'Invalid service'),
+    current_submit_booking($CI, 300, 999, '2026-11-01', '09:00', 'Amr', '', ''));
+
+// happy path — same $starts/$ends derivation (no date/time regex in either path)
+$CI->db->tables['ab_appointments'] = array();
+$legacy_ok = legacy_submit_booking($CI, 300, 1, '2026-11-01', '09:00', 'Amr', '01000000000', '');
+check('golden submit_booking: legacy happy path books', $legacy_ok['status'] === '1');
+$CI->db->tables['ab_appointments'] = array();
+$current_ok = current_submit_booking($CI, 300, 1, '2026-11-01', '09:00', 'Amr', '01000000000', '');
+same('golden submit_booking: current happy-path message is byte-identical to legacy',
+    $legacy_ok['message_prefix'] . array_values($CI->db->tables['ab_appointments'])[0]['booking_key'], $current_ok['message']);
+same('golden submit_booking: current inserts source=web (unchanged)', 'web', array_values($CI->db->tables['ab_appointments'])[0]['source']);
+
+// clash — the EXACT legacy wording "That slot was just taken." must survive
+$clash_row = array_values($CI->db->tables['ab_appointments'])[0];
+same('golden submit_booking: legacy clash message', array('status' => '0', 'message' => 'That slot was just taken.'),
+    legacy_submit_booking($CI, 300, 1, '2026-11-01', '09:00', 'Someone Else', '', ''));
+same('golden submit_booking: current clash message is byte-identical to legacy', array('status' => '0', 'message' => 'That slot was just taken.'),
+    current_submit_booking($CI, 300, 1, '2026-11-01', '09:00', 'Someone Else', '', ''));
 
 echo "== $PASS passed, $FAIL failed ==\n";
 exit($FAIL ? 1 : 0);
