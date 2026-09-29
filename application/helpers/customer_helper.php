@@ -323,18 +323,44 @@ if (!function_exists('customer_merge_child_table_ready')) {
     }
 }
 
-if (!function_exists('customer_merge_lock_customer')) {
-    /** Row-locked read of one customer (id, merged_into_customer_id), same "SELECT ... FOR
-     *  UPDATE" pattern conversation_transition() uses — must be called inside an open
-     *  transaction so the lock is held until trans_complete()/trans_rollback(). Returns array()
-     *  when the row does not exist or does not belong to $user_id. */
-    function customer_merge_lock_customer($db, $id, $user_id)
+if (!function_exists('customer_merge_lock_row')) {
+    /** Row-locked read of one "id + user_id"-keyed row (SELECT $select FROM $table WHERE id = ?
+     *  AND user_id = ? FOR UPDATE), same pattern conversation_transition() uses — must be
+     *  called inside an open transaction so the lock is held until trans_complete()/
+     *  trans_rollback(). Returns array() when the row does not exist or does not belong to
+     *  $user_id. Shared by customer_merge_lock_customer() and customer_merge_lock_log(). */
+    function customer_merge_lock_row($db, $table, $select, $id, $user_id)
     {
         $q = $db->query(
-            'SELECT id, merged_into_customer_id FROM customers WHERE id = ? AND user_id = ? FOR UPDATE',
+            "SELECT {$select} FROM {$table} WHERE id = ? AND user_id = ? FOR UPDATE",
             array((int) $id, (int) $user_id)
         );
         return $q ? $q->row_array() : array();
+    }
+}
+
+if (!function_exists('customer_merge_lock_customer')) {
+    /** Row-locked read of one customer (id, merged_into_customer_id). */
+    function customer_merge_lock_customer($db, $id, $user_id)
+    {
+        return customer_merge_lock_row($db, 'customers', 'id, merged_into_customer_id', $id, $user_id);
+    }
+}
+
+if (!function_exists('customer_merge_lock_log')) {
+    /**
+     * Row-locked read of one customer_merge_log row (review round 2: customer_unmerge() used a
+     * plain, unlocked SELECT before; a concurrent unmerge retry on the same log row could then
+     * race). Locked for the same reason as customer_merge_lock_customer(): held until
+     * trans_complete()/trans_rollback() so nothing else can act on this log row mid-unmerge.
+     */
+    function customer_merge_lock_log($db, $log_id, $user_id)
+    {
+        return customer_merge_lock_row(
+            $db, 'customer_merge_log',
+            'id, source_customer_id, target_customer_id, identities_moved, conversations_moved, deals_moved, enrollments_moved, unmerged_at',
+            $log_id, $user_id
+        );
     }
 }
 
@@ -402,19 +428,40 @@ if (!function_exists('customer_merge_move_rows')) {
 }
 
 if (!function_exists('customer_merge_restore_rows')) {
-    /** The unmerge-direction mirror of customer_merge_move_rows(): moves exactly the given
-     *  $ids back from $from_id (the target customer, where the merge put them) to $to_id (the
-     *  retired source customer), one row at a time, and only counts an id as restored when
-     *  affected_rows() confirms the row actually still had customer_id = $from_id — so a row
-     *  that moved again for some other reason (e.g. a second, later merge) is honestly left
-     *  out of the returned list rather than silently assumed done. */
+    /**
+     * The unmerge-direction mirror of customer_merge_move_rows(): moves exactly the given $ids
+     * back from $from_id (the target customer, where the merge put them) to $to_id (the retired
+     * source customer), one row at a time.
+     *
+     * An id counts as restored in either of two cases: affected_rows() confirms the row still
+     * had customer_id = $from_id and the update just moved it, OR (review round 2) the row is
+     * found to already have customer_id = $to_id — i.e. an earlier, partial customer_unmerge()
+     * call already moved it back, and this call is a retry. Without that second check, a
+     * partial restore could never become a full one on retry: every already-restored row would
+     * report affected_rows() = 0 forever (its customer_id no longer equals $from_id, since it
+     * already moved), fully_restored() would never see restored-count == recorded-count again,
+     * and customer_unmerge() would refuse to stamp unmerged_at even after the one row that
+     * actually blocked the first attempt got fixed — a dead end, with the source customer
+     * permanently hidden from lists (customer_scope_list() excludes it) while still owning
+     * some of its own rows. A row that moved somewhere else entirely (customer_id is neither
+     * $from_id nor $to_id — e.g. a second, unrelated merge) is still honestly left out.
+     */
     function customer_merge_restore_rows($db, $table, $user_id, array $ids, $from_id, $to_id)
     {
         $restored = array();
         foreach ($ids as $id) {
-            $db->where('id', (int) $id)->where('customer_id', $from_id)->where('user_id', $user_id)
+            $id = (int) $id;
+            $db->where('id', $id)->where('customer_id', $from_id)->where('user_id', $user_id)
                 ->update($table, array('customer_id' => $to_id));
-            if ((int) $db->affected_rows() > 0) $restored[] = (int) $id;
+            if ((int) $db->affected_rows() > 0) {
+                $restored[] = $id;
+                continue;
+            }
+            // Not moved by this call — check whether it was already restored by an earlier,
+            // partial attempt (already sitting on $to_id), rather than assuming it wasn't.
+            $row = $db->select('customer_id')->from($table)
+                ->where('id', $id)->where('user_id', $user_id)->get()->row_array();
+            if (!empty($row) && (int) $row['customer_id'] === (int) $to_id) $restored[] = $id;
         }
         return $restored;
     }
@@ -541,7 +588,18 @@ if (!function_exists('customer_unmerge')) {
      * a message describing what did and didn't restore, and a $result with 'fully_restored' =>
      * false so a caller (or a retry) can tell the difference from a clean success.
      *
-     * $log_id must belong to tenant $user_id. Both the source and target customer rows are
+     * Retrying after a partial restore converges (review round 2): customer_merge_restore_rows()
+     * treats a row already sitting on the source customer as restored, not just one it moves in
+     * this call. Without that, a row this call DID restore would look, on the next attempt, like
+     * it "failed to move" (its customer_id no longer equals the target — it already moved), so
+     * fully_restored could never become true again even once whatever blocked the one still-
+     * stuck row gets fixed — a dead end, with the source customer permanently hidden from every
+     * list (customer_scope_list() excludes merged-away customers) while it still owned some of
+     * its own rows. The log row itself is now read with SELECT ... FOR UPDATE
+     * (customer_merge_lock_log()) so two concurrent unmerge attempts on the same log row cannot
+     * interleave.
+     *
+     * $log_id must belong to tenant $user_id. The source and target customer rows are also
      * locked (SELECT ... FOR UPDATE) inside the transaction; if the target has itself since
      * been merged into a third customer, every row this log recorded already moved again when
      * that later merge happened — undoing from here would be meaningless, so this refuses
@@ -569,8 +627,9 @@ if (!function_exists('customer_unmerge')) {
 
         $db->trans_start();
 
-        $log = $db->select('id, source_customer_id, target_customer_id, identities_moved, conversations_moved, deals_moved, enrollments_moved, unmerged_at')
-            ->from('customer_merge_log')->where('id', $log_id)->where('user_id', $user_id)->get()->row_array();
+        // Row-locked read (review round 2): a concurrent unmerge retry on the same log row —
+        // e.g. two admins clicking Undo at once — must not interleave with this one.
+        $log = customer_merge_lock_log($db, $log_id, $user_id);
         if (empty($log)) {
             $db->trans_rollback();
             return array(false, array('Merge record not found for this account.'), null);

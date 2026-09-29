@@ -393,19 +393,21 @@ class FakeMergeDB
     }
     public function insert_id() { return $this->last_id; }
 
-    /** The only raw query() this fake needs to understand: customer_merge_lock_customer()'s
-     *  "SELECT id, merged_into_customer_id FROM customers WHERE id = ? AND user_id = ? FOR
-     *  UPDATE". Anything else returns an empty result rather than guessing. */
+    /** Generic "SELECT <cols> FROM <table> WHERE id = ? AND user_id = ? FOR UPDATE" support —
+     *  covers both customer_merge_lock_customer() (customers) and customer_merge_lock_log()
+     *  (customer_merge_log, added review round 2), the only two shapes production code sends
+     *  through query(). Anything else returns an empty result rather than guessing. */
     public function query($sql, $binds = array())
     {
         $this->query_log[] = $sql;
         $norm = preg_replace('/\s+/', ' ', trim($sql));
-        if ($norm === 'SELECT id, merged_into_customer_id FROM customers WHERE id = ? AND user_id = ? FOR UPDATE') {
+        if (preg_match('/^SELECT\s+.+?\s+FROM\s+(\w+)\s+WHERE\s+id\s*=\s*\?\s+AND\s+user_id\s*=\s*\?\s+FOR UPDATE$/i', $norm, $m)) {
+            $table = $m[1];
             $id = (int) ($binds[0] ?? 0);
             $uid = (int) ($binds[1] ?? 0);
             $rows = array();
-            foreach (($this->tables['customers'] ?? array()) as $r) {
-                if ((int) $r['id'] === $id && (int) $r['user_id'] === $uid) $rows[] = $r;
+            foreach (($this->tables[$table] ?? array()) as $r) {
+                if ((int) $r['id'] === $id && (int) ($r['user_id'] ?? null) === $uid) $rows[] = $r;
             }
             return new FakeMergeQueryResult($rows);
         }
@@ -626,6 +628,35 @@ check('deals: fully restored', $undo4['deals_restored'], array(200));
 check('enrollments: fully restored', $undo4['enrollments_restored'], array(300));
 check('because the restore was partial, customer 2 is NOT cleared of merged_into_customer_id', $db4->tables['customers'][2]['merged_into_customer_id'], 1);
 check('because the restore was partial, the log row is NOT stamped unmerged_at', $db4->tables['customer_merge_log'][$r4['log_id']]['unmerged_at'] ?? null, null);
+
+echo "== customer_unmerge(): retry after a partial restore converges once the blocker is removed (review round 2) ==\n";
+// Continue from $db4: rows 11,12,101,200,300 were already moved back to customer 2 by the
+// partial attempt above. Remove the blocker (put conversation 100 back on the merge target).
+$db4->tables['conversations'][100]['customer_id'] = 1;
+$db4->query_log = array();
+list($ok, $errors, $undo4b) = customer_unmerge($db4, $r4['log_id'], 9, 1);
+check('retry succeeds', $ok, true);
+check('retry has no errors', $errors, array());
+check('retry reports fully_restored', $undo4b['fully_restored'], true);
+$c = $undo4b['conversations_restored']; sort($c);
+check('retry counts both conversations (101 already restored + 100 moved now)', $c, array(100, 101));
+check('retry counts identities already restored earlier', $undo4b['identities_restored'], array(11, 12));
+check('retry counts deal already restored earlier', $undo4b['deals_restored'], array(200));
+check('retry counts enrollment already restored earlier', $undo4b['enrollments_restored'], array(300));
+check('conversation 100 now back on customer 2', $db4->tables['conversations'][100]['customer_id'], 2);
+check('retry stamps unmerged_at on the log row', empty($db4->tables['customer_merge_log'][$r4['log_id']]['unmerged_at']), false);
+check('retry clears merged_into_customer_id on customer 2', $db4->tables['customers'][2]['merged_into_customer_id'], null);
+$lock_log = false;
+foreach ($db4->query_log as $sql) { if (strpos($sql, 'customer_merge_log') !== false && strpos($sql, 'FOR UPDATE') !== false) $lock_log = true; }
+check('log row read with SELECT ... FOR UPDATE', $lock_log, true);
+// customer_scope_list() filters on c.merged_into_customer_id IS NULL (asserted below); apply
+// that same predicate to the tenant's customers to confirm customer 2 is listed again.
+$visible = array();
+foreach ($db4->tables['customers'] as $cr) { if ((int) $cr['user_id'] === 1 && $cr['merged_into_customer_id'] === null) $visible[] = (int) $cr['id']; }
+check('source customer 2 visible again under customer_scope_list()\'s merged-away exclusion', in_array(2, $visible, true), true);
+$q = new FakeQB();
+customer_scope_list($q, 1, array());
+check('customer_scope_list() applies exactly that exclusion', in_array(array('where', 'c.merged_into_customer_id IS NULL', null), $q->calls), true);
 
 echo "== customer_merge(): nothing merges without the explicit call (static audit) ==\n";
 $helper_src = file_get_contents(__DIR__ . '/../../application/helpers/customer_helper.php');
