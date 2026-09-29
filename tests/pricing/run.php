@@ -414,6 +414,39 @@ same('weekend rate needs a check-in date: falls back to flat nightly', 9000, $r[
 $r = pricing_calc_accommodation($WKND, 'Double Pool View', 4, 2, 0, 0, 0);
 same('an unrelated room in a config with a seasonal room still uses its offer as before', 15500, $r['total']);
 
+// review round 2 #1: an unparseable/garbage check-in date must fall back to the SAME
+// undated flat pricing, never be priced against some accidental fallback calendar.
+$r = pricing_calc_accommodation($WKND, 'Double Garden View', 2, 2, 0, 0, 0, 'garbage');
+same('garbage check-in date falls back to flat nightly (not 1970)', 9000, $r['total']);
+check('garbage check-in date: no weekend/season facts invented', empty($r['facts']));
+$r = pricing_calc_accommodation($WKND, 'Double Garden View', 2, 2, 0, 0, 0, 'بكرة الصبح إن شاء الله');
+same('Arabic free text check-in date falls back to flat nightly', 9000, $r['total']);
+check('Arabic free text check-in date: no weekend/season facts invented', empty($r['facts']));
+$r = pricing_calc_accommodation($WKND, 'Double Garden View', 2, 2, 0, 0, 0, '2026-02-30');
+same('a calendar-invalid date (Feb 30) falls back to flat nightly', 9000, $r['total']);
+
+// review round 2 #2: the weekend fact (and rate) must only ever appear when a
+// weekend_nightly rate genuinely applied to that night — never just because the
+// calendar day was a Friday/Saturday on a room that never configured one.
+$SEASON_NO_WEEKEND = json_decode(json_encode($BYOOT), true);
+$SEASON_NO_WEEKEND['accommodation']['seasons'] = array(array(
+    'name' => 'Eid', 'start' => '2026-01-01', 'end' => '2026-01-10',
+    'rooms' => array('Double Garden View' => array('nightly' => 6000)), // no weekend_nightly override
+));
+// 2026-01-02 is a Friday (a configured weekend day) INSIDE the season window.
+$r = pricing_calc_accommodation($SEASON_NO_WEEKEND, 'Double Garden View', 1, 2, 0, 0, 0, '2026-01-02');
+same('season-only room on a weekend calendar day still prices the season rate', 6000, $r['total']);
+foreach ($r['facts'] as $f) check('no weekend fact when the room never configured weekend_nightly: "' . $f . '"', strpos($f, 'ويك إند') === false);
+
+// review round 2 #3: written offers keep priority when the ENTIRE stay is homogeneous
+// (same season, or no season, throughout) — only a stay that truly crosses a season
+// boundary falls back to per-night pricing (documented as deliberate in the docblock).
+$WKND_OFFER = json_decode(json_encode($WKND), true);
+$WKND_OFFER['accommodation']['rooms'][0]['offers']['2'] = 8000; // cheaper than the 4500+6000 per-night total
+$r = pricing_calc_accommodation($WKND_OFFER, 'Double Garden View', 2, 2, 0, 0, 0, '2026-10-01');
+same('a written offer wins over per-night weekend pricing for a homogeneous (non-seasonal) stay', 8000, $r['total']);
+check('offer used: no per-night facts (the offer covers the whole stay)', empty($r['facts']));
+
 echo "\n== C11: seasons ==\n";
 $SEASON = json_decode(json_encode($BYOOT), true);
 $SEASON['accommodation']['seasons'] = array(array(
@@ -432,6 +465,10 @@ same('season override needs a check-in date', 4500, $r['total']);
 $r = pricing_calc_accommodation($SEASON, 'Double Garden View', 5, 2, 0, 0, 0, '2026-01-08');
 same('a stay crossing a season boundary is priced per night', 3 * 6000 + 2 * 4500, $r['total']);
 check('crossing boundary: in-season night count in facts', in_array('3 ليلة بسعر موسم Eid', $r['facts']), var_export($r['facts'], true));
+$SEASON_OFFER = json_decode(json_encode($SEASON), true);
+$SEASON_OFFER['accommodation']['rooms'][0]['offers']['5'] = 99999; // must NOT win: this stay crosses the season boundary
+$r = pricing_calc_accommodation($SEASON_OFFER, 'Double Garden View', 5, 2, 0, 0, 0, '2026-01-08');
+same('a written offer is deliberately skipped for a stay that crosses a season boundary', 3 * 6000 + 2 * 4500, $r['total']);
 
 echo "\n== C11: overlapping seasons rejected ==\n";
 $bad = json_decode(json_encode($BYOOT), true);

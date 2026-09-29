@@ -419,6 +419,26 @@ if (!function_exists('pricing_weekend_days')) {
     }
 }
 
+if (!function_exists('pricing_valid_date_ts')) {
+    /**
+     * Strictly parses a check-in date as 'Y-m-d' and returns its midnight unix timestamp,
+     * or false for anything else — garbage text, free-form Arabic, "2026-02-30", partial
+     * dates, whatever strtotime() would otherwise loosely (and wrongly) accept. A caller
+     * with an invalid date must treat it exactly like no date was given at all.
+     */
+    function pricing_valid_date_ts($date)
+    {
+        if (!is_string($date) || $date === '') return false;
+        $d = DateTime::createFromFormat('Y-m-d', $date);
+        if ($d === false) return false;
+        $errors = DateTime::getLastErrors();
+        if ($errors && ($errors['warning_count'] > 0 || $errors['error_count'] > 0)) return false;
+        if ($d->format('Y-m-d') !== $date) return false; // rejects normalized-away input
+        $d->setTime(0, 0, 0);
+        return $d->getTimestamp();
+    }
+}
+
 if (!function_exists('pricing_find_season')) {
     /** The season row (if any) whose [start,end] contains $date ('Y-m-d'), else null. */
     function pricing_find_season($cfg, $date)
@@ -769,6 +789,17 @@ if (!function_exists('pricing_calc_day_use')) {
 }
 
 if (!function_exists('pricing_calc_accommodation')) {
+    /**
+     * Prices a room stay. $checkin_date must be a strict 'Y-m-d'; anything else (garbage,
+     * free text, impossible dates) is treated exactly like no date: flat nightly/offer pricing.
+     *
+     * Written offers (rooms[].offers[nights]) always win for unseasonal rooms and undated
+     * stays. For a DATED seasonal room they still win when every night falls in the same
+     * season (or none) — using that season's room offers. DELIBERATE: a stay that crosses
+     * a season boundary ignores offers and sums each night at its own season/weekend rate,
+     * since one flat offer cannot honestly represent two different seasons.
+     * The "N ليلة ويك إند" fact is emitted only for nights where weekend_nightly applied.
+     */
     function pricing_calc_accommodation($cfg, $room_name, $nights, $adults, $c_free, $c_half, $c_full, $checkin_date = null, $coupon_code = null)
     {
         $acc = isset($cfg['accommodation']) ? $cfg['accommodation'] : array();
@@ -826,19 +857,12 @@ if (!function_exists('pricing_calc_accommodation')) {
         // Seasons / weekend rate only ever change anything for a room that actually
         // configures them (weekend_nightly on the room, or a season that overrides this
         // room by name) — any other room is priced exactly as before, offer included.
+        // A check-in date is required to know which nights are weekend/in-season at all;
+        // an invalid one (unparseable garbage, free text, "2026-02-30"...) is treated
+        // exactly like no date was given — never priced against some fallback calendar.
         $is_seasonal = pricing_room_is_seasonal($cfg, $chosen);
-        if (!$is_seasonal) {
-            if (isset($offers[(string) $nights])) {
-                $total = (int) $offers[(string) $nights];
-                $basis = 'سعر عرض الـ' . $nights . ' ليالي';
-            } else {
-                $total = (int) $chosen['nightly'] * $nights;
-                $basis = $nights == 1 ? 'سعر الليلة' : ($nights . ' ليالي × سعر الليلة');
-            }
-        } elseif (empty($checkin_date)) {
-            // seasonal room but no check-in date: cannot know which season/weekend nights
-            // apply, so price it exactly as an unseasonal room would (same as before this
-            // room configured seasons/weekend — no date, no per-night information).
+        $checkin_ts = ($checkin_date !== null && $checkin_date !== '') ? pricing_valid_date_ts((string) $checkin_date) : false;
+        if (!$is_seasonal || $checkin_ts === false) {
             if (isset($offers[(string) $nights])) {
                 $total = (int) $offers[(string) $nights];
                 $basis = 'سعر عرض الـ' . $nights . ' ليالي';
@@ -847,31 +871,48 @@ if (!function_exists('pricing_calc_accommodation')) {
                 $basis = $nights == 1 ? 'سعر الليلة' : ($nights . ' ليالي × سعر الليلة');
             }
         } else {
-            // Dated + seasonal: price EACH night at the rate that applies to that exact
-            // calendar night (its own season override if any, else the base room; weekend
-            // rate on top if that night falls on a configured weekend day). This is what
-            // correctly prices a stay that crosses a season boundary.
-            $ts = strtotime((string) $checkin_date);
+            // Dated + seasonal: resolve each night's own season (if any). A WRITTEN OFFER
+            // still takes priority — but only when it can honestly apply to the whole
+            // stay, i.e. every night falls in the same season (or none at all); then the
+            // stay is priced exactly as the undated/unseasonal branch above would price
+            // that season's room. A stay that genuinely CROSSES a season boundary cannot
+            // be represented by one flat offer, so — deliberately — offers are skipped
+            // there and every night is summed at its own season/weekend rate instead.
             $weekend_days = pricing_weekend_days($cfg);
-            $total = 0; $weekend_nights = 0; $season_nights = array(); // season name => night count
+            $room_by_night = array();
             for ($i = 0; $i < $nights; $i++) {
-                $night_date = date('Y-m-d', strtotime("+$i day", $ts));
-                $season_i = pricing_find_season($cfg, $night_date);
-                $room_i = pricing_room_with_season($chosen, $season_i);
-                $dow = (int) date('N', strtotime($night_date));
-                $is_weekend = in_array($dow, $weekend_days, true);
-                $rate = ($is_weekend && !empty($room_i['weekend_nightly'])) ? (float) $room_i['weekend_nightly'] : (float) $room_i['nightly'];
-                $total += $rate;
-                if ($is_weekend) $weekend_nights++;
-                if (isset($room_i['_season'])) {
-                    $sname = $room_i['_season'];
-                    $season_nights[$sname] = ($season_nights[$sname] ?? 0) + 1;
-                }
+                $night_date = date('Y-m-d', strtotime("+$i day", $checkin_ts));
+                $room_by_night[$i] = pricing_room_with_season($chosen, pricing_find_season($cfg, $night_date));
             }
-            $total = (int) round($total);
-            $basis = $nights . ' ليالي (سعر كل ليلة حسب الموسم/الويك إند الخاص بيها)';
-            foreach ($season_nights as $sname => $cnt) $facts[] = $cnt . ' ليلة بسعر موسم ' . $sname;
-            if ($weekend_nights > 0) $facts[] = $weekend_nights . ' ليلة ويك إند';
+            $season_names = array_map(function ($r) { return $r['_season'] ?? ''; }, $room_by_night);
+            $homogeneous = count(array_unique($season_names)) <= 1;
+            $eff_offers = $homogeneous ? (isset($room_by_night[0]['offers']) ? $room_by_night[0]['offers'] : array()) : array();
+
+            if ($homogeneous && isset($eff_offers[(string) $nights])) {
+                $total = (int) $eff_offers[(string) $nights];
+                $basis = 'سعر عرض الـ' . $nights . ' ليالي';
+                if (isset($room_by_night[0]['_season'])) $facts[] = $nights . ' ليلة بسعر موسم ' . $room_by_night[0]['_season'];
+            } else {
+                $total = 0; $weekend_nights = 0; $season_nights = array(); // season name => night count
+                for ($i = 0; $i < $nights; $i++) {
+                    $room_i = $room_by_night[$i];
+                    $night_date = date('Y-m-d', strtotime("+$i day", $checkin_ts));
+                    $dow = (int) date('N', strtotime($night_date));
+                    $is_weekend = in_array($dow, $weekend_days, true);
+                    $used_weekend = $is_weekend && !empty($room_i['weekend_nightly']);
+                    $rate = $used_weekend ? (float) $room_i['weekend_nightly'] : (float) $room_i['nightly'];
+                    $total += $rate;
+                    if ($used_weekend) $weekend_nights++;
+                    if (isset($room_i['_season'])) {
+                        $sname = $room_i['_season'];
+                        $season_nights[$sname] = ($season_nights[$sname] ?? 0) + 1;
+                    }
+                }
+                $total = (int) round($total);
+                $basis = $nights . ' ليالي (سعر كل ليلة حسب الموسم/الويك إند الخاص بيها)';
+                foreach ($season_nights as $sname => $cnt) $facts[] = $cnt . ' ليلة بسعر موسم ' . $sname;
+                if ($weekend_nights > 0) $facts[] = $weekend_nights . ' ليلة ويك إند';
+            }
         }
 
         list($total, $cfact, $cnote) = pricing_apply_coupon($cfg, $total, $coupon_code);
