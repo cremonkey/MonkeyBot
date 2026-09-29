@@ -42,6 +42,28 @@
                   <label class="custom-switch mt-1"><input type="checkbox" name="auto_language" id="p_lang" value="1" class="custom-switch-input" checked><span class="custom-switch-indicator"></span><span class="custom-switch-description">Auto language</span></label>
                   <label class="custom-switch mt-1"><input type="checkbox" name="sentiment_enabled" id="p_sent" value="1" class="custom-switch-input"><span class="custom-switch-indicator"></span><span class="custom-switch-description">Sentiment</span></label>
                   <label class="custom-switch mt-1"><input type="checkbox" name="ai_tools_enabled" id="p_tools" value="1" class="custom-switch-input"><span class="custom-switch-indicator"></span><span class="custom-switch-description">AI actions (tools)</span></label>
+
+                  <hr>
+                  <h6 class="mb-2"><i class="fas fa-drafting-compass"></i> Employee Builder <small class="text-muted">/ منشئ الموظف الذكي (اختياري)</small></h6>
+                  <div class="row">
+                    <div class="col-4 form-group"><label>Role <small class="text-muted">/ الدور</small></label><input name="role" id="p_role" class="form-control" placeholder="e.g. Sales Assistant"></div>
+                    <div class="col-4 form-group"><label>Goal <small class="text-muted">/ الهدف</small></label><input name="goal" id="p_goal" class="form-control" placeholder="e.g. Book appointments"></div>
+                    <div class="col-4 form-group"><label>Tone <small class="text-muted">/ النبرة</small></label><input name="tone" id="p_tone" class="form-control" placeholder="e.g. friendly"></div>
+                  </div>
+                  <div class="form-group">
+                    <label>Enabled tools <small class="text-muted">/ الأدوات المفعّلة — comma-separated tokens, leave empty = today's default tools</small></label>
+                    <input name="capabilities_tokens" id="p_caps" class="form-control" placeholder="search_products, handoff_to_human, save_lead_to_crm, t_create_booking">
+                    <small class="text-muted d-block">Blank = all default tools stay on (unchanged). Any tokens here become the ONLY tools this agent can call.</small>
+                  </div>
+                  <div class="form-group">
+                    <label>Allowed link domains <small class="text-muted">/ نطاقات الروابط المسموحة</small></label>
+                    <input name="allowed_link_domains_tokens" id="p_link_domains" class="form-control" placeholder="example.com, booking.example.com">
+                  </div>
+                  <div class="row">
+                    <div class="col-6 form-group"><label>Max discount % <small class="text-muted">/ أقصى خصم</small></label><input name="max_discount" id="p_max_discount" type="number" step="1" min="0" max="100" class="form-control"></div>
+                    <div class="col-6 form-group"><label>Forbidden topics <small class="text-muted">/ مواضيع ممنوعة</small></label><input name="forbidden_topics_tokens" id="p_forbidden" class="form-control" placeholder="politics, medical advice"></div>
+                  </div>
+                  <div class="form-group"><label>Escalation note <small class="text-muted">/ ملاحظة تصعيد (اختياري)</small></label><input name="escalation_rules" id="p_escalation" class="form-control" placeholder="Why a human should take over"></div>
                 </div>
                 <div class="card-footer">
                   <button class="btn btn-primary"><i class="fas fa-save"></i> Save Profile</button>
@@ -122,9 +144,13 @@
 </section>
 <script>
 function crmResetForm(){document.getElementById('p_id').value='';document.getElementById('form-title').textContent='New Agent Profile';
-  ['p_name','p_agent_name','p_instruction','p_salesprompt','p_model'].forEach(function(i){document.getElementById(i).value='';});
+  ['p_name','p_agent_name','p_instruction','p_salesprompt','p_model','p_role','p_goal','p_tone','p_caps','p_link_domains','p_max_discount','p_forbidden','p_escalation'].forEach(function(i){document.getElementById(i).value='';});
   document.getElementById('p_temp').value='0.7';document.getElementById('p_hist').value='6';document.getElementById('p_ttl').value='24';
   document.getElementById('p_sales').checked=true;document.getElementById('p_lang').checked=true;document.getElementById('p_sent').checked=false;document.getElementById('p_tools').checked=false;}
+function crmJsonTokens(v){ // capabilities_json/restrictions list field -> comma tokens for the input
+  if(!v) return '';
+  try{var d=JSON.parse(v); return Array.isArray(d)?d.join(', '):'';}catch(e){return '';}
+}
 function crmEdit(p,copy){
   document.getElementById('p_id').value=copy?'':p.id;
   document.getElementById('form-title').textContent=copy?'Copy of '+(p.name||''):'Edit: '+(p.name||'');
@@ -140,6 +166,15 @@ function crmEdit(p,copy){
   document.getElementById('p_lang').checked=p.auto_language=='1';
   document.getElementById('p_sent').checked=p.sentiment_enabled=='1';
   document.getElementById('p_tools').checked=p.ai_tools_enabled=='1';
+  document.getElementById('p_role').value=p.role||'';
+  document.getElementById('p_goal').value=p.goal||'';
+  document.getElementById('p_tone').value=p.tone||'';
+  document.getElementById('p_caps').value=crmJsonTokens(p.capabilities_json);
+  var r={}; try{r=p.restrictions_json?JSON.parse(p.restrictions_json):{};}catch(e){r={};}
+  document.getElementById('p_link_domains').value=(r.allowed_link_domains||[]).join(', ');
+  document.getElementById('p_max_discount').value=(r.max_discount!==undefined&&r.max_discount!==null)?r.max_discount:'';
+  document.getElementById('p_forbidden').value=(r.forbidden_topics||[]).join(', ');
+  document.getElementById('p_escalation').value=r.escalation_rules||'';
   window.scrollTo(0,0);
 }
 document.getElementById('p_test_btn').addEventListener('click',function(){

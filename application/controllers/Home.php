@@ -7152,7 +7152,7 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
         $this->load->helper('ai_agent');
         $ai_profile = ai_resolve_profile($user_id, $social_media, $page_id);
         if (!empty($ai_profile)) {
-            foreach (array('sales_mode_enabled','max_history_messages','temperature','memory_ttl_hours','auto_language','sentiment_enabled','ai_tools_enabled') as $f) {
+            foreach (array('sales_mode_enabled','max_history_messages','temperature','memory_ttl_hours','auto_language','sentiment_enabled','ai_tools_enabled','capabilities_json','restrictions_json') as $f) {
                 if (isset($ai_profile[$f]) && $ai_profile[$f] !== null && $ai_profile[$f] !== '') $api_info[0][$f] = $ai_profile[$f];
             }
             if (!empty($ai_profile['model'])) {
@@ -7201,6 +7201,17 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
         if (!empty($ai_profile)) {
             if (!empty($ai_profile['agent_name']) && trim((string) $ai_profile['agent_name']) !== '') {
                 $bot_context[] = 'AGENT IDENTITY: ' . trim((string) $ai_profile['agent_name']);
+            }
+            // Task 27 (C12): structured role/goal/tone tokens, when set, fold into the same
+            // bot-specific layer as the free-text fields — additive only, never a replacement.
+            if (!empty($ai_profile['role']) && trim((string) $ai_profile['role']) !== '') {
+                $bot_context[] = 'ROLE: ' . trim((string) $ai_profile['role']);
+            }
+            if (!empty($ai_profile['goal']) && trim((string) $ai_profile['goal']) !== '') {
+                $bot_context[] = 'GOAL: ' . trim((string) $ai_profile['goal']);
+            }
+            if (!empty($ai_profile['tone']) && trim((string) $ai_profile['tone']) !== '') {
+                $bot_context[] = 'TONE: ' . trim((string) $ai_profile['tone']);
             }
             foreach (array('instruction_to_ai', 'sales_system_prompt') as $f) {
                 if (!empty($ai_profile[$f]) && trim((string) $ai_profile[$f]) !== '') {
@@ -7683,6 +7694,27 @@ public function _email_send_function($config_id_prefix="", $message_org="", $to_
                 }
             } catch (Exception $e) {
                 log_message('error', 'SPEC-31 link gate failed: ' . $e->getMessage());
+            }
+        }
+
+        // Task 27 (C12): agent-builder restrictions (forbidden topics, discount ceiling,
+        // link allow-list), enforced deterministically after every other guard. No-op
+        // when the profile has no restrictions_json (NULL/empty) — the review gate for
+        // this task requires that case to behave exactly as before.
+        if (empty($guard_blocked) && !empty($ai_profile) && isset($response['choices'][0]['text'])) {
+            $this->load->helper('ai_agent');
+            $rres = ai_agent_enforce_restrictions($ai_profile, $user_id, $social_media, $page_id, $subscribe_id, $human, $response['choices'][0]['text']);
+            $response['choices'][0]['text'] = $rres['text'];
+            if (!empty($rres['blocked'])) {
+                $guard_blocked = true;
+                if ($this->db->table_exists('ai_price_guard_log')) {
+                    @$this->basic->insert_data('ai_price_guard_log', array(
+                        'user_id' => $user_id, 'page_id' => (string) $page_id, 'social_media' => $social_media,
+                        'subscribe_id' => (string) $subscribe_id, 'question' => $human,
+                        'blocked_reply' => (string) ($rres['reason'] ?? 'agent_restriction'), 'sent_reply' => $response['choices'][0]['text'],
+                        'verdict' => 'unknown', 'created_at' => date('Y-m-d H:i:s'),
+                    ));
+                }
             }
         }
 
