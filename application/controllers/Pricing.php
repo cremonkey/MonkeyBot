@@ -131,16 +131,25 @@ class Pricing extends Home
         if (!empty($errors)) { $this->_json(array('status' => '0', 'errors' => $errors)); return; }
         $kind = (string) $this->input->post('kind', true);
         $item = trim((string) $this->input->post('item', true));
+        $coupon = trim((string) $this->input->post('coupon_code', true));
+        $coupon = $coupon !== '' ? $coupon : null;
         if ($kind === 'item') {
-            $res = pricing_calc_item($cfg, $item, trim((string) $this->input->post('variant', true)), $this->input->post('quantity', true));
+            $res = pricing_calc_item($cfg, $item, trim((string) $this->input->post('variant', true)), $this->input->post('quantity', true), $coupon);
+            $this->_json(array('status' => '1', 'result' => $res));
+            return;
+        }
+        if ($kind === 'package') {
+            $res = pricing_calc_package($cfg, $item, $this->input->post('quantity', true), $coupon);
             $this->_json(array('status' => '1', 'result' => $res));
             return;
         }
         $adults = (int) $this->input->post('adults'); $c_free = (int) $this->input->post('c_free');
         $c_half = (int) $this->input->post('c_half'); $c_full = (int) $this->input->post('c_full');
+        $checkin = trim((string) $this->input->post('checkin_date', true));
+        $checkin = $checkin !== '' ? $checkin : null;
         $res = $kind === 'day_use'
-            ? pricing_calc_day_use($cfg, $item, $adults, $c_free, $c_half, $c_full)
-            : pricing_calc_accommodation($cfg, $item, (int) $this->input->post('nights'), $adults, $c_free, $c_half, $c_full);
+            ? pricing_calc_day_use($cfg, $item, $adults, $c_free, $c_half, $c_full, $coupon)
+            : pricing_calc_accommodation($cfg, $item, (int) $this->input->post('nights'), $adults, $c_free, $c_half, $c_full, $checkin, $coupon);
         $this->_json(array('status' => '1', 'result' => $res));
     }
 
