@@ -81,7 +81,7 @@ $own_team = method_body($src, 'own_team', array("\n    private function", "\n   
 check('own_team(): scoped through team_scope_owner($this->uid) -- not just an id lookup',
     $own_team !== null && strpos($own_team, 'team_scope_owner(') !== false && strpos($own_team, '$this->uid') !== false, true);
 
-foreach (array('team_save', 'team_delete', 'team_membership_set', 'assign_team') as $fn) {
+foreach (array('teams_list', 'team_save', 'team_delete', 'team_membership_set', 'assign_team') as $fn) {
     $body = method_body($src, $fn, array("\n    private function", "\n    public function"));
     check("$fn(): calls ajax_check()", $body !== null && strpos($body, '$this->ajax_check()') !== false, true);
     check("$fn(): calls csrf_token_check()", $body !== null && strpos($body, '$this->csrf_token_check()') !== false, true);

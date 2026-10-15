@@ -62,7 +62,6 @@
 .ib-page .ib-row.active-conv { background: var(--mb-blue-50); }
 .ib-page .ib-pre-wrap { white-space: pre-wrap; }
 /* Task 17 (C2, brief §13): teams manager modal + team-inbox controls. */
-.ib-page #ib_team_members_list { max-height: 40vh; overflow-y: auto; }
 .ib-page #ib_teams_table { max-height: 30vh; overflow-y: auto; }
 .ib-page .ib-attachment-image { max-width: var(--ib-attachment-image-max-size); max-height: var(--ib-attachment-image-max-size); border-radius: var(--radius-sm); }
 .ib-page .ib-attachment-video { max-width: var(--ib-attachment-video-max-width); }

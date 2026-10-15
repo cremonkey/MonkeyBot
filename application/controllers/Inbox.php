@@ -497,6 +497,7 @@ class Inbox extends Home
     public function teams_list()
     {
         $this->ajax_check();
+        $this->csrf_token_check();
         header('Content-Type: application/json');
         if (!team_tables_ready($this->db)) { echo json_encode(array('status' => '1', 'rows' => array(), 'ready' => false)); return; }
 
