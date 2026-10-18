@@ -3,6 +3,16 @@ require_once("application/controllers/Home.php"); // loading home controller
 class Instagram_reply extends Home
 {
     public $addon_data = array();
+    /** Test mode for the campaign this webhook request is handling (ig_comment_guard_helper). */
+    private $igcg_dry_run = false;
+
+    /** Switch this request into test mode: Instagram writes become no-ops. */
+    private function igcg_enter_dry_run()
+    {
+        $this->igcg_dry_run = true;
+        if (isset($this->fb_rx_login) && !($this->fb_rx_login instanceof Igcg_dry_run_fb))
+            $this->fb_rx_login = new Igcg_dry_run_fb($this->fb_rx_login);
+    }
 
     public function __construct()
     {
@@ -221,7 +231,7 @@ class Instagram_reply extends Home
               $full_enabled_or_not = $this->lang->line("Enabled");
 
               $full_account_enabled_button = '
-              <div class="dropdown-menu mini_dropdown text-center width_208px">
+              <div class="dropdown-menu mini_dropdown text-center width_208px" style="width:260px">
                 <a title="'.$this->lang->line("Campaign Report").'" data-toggle="tooltip" data-placement="top" href="'.base_url("instagram_reply/instagram_autoreply_report/full/".$page_table_id.'/'.$full_account_enable_page_table_id).'" class="btn btn-circle btn-outline-primary full_campaign_report"><i class="fas fa-eye"></i></a>
                 <a title="'.$this->lang->line("Edit Campaign").'" table_id="'.$full_account_enable_page_table_id.'" data-toggle="tooltip" data-placement="top" href="#" class="btn btn-circle btn-outline-warning edit_enable_full_auto_commnet"><i class="fas fa-edit"></i></a>';
 
@@ -235,6 +245,8 @@ class Instagram_reply extends Home
 
                   }
 
+                $this->load->helper('ig_comment_guard');
+                $full_account_enabled_button .= igcg_test_mode_button($full_account_enable_page_table_id, igcg_is_dry_run($this->db, $full_account_enable_page_table_id), $this->lang);
                 $full_account_enabled_button .= '<a title="'.$this->lang->line("Delete Campaign").'" data-toggle="tooltip" data-placement="top" href="" table_id="'.$full_account_enable_page_table_id.'" page_info_table_id="'.$page_table_id.'" autoreply_type="account_autoreply" class="btn btn-circle btn-outline-danger delete_full_campaign"><i class="fas fa-trash-alt"></i></a>
               </div>';
 
@@ -255,7 +267,7 @@ class Instagram_reply extends Home
               $mention_enabled_or_not = $this->lang->line("Enabled");
 
               $mention_reply_enabled_button = '
-              <div class="dropdown-menu mini_dropdown text-center width_208px">
+              <div class="dropdown-menu mini_dropdown text-center width_208px" style="width:260px">
                 <a title="'.$this->lang->line("Campaign Report").'" data-toggle="tooltip" data-placement="top" href="'.base_url("instagram_reply/instagram_autoreply_report/mention/".$page_table_id.'/'.$mention_reply_enable_page_table_id).'" class="btn btn-circle btn-outline-primary mention_reply_report"><i class="fas fa-eye"></i></a>
                 <a title="'.$this->lang->line("Edit Campaign").'" table_id="'.$mention_reply_enable_page_table_id.'" data-toggle="tooltip" data-placement="top" href="#" class="btn btn-circle btn-outline-warning edit_enable_mentions_auto_commnet"><i class="fas fa-edit"></i></a>';
 
@@ -268,6 +280,8 @@ class Instagram_reply extends Home
                   
                 }
               
+                $this->load->helper('ig_comment_guard');
+                $mention_reply_enabled_button .= igcg_test_mode_button($mention_reply_enable_page_table_id, igcg_is_dry_run($this->db, $mention_reply_enable_page_table_id), $this->lang);
                 $mention_reply_enabled_button .= '<a title="'.$this->lang->line("Delete Campaign").'" data-toggle="tooltip" data-placement="top" href="#" table_id="'.$mention_reply_enable_page_table_id.'" page_info_table_id="'.$page_table_id.'" autoreply_type="mentions_autoreply" class="btn btn-circle btn-outline-danger delete_mentions_campaign"><i class="fas fa-trash-alt"></i></a>
               </div>';
 
@@ -2279,6 +2293,25 @@ class Instagram_reply extends Home
         echo json_encode($return);
     }
 
+    /** Test mode on/off for one IG comment/mention campaign. Going live deletes its [TEST MODE] report rows. */
+    public function test_mode_toggle()
+    {
+        if($this->is_demo == '1' && $this->session->userdata('user_type') == "Admin") exit;
+        if($this->input->method() !== 'post') exit;
+        $table_id = (int) $this->input->post('table_id',true);
+        $to_do = $this->input->post('to_do',true);
+        if($table_id <= 0 || !in_array($to_do, array('on','off'), true)) { echo "0"; exit; }
+
+        $owned = $this->basic->get_data('instagram_reply_autoreply', array('where'=>array('id'=>$table_id,'user_id'=>$this->user_id)), array('id'));
+        if(empty($owned)) { echo "0"; exit; }
+
+        $this->load->helper('ig_comment_guard');
+        $this->db->where(array('id'=>$table_id,'user_id'=>$this->user_id))->update('instagram_reply_autoreply', array('dry_run' => $to_do === 'on' ? 1 : 0));
+        if($to_do === 'off')
+            $this->db->where(array('autoreply_table_id'=>$table_id,'user_id'=>$this->user_id))->like('reply_status_comment', IGCG_TEST_MODE_TAG, 'after')->delete('instagram_autoreply_report');
+        echo "1";
+    }
+
     public function mentions_pause_play_campaign()
     {
         if($this->is_demo == '1')
@@ -2577,6 +2610,7 @@ class Instagram_reply extends Home
     /** Unified Inbox: note every comment private reply sent through Home::send_reply(). */
     protected function send_reply($access_token = '', $reply = '')
     {
+        if ($this->igcg_dry_run) return array('dry_run' => true);   // test mode: nothing leaves the server
         $result = parent::send_reply($access_token, $reply);
         try { $this->load->helper('comment_private_reply'); cpr_buffer_capture($reply, $result); } catch (\Throwable $e) {}
         return $result;
@@ -2586,6 +2620,7 @@ class Instagram_reply extends Home
      *  See application/helpers/comment_private_reply_helper.php. */
     private function cpr_log_private_replies($user_id, $page_table_id, $fb_page_id, $token, $report, $fallback_psid = '')
     {
+        if ($this->igcg_dry_run) return;
         try {
             $this->load->helper('comment_private_reply');
             cpr_flush($this, array('platform' => 'ig', 'user_id' => $user_id, 'page_table_id' => $page_table_id,
@@ -2666,6 +2701,7 @@ class Instagram_reply extends Home
           // atomic claim: a concurrent duplicate delivery stops here
           $this->load->helper('ig_comment_guard');
           if(!igcg_claim($this->db, $post_column_id, $current_id)) exit;
+          if(igcg_is_dry_run($this->db, $post_column_id)) $this->igcg_enter_dry_run();
 
 
           if(isset($mentions_autoreply_info) && !empty($mentions_autoreply_info)) {
@@ -2947,6 +2983,7 @@ class Instagram_reply extends Home
                 $insert_data['reply_type'] = 'mention';
                 $insert_data['autoreply_table_id'] = $mentions_autoreply_info[0]['column_id'];
                 $insert_data['user_id'] = $mentions_autoreply_info[0]['user_id'];
+                if($this->igcg_dry_run) $insert_data['reply_status_comment'] = IGCG_TEST_MODE_TAG . (isset($insert_data['reply_status_comment']) ? $insert_data['reply_status_comment'] : '');
                 $this->basic->insert_data('instagram_autoreply_report',$insert_data);
                 $insert_id = $this->db->insert_id();
 
@@ -3104,6 +3141,7 @@ class Instagram_reply extends Home
             // atomic claim: a concurrent duplicate delivery stops here
             $this->load->helper('ig_comment_guard');
             if(!igcg_claim($this->db, $post_column_id, $comment_id)) exit;
+            if(igcg_is_dry_run($this->db, $post_column_id)) $this->igcg_enter_dry_run();
             
             $instagram_business_account_id = $autoreply_info[0]['instagram_business_account_id'];
             $offensive_words = $autoreply_info[0]['offensive_words'];
@@ -3328,6 +3366,7 @@ class Instagram_reply extends Home
                                     else
                                       $insert_data['reply_type'] = 'post';
                                     $insert_data['autoreply_table_id'] = $post_column_id;
+                                    if($this->igcg_dry_run) $insert_data['reply_status_comment'] = IGCG_TEST_MODE_TAG . (isset($insert_data['reply_status_comment']) ? $insert_data['reply_status_comment'] : '');
                                     $this->basic->insert_data('instagram_autoreply_report',$insert_data);
                                     $insert_id = $this->db->insert_id();
 
@@ -3615,6 +3654,7 @@ class Instagram_reply extends Home
 
                     $insert_data_comment['auto_private_reply_count'] = $auto_reply_counter;
 
+                    if($this->igcg_dry_run) $insert_data_comment['reply_status_comment'] = IGCG_TEST_MODE_TAG . (isset($insert_data_comment['reply_status_comment']) ? $insert_data_comment['reply_status_comment'] : '');
                     $this->basic->insert_data('instagram_autoreply_report',$insert_data_comment);
                     $insert_id = $this->db->insert_id();
 

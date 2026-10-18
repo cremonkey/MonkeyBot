@@ -85,3 +85,62 @@ if (!function_exists('igcg_exact_match')) {
         return false;
     }
 }
+
+if (!function_exists('igcg_is_dry_run')) {
+    /** TRUE when the campaign is in test mode. Any DB error (e.g. column missing) => FALSE (live, as before). */
+    function igcg_is_dry_run($db, $autoreply_table_id)
+    {
+        $prev = isset($db->db_debug) ? $db->db_debug : null;
+        if ($prev !== null) $db->db_debug = false;
+        try {
+            $q = $db->query('SELECT dry_run FROM instagram_reply_autoreply WHERE id = ? LIMIT 1', array((int) $autoreply_table_id));
+            if (!$q) return false;
+            $row = $q->row_array();
+            return !empty($row) && (int) $row['dry_run'] === 1;
+        } catch (\Throwable $e) {
+            return false;
+        } finally {
+            if ($prev !== null) $db->db_debug = $prev;
+        }
+    }
+}
+
+if (!defined('IGCG_TEST_MODE_TAG')) define('IGCG_TEST_MODE_TAG', '[TEST MODE] ');
+
+if (!class_exists('Igcg_dry_run_fb')) {
+    /**
+     * Stands in for $this->fb_rx_login while a campaign is in test mode: every call that would
+     * change something on Instagram returns a fake success, reads pass through untouched.
+     */
+    class Igcg_dry_run_fb
+    {
+        const WRITES = array('instagram_auto_comment', 'instagram_hide_comment', 'instagram_delete_comment',
+                             'send_private_reply', 'get_private_reply_message_id_info');
+        public $inner; public $skipped = array();
+        public function __construct($inner) { $this->inner = $inner; }
+        public function __call($name, $args)
+        {
+            if (in_array($name, self::WRITES, true)) {
+                $this->skipped[] = $name;
+                return array('id' => '', 'dry_run' => true);
+            }
+            return call_user_func_array(array($this->inner, $name), $args);
+        }
+        public function __get($k) { return $this->inner->$k; }
+        public function __set($k, $v) { $this->inner->$k = $v; }
+    }
+}
+
+if (!function_exists('igcg_test_mode_button')) {
+    /** Dropdown button for the campaign list: flask icon, filled when the campaign is in test mode. */
+    function igcg_test_mode_button($table_id, $is_on, $lang)
+    {
+        $id = (int) $table_id;
+        if ($is_on) {
+            $title = $lang->line('Test mode is ON: nothing is sent. Click to go live');
+            return '<a title="' . htmlspecialchars($title, ENT_QUOTES) . '" data-toggle="tooltip" data-placement="top" href="#" table_id="' . $id . '" to_do="off" class="btn btn-circle btn-warning igcg_test_mode_button"><i class="fas fa-flask"></i></a>';
+        }
+        $title = $lang->line('Turn on test mode: match and log, send nothing');
+        return '<a title="' . htmlspecialchars($title, ENT_QUOTES) . '" data-toggle="tooltip" data-placement="top" href="#" table_id="' . $id . '" to_do="on" class="btn btn-circle btn-outline-warning igcg_test_mode_button"><i class="fas fa-flask"></i></a>';
+    }
+}

@@ -1193,6 +1193,26 @@
 		});
 
 
+		// Test mode (dry run) for full-account and mention campaigns
+		$(document).on('click','.igcg_test_mode_button',function(e){
+			e.preventDefault();
+			var to_do = $(this).attr('to_do');
+			var table_id = $(this).attr('table_id');
+			var text = to_do == 'on'
+				? '<?php echo addslashes($this->lang->line("Test mode: comments are matched and logged as [TEST MODE] in the report, but nothing is sent to Instagram.")); ?>'
+				: '<?php echo addslashes($this->lang->line("Go live: replies will be sent for real. Test rows will be removed from the report.")); ?>';
+			swal({title: '<?php echo $this->lang->line("Are you sure?"); ?>', text: text, icon: 'warning', buttons: true, dangerMode: to_do == 'off'})
+			.then((ok) => {
+				if (!ok) return;
+				$.ajax({type:'POST', url:"<?php echo base_url('instagram_reply/test_mode_toggle')?>", data:{table_id:table_id, to_do:to_do},
+					success:function(response){
+						if (response == "1") swal('<?php echo $this->lang->line("Success"); ?>', '', 'success').then(() => { $(".page_list_item.active").click(); });
+						else swal('<?php echo $this->lang->line("Error"); ?>', '<?php echo $this->lang->line("Something went wrong, please try once again. "); ?>', 'error');
+					}
+				});
+			});
+		});
+
 		$(document).on('click','.pause_play_button',function(e){
 			e.preventDefault();
 			var to_do = $(this).attr('to_do');

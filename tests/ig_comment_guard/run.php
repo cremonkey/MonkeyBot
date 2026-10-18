@@ -65,5 +65,37 @@ check('wiring: claim on comments path', substr_count($src, "igcg_claim(\$this->d
 check('wiring: claim on mentions path', substr_count($src, "igcg_claim(\$this->db, \$post_column_id, \$current_id)") >= 1, true);
 check('wiring: exact matcher used twice', substr_count($src, 'igcg_exact_match($comment_text') >= 2, true);
 
+// ---- test mode ----
+class FakeFb { public $calls = array(); public $prop = 'x';
+    function __call($n, $a) { $this->calls[] = $n; return array('real' => $n); } }
+$inner = new FakeFb(); $fb = new Igcg_dry_run_fb($inner);
+check('dry: auto comment no-op', $fb->instagram_auto_comment('hi', '1', 't'), array('id' => '', 'dry_run' => true));
+check('dry: hide no-op', $fb->instagram_hide_comment('1', 't')['dry_run'], true);
+check('dry: delete no-op', $fb->instagram_delete_comment('1', 't')['dry_run'], true);
+check('dry: subscriber lookup no-op', $fb->get_private_reply_message_id_info('m', 't')['dry_run'], true);
+check('dry: reads pass through', $fb->instagram_get_media_url('a', 'b', 'c'), array('real' => 'instagram_get_media_url'));
+check('dry: inner saw only the read', $inner->calls, array('instagram_get_media_url'));
+check('dry: property passthrough', $fb->prop, 'x');
+
+class FakeQ { public $r; function __construct($r) { $this->r = $r; } function row_array() { return $this->r; } }
+class FakeDB2 { public $db_debug = true; public $row; public $throw = false;
+    function query($s, $b) { if ($this->throw) throw new Exception('Unknown column dry_run'); return new FakeQ($this->row); } }
+$d = new FakeDB2();
+$d->row = array('dry_run' => '1'); check('is_dry_run on', igcg_is_dry_run($d, 3), true);
+$d->row = array('dry_run' => '0'); check('is_dry_run off', igcg_is_dry_run($d, 3), false);
+$d->row = null;                    check('is_dry_run missing row', igcg_is_dry_run($d, 3), false);
+$d->throw = true;                  check('is_dry_run column missing => live', igcg_is_dry_run($d, 3), false);
+check('is_dry_run db_debug restored', $d->db_debug, true);
+
+class FakeLang { function line($k) { return $k; } }
+check('button on => go live', strpos(igcg_test_mode_button('5"x', true, new FakeLang()), 'to_do="off"') !== false, true);
+check('button off => turn on', strpos(igcg_test_mode_button(5, false, new FakeLang()), 'to_do="on"') !== false, true);
+check('button id is int-cast', strpos(igcg_test_mode_button('5"x', true, new FakeLang()), 'table_id="5"') !== false, true);
+
+check('wiring: send_reply short-circuits in test mode', strpos($src, "if (\$this->igcg_dry_run) return array('dry_run' => true);") !== false, true);
+check('wiring: dry-run entered on both paths', substr_count($src, 'igcg_is_dry_run($this->db, $post_column_id)) $this->igcg_enter_dry_run();'), 2);
+check('wiring: all 3 report inserts tagged', substr_count($src, "IGCG_TEST_MODE_TAG . (isset("), 3);
+check('wiring: inbox log skipped in test mode', strpos($src, "if (\$this->igcg_dry_run) return;") !== false, true);
+
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
