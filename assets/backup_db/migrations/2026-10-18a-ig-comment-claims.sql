@@ -1,7 +1,7 @@
 -- Instagram comment/mention auto-reply: atomic per-comment claim.
 -- The webhook used to dedupe by reading instagram_autoreply_report first and inserting later,
 -- so two close Meta deliveries of the same comment could both send a private reply.
--- application/helpers/ig_comment_guard_helper.php does INSERT IGNORE here before any send;
+-- application/helpers/ig_comment_guard_helper.php does INSERT IGNORE here before any send,
 -- only the request that inserts the row continues. Additive only.
 --
 -- Apply with:  php index.php cron_hub migrate
