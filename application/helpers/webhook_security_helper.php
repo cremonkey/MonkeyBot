@@ -71,6 +71,12 @@ if (!function_exists('meta_signature_status')) {
         if (!function_exists('secret_decrypt')) $CI->load->helper('secret');
         $rows = $CI->db->select('api_secret')->from('facebook_rx_config')
             ->where('deleted', '0')->get()->result_array();
+        // Instagram Login webhooks are signed with the Instagram app secret (ig_login_helper.php)
+        try {
+            if ($CI->db->table_exists('ig_login_config')) {
+                foreach ($CI->db->select('app_secret_enc AS api_secret')->from('ig_login_config')->get()->result_array() as $ig) $rows[] = $ig;
+            }
+        } catch (\Throwable $e) {}
         $any = false;
         foreach ($rows as $r) {
             $secret = trim((string) secret_decrypt((string) $r['api_secret']));

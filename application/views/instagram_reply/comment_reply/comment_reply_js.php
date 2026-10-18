@@ -1193,6 +1193,53 @@
 		});
 
 
+		// Test mode (dry run) for full-account and mention campaigns
+		$(document).on('click','.igcg_test_mode_button',function(e){
+			e.preventDefault();
+			var to_do = $(this).attr('to_do');
+			var table_id = $(this).attr('table_id');
+			var text = to_do == 'on'
+				? '<?php echo addslashes($this->lang->line("Test mode: comments are matched and logged as [TEST MODE] in the report, but nothing is sent to Instagram.")); ?>'
+				: '<?php echo addslashes($this->lang->line("Go live: replies will be sent for real. Test rows will be removed from the report.")); ?>';
+			swal({title: '<?php echo $this->lang->line("Are you sure?"); ?>', text: text, icon: 'warning', buttons: true, dangerMode: to_do == 'off'})
+			.then((ok) => {
+				if (!ok) return;
+				$.ajax({type:'POST', url:"<?php echo base_url('instagram_reply/test_mode_toggle')?>", data:{table_id:table_id, to_do:to_do},
+					success:function(response){
+						if (response == "1") swal('<?php echo $this->lang->line("Success"); ?>', '', 'success').then(() => { $(".page_list_item.active").click(); });
+						else swal('<?php echo $this->lang->line("Error"); ?>', '<?php echo $this->lang->line("Something went wrong, please try once again. "); ?>', 'error');
+					}
+				});
+			});
+		});
+
+		// Follow gate: reply only after the user follows (application/helpers/ig_follow_gate_helper.php)
+		$(document).on('click','.igfg_gate_button',function(e){
+			e.preventDefault();
+			var table_id = $(this).attr('table_id');
+			var url = "<?php echo base_url('instagram_reply/follow_gate_settings')?>";
+			$.post(url, {table_id: table_id}, function(r){
+				if (!r || r.ok != 1) { swal('<?php echo $this->lang->line("Error"); ?>', '', 'error'); return; }
+				var box = $('<div dir="auto" style="text-align:start"></div>');
+				box.append('<label style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><input type="checkbox" class="igfg_on"> <?php echo addslashes($this->lang->line("Send the reply only to followers")); ?></label>');
+				box.append('<small><?php echo addslashes($this->lang->line("Message with the button")); ?></small><textarea class="form-control igfg_text" rows="3" maxlength="640"></textarea>');
+				box.append('<small><?php echo addslashes($this->lang->line("Button text (max 20)")); ?></small><input class="form-control igfg_btn" maxlength="20">');
+				box.append('<small><?php echo addslashes($this->lang->line("If they still do not follow")); ?></small><textarea class="form-control igfg_retry" rows="2" maxlength="640"></textarea>');
+				box.find('.igfg_on').prop('checked', r.enabled == 1);
+				box.find('.igfg_text').val(r.text); box.find('.igfg_btn').val(r.button); box.find('.igfg_retry').val(r.retry);
+				swal({title: '<?php echo addslashes($this->lang->line("Follow gate")); ?>', content: box[0], buttons: true})
+				.then((ok) => {
+					if (!ok) return;
+					$.post(url, {table_id: table_id, action: 'save', enabled: box.find('.igfg_on').is(':checked') ? 1 : 0,
+						text: box.find('.igfg_text').val(), button: box.find('.igfg_btn').val(), retry: box.find('.igfg_retry').val()},
+						function(s){
+							if (s && s.ok == 1) swal('<?php echo $this->lang->line("Success"); ?>', '', 'success').then(() => { $(".page_list_item.active").click(); });
+							else swal('<?php echo $this->lang->line("Error"); ?>', '', 'error');
+						}, 'json');
+				});
+			}, 'json');
+		});
+
 		$(document).on('click','.pause_play_button',function(e){
 			e.preventDefault();
 			var to_do = $(this).attr('to_do');

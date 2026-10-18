@@ -14,6 +14,18 @@
 <section class="section">
 	<div class="section-header">
 		<h1><i class="fas fa-comments"></i> <?php echo $page_title;?></h1>
+        <?php
+            // Instagram Login: connect an IG account that has no Facebook Page (ig_login_helper.php)
+            $this->load->helper(array('secret', 'fb_graph', 'ig_login'));
+            $igl_on = igl_config($this->db) !== null;
+            $igl_msg_ok = $this->session->userdata('ig_login_ok'); $this->session->unset_userdata('ig_login_ok');
+        ?>
+        <?php if ($igl_on): ?>
+        <div class="section-header-button"><a href="<?php echo base_url('ig_login/connect'); ?>" class="btn btn-primary"><i class="fab fa-instagram"></i> <?php echo $this->lang->line('Connect with Instagram'); ?></a></div>
+        <?php elseif ($this->session->userdata('user_type') == 'Admin'): ?>
+        <div class="section-header-button"><a href="<?php echo base_url('ig_login/settings'); ?>" class="btn btn-outline-primary"><i class="fab fa-instagram"></i> <?php echo $this->lang->line('Set up Instagram Login'); ?></a></div>
+        <?php endif; ?>
+        <?php if ($igl_msg_ok): ?><div class="alert alert-success w-100 mt-2 mb-0"><?php echo htmlspecialchars((string) $igl_msg_ok, ENT_QUOTES, 'UTF-8'); ?></div><?php endif; ?>
         <div class="section-header-breadcrumb">
             <div class="breadcrumb-item active"><a href="<?php echo base_url('comment_automation/comment_growth_tools/'.$this->using_media_type); ?>"><?php echo $this->lang->line('Comment Growth Tools'); ?></a></div>
             <div class="breadcrumb-item"><?php echo $page_title ?></div>
