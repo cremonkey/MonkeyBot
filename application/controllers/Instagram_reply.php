@@ -111,6 +111,10 @@ class Instagram_reply extends Home
 
        $account_list = $this->basic->get_data($table,$where);
 
+       // Instagram Login accounts are not under a Facebook user, so add them explicitly
+       $this->load->helper(array('secret', 'fb_graph', 'ig_login'));
+       $account_list = array_merge($account_list, igl_user_accounts($this->db, $this->user_id, $account_list));
+
        if(!empty($account_list))
        {
            $i = 1;
@@ -435,8 +439,14 @@ class Instagram_reply extends Home
                 $this->load->library("fb_rx_login");
 
                 try {
+                    $this->load->helper(array('secret', 'fb_graph', 'ig_login'));
+                    if (igl_is_ig_token($page_access_token)) {   // Instagram Login account
+                        $igl_client = new Ig_login_client();
+                        $post_list = $igl_client->get_postlist_from_instagram_account($instagram_account_id, $page_access_token);
+                    } else {
                     $this->fb_rx_login->app_initialize($this->session->userdata("fb_rx_login_database_id"));
                     $post_list = $this->fb_rx_login->get_postlist_from_instagram_account($instagram_account_id, $user_access_token);
+                    }
 
                     if(isset($post_list['data']) && empty($post_list['data'])){
                         $error_msg = '
@@ -3172,6 +3182,11 @@ class Instagram_reply extends Home
 
             if(empty($instra_info)) exit;
 
+            $this->load->helper(array('secret', 'fb_graph', 'ig_login'));
+            if (igl_is_ig_token($page_access_token)) {
+                // Instagram Login account (no Facebook Page): graph.instagram.com client, same interface
+                $this->fb_rx_login = new Ig_login_client();
+            } else {
             // setting fb confid id for library call
             $facebook_rx_fb_user_info_id = $instra_info[0]['id'];
             if (!isset($config_id_database[$facebook_rx_fb_user_info_id])) {
@@ -3186,6 +3201,7 @@ class Instagram_reply extends Home
             // setting fb confid id for library call
             $this->load->library("fb_rx_login");
             $this->fb_rx_login->app_initialize($config_id_database[$facebook_rx_fb_user_info_id]);
+            }
 
             $media_info = $this->fb_rx_login->instagram_get_media_info_by_comment($comment_id,$user_access_token);
             $media_id = $media_info['media']['id'];

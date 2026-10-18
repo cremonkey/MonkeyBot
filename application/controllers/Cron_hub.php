@@ -330,6 +330,8 @@ class Cron_hub extends Home
             $out['deflect_alerts'] = $this->_run_deflect_alerts();
             $out['retention'] = $this->_run_retention();
             $out['analytics_daily'] = $this->_run_analytics_daily();
+            $this->load->helper(array('secret', 'fb_graph', 'ig_login'));
+            $out['ig_token_refresh'] = igl_refresh_all($this->db);
             ops_health_record('cron_hub', true, microtime(true) - $t0, $out);
             echo json_encode($out) . "\n";
         } catch (Throwable $e) {

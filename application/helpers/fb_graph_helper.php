@@ -154,6 +154,31 @@ if (!function_exists('fb_graph_group_version'))
     }
 }
 
+if (!function_exists('ig_graph_url'))
+{
+    /** graph.instagram.com URL (Instagram API with Instagram Login). Version: config ig_graph_version, else v25.0. */
+    function ig_graph_url($path = '')
+    {
+        $version = '';
+        if (function_exists('get_instance'))
+        {
+            $CI =& get_instance();
+            if ($CI !== NULL && isset($CI->config)) $version = (string) $CI->config->item('ig_graph_version');
+        }
+        if (!preg_match('/^v\d+(\.\d+)?$/', $version)) $version = 'v25.0';
+        return 'https://graph.instagram.com/' . $version . '/' . ltrim((string) $path, '/');
+    }
+}
+
+if (!function_exists('ig_graph_is_ig_token_path'))
+{
+    /** TRUE when the path carries an Instagram Login token (access_token=IG...). */
+    function ig_graph_is_ig_token_path($path)
+    {
+        return (bool) preg_match('/[?&]access_token=IG[A-Za-z0-9]/', (string) $path);
+    }
+}
+
 if (!function_exists('graph_url_group'))
 {
     /**
@@ -167,6 +192,9 @@ if (!function_exists('graph_url_group'))
      */
     function graph_url_group($group, $path = '')
     {
+        // Instagram Login tokens (IG...) only work on graph.instagram.com. Facebook tokens start
+        // with EAA, so this never changes a Facebook call. See ig_login_helper.php.
+        if (ig_graph_is_ig_token_path($path)) return ig_graph_url($path);
         $version = fb_graph_group_version($group);
         return 'https://graph.facebook.com/' . $version . '/' . ltrim((string) $path, '/');
     }
