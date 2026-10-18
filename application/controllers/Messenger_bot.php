@@ -2537,6 +2537,12 @@ class Messenger_bot extends Home
 
             // SPEC-05: Add-to-Cart button on AI product carousels — registers
             // the interest as a CRM note and pushes for the order/contact info
+            // Instagram follow gate: user tapped the button sent instead of the comment private reply
+            if(strpos($payload_id, 'IGFG_') === 0){
+                $this->_ig_follow_gate_postback($payload_id, $sender_id, $page_id);
+                exit;
+            }
+
             if(strpos($payload_id, 'ECOM_ADDCART_') === 0){
                 $this->_ecom_addcart_postback((int) substr($payload_id, 13), $sender_id, $page_id, $social_media_type, $subscriber_info);
                 exit;
@@ -2737,6 +2743,24 @@ class Messenger_bot extends Home
             isset($response['entry'][0]['messaging'][0]['message']['reply_to']['story']['id']) &&
                 $response['entry'][0]['messaging'][0]['message']['reply_to']['story']['id']!=""
         ){
+            // Story rules (application/helpers/ig_story_rules_helper.php): per-story / keyword replies
+            // before the generic story bot. No rule matched => unchanged behaviour below.
+            if($social_media_type == 'ig'){
+                $this->load->helper(array('ig_comment_guard', 'ig_story_rules'));
+                $igsr_page = $this->basic->get_data('facebook_rx_fb_page_info', array('where'=>array('page_id'=>$page_id,'bot_enabled'=>'1')), array('id','page_access_token'), '', 1);
+                if(!empty($igsr_page)){
+                    $igsr_story = $response['entry'][0]['messaging'][0]['message']['reply_to']['story'];
+                    $igsr_body = igsr_handle($this->db, $igsr_page[0]['id'], $igsr_story['id'], $igsr_story['url'] ?? '',
+                        $response['entry'][0]['messaging'][0]['message']['text'] ?? '', $sender_id);
+                    if($igsr_body !== null){
+                        $igsr_res = $this->send_reply($igsr_page[0]['page_access_token'], $igsr_body);
+                        if(isset($igsr_res['error']['message'])) log_message('error', 'ig story rule send: '.$igsr_res['error']['message']);
+                        $this->update_subscriber_last_interaction($sender_id,$currenTime,$subsciber_broadcast_unavailable);
+                        die();
+                    }
+                }
+            }
+
             $table_name = "messenger_bot";
 
             $where['where'] = array('messenger_bot.fb_page_id' => $page_id, 'messenger_bot.keyword_type' => 'story-private-reply','facebook_rx_fb_page_info.bot_enabled' => '1','media_type'=>$social_media_type);
@@ -2817,6 +2841,57 @@ class Messenger_bot extends Home
 
 
 
+
+    /**
+     * Instagram follow gate (application/helpers/ig_follow_gate_helper.php): the user tapped the
+     * button that replaced a comment private reply. Follower (or unknown) => deliver the parked
+     * reply now; not a follower => retry text + same button. A row is delivered at most once.
+     */
+    protected function _ig_follow_gate_postback($payload, $sender_id, $page_id)
+    {
+        try {
+            $this->load->helper(array('ig_follow_gate', 'fb_graph'));
+            $pending_id = igfg_parse_payload($payload);
+            if ($pending_id <= 0 || (string) $sender_id === '') return;
+
+            $row = $this->db->query('SELECT * FROM ig_follow_gate_pending WHERE id = ? LIMIT 1', array($pending_id))->row_array();
+            if (empty($row)) return;
+
+            // the tap must come from the same IG account the campaign belongs to
+            // ($page_id is the linked FB page id here: the IG webhook resolves it before routing)
+            $page = $this->db->query('SELECT page_id, page_access_token FROM facebook_rx_fb_page_info WHERE id = ? LIMIT 1', array((int) $row['page_table_id']))->row_array();
+            if (empty($page) || (string) $page['page_id'] !== (string) $page_id) return;
+            $token = $page['page_access_token'];
+
+            $api = null;
+            $ch = curl_init(graph_url_group('reads', rawurlencode((string) $sender_id) . '?fields=is_user_follow_business&access_token=' . urlencode($token)));
+            curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10));
+            $raw = curl_exec($ch);
+            curl_close($ch);
+            if (is_string($raw)) $api = json_decode($raw, true);
+            $status = igfg_follow_status($api);
+            if ($status === null) log_message('error', 'ig follow gate: follow status unknown for pending ' . $pending_id . ', delivering (fail open)');
+
+            $action = igfg_decide($row, $status);
+            if ($action === 'deliver') {
+                // claim: only one tap delivers
+                $this->db->query("UPDATE ig_follow_gate_pending SET status = 'delivered', igsid = ?, delivered_at = NOW() WHERE id = ? AND status IN ('pending','waiting')", array((string) $sender_id, $pending_id));
+                if ((int) $this->db->affected_rows() !== 1) return;
+                foreach (igfg_readdress($row['messages_json'], $sender_id) as $body) {
+                    $res = $this->send_reply($token, $body);
+                    if (isset($res['error']['message'])) log_message('error', 'ig follow gate deliver ' . $pending_id . ': ' . $res['error']['message']);
+                }
+            } elseif ($action === 'retry') {
+                $this->db->query("UPDATE ig_follow_gate_pending SET status = 'waiting', igsid = ?, attempts = attempts + 1 WHERE id = ?", array((string) $sender_id, $pending_id));
+                $s = igfg_settings($this->db, (int) $row['autoreply_table_id']);
+                $d = igfg_defaults();
+                $this->send_reply($token, igfg_button_message(array('id' => (string) $sender_id),
+                    $s ? $s['retry'] : $d['retry'], $s ? $s['button'] : $d['button'], $pending_id));
+            }
+        } catch (\Throwable $e) {
+            log_message('error', 'ig follow gate postback: ' . $e->getMessage());
+        }
+    }
 
     /**
      * SPEC-05: handle the ECOM_ADDCART_{product_id} postback from AI product

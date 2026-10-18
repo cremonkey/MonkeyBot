@@ -88,10 +88,13 @@ $d->throw = true;                  check('is_dry_run column missing => live', ig
 check('is_dry_run db_debug restored', $d->db_debug, true);
 
 class FakeLang { function line($k) { return $k; } }
-check('button on => go live', strpos(igcg_test_mode_button('5"x', true, new FakeLang()), 'to_do="off"') !== false, true);
-check('button off => turn on', strpos(igcg_test_mode_button(5, false, new FakeLang()), 'to_do="on"') !== false, true);
-check('button id is int-cast', strpos(igcg_test_mode_button('5"x', true, new FakeLang()), 'table_id="5"') !== false, true);
-
+$d->throw = false; $d->row = array('dry_run' => '1');
+$c = igcg_campaign_controls('5"x', $d, new FakeLang(), 'circle');
+check('controls: test mode on => go live', strpos($c, 'to_do="off"') !== false, true);
+check('controls: id int-cast', strpos($c, 'table_id="5"') !== false && strpos($c, '5"x') === false, true);
+check('controls: gate button present', strpos($c, 'igfg_gate_button') !== false, true);
+$d->row = array('dry_run' => '0');
+check('controls dropdown: turn on', strpos(igcg_campaign_controls(5, $d, new FakeLang(), 'dropdown'), "to_do='on'") !== false, true);
 check('wiring: send_reply short-circuits in test mode', strpos($src, "if (\$this->igcg_dry_run) return array('dry_run' => true);") !== false, true);
 check('wiring: dry-run entered on both paths', substr_count($src, 'igcg_is_dry_run($this->db, $post_column_id)) $this->igcg_enter_dry_run();'), 2);
 check('wiring: all 3 report inserts tagged', substr_count($src, "IGCG_TEST_MODE_TAG . (isset("), 3);

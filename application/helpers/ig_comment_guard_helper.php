@@ -131,16 +131,27 @@ if (!class_exists('Igcg_dry_run_fb')) {
     }
 }
 
-if (!function_exists('igcg_test_mode_button')) {
-    /** Dropdown button for the campaign list: flask icon, filled when the campaign is in test mode. */
-    function igcg_test_mode_button($table_id, $is_on, $lang)
+if (!function_exists('igcg_campaign_controls')) {
+    /**
+     * Test-mode + follow-gate controls for one campaign.
+     * $style 'circle' = icon buttons (full-account / mention dropdowns), 'dropdown' = menu items (post list).
+     */
+    function igcg_campaign_controls($table_id, $db, $lang, $style = 'circle')
     {
         $id = (int) $table_id;
-        if ($is_on) {
-            $title = $lang->line('Test mode is ON: nothing is sent. Click to go live');
-            return '<a title="' . htmlspecialchars($title, ENT_QUOTES) . '" data-toggle="tooltip" data-placement="top" href="#" table_id="' . $id . '" to_do="off" class="btn btn-circle btn-warning igcg_test_mode_button"><i class="fas fa-flask"></i></a>';
+        $dry = igcg_is_dry_run($db, $id);
+        $gate = false;
+        if (function_exists('igfg_settings')) $gate = igfg_settings($db, $id) !== null;
+        $h = function ($t) { return htmlspecialchars((string) $t, ENT_QUOTES, 'UTF-8'); };
+
+        $t_dry = $dry ? $lang->line('Test mode is ON: nothing is sent. Click to go live') : $lang->line('Turn on test mode: match and log, send nothing');
+        $t_gate = $gate ? $lang->line('Follow gate is ON: reply is sent only to followers. Click to edit') : $lang->line('Follow gate: send the reply only after the user follows');
+
+        if ($style === 'dropdown') {
+            return "<a class='pointer dropdown-item has-icon igcg_test_mode_button orange' table_id='" . $id . "' to_do='" . ($dry ? 'off' : 'on') . "'><i class='fas fa-flask'></i> " . $h($dry ? $lang->line('Test mode: ON') : $lang->line('Test mode')) . "</a>"
+                 . "<a class='pointer dropdown-item has-icon igfg_gate_button purple' table_id='" . $id . "'><i class='fas fa-user-lock'></i> " . $h($gate ? $lang->line('Follow gate: ON') : $lang->line('Follow gate')) . "</a>";
         }
-        $title = $lang->line('Turn on test mode: match and log, send nothing');
-        return '<a title="' . htmlspecialchars($title, ENT_QUOTES) . '" data-toggle="tooltip" data-placement="top" href="#" table_id="' . $id . '" to_do="on" class="btn btn-circle btn-outline-warning igcg_test_mode_button"><i class="fas fa-flask"></i></a>';
+        return '<a title="' . $h($t_dry) . '" data-toggle="tooltip" data-placement="top" href="#" table_id="' . $id . '" to_do="' . ($dry ? 'off' : 'on') . '" class="btn btn-circle ' . ($dry ? 'btn-warning' : 'btn-outline-warning') . ' igcg_test_mode_button"><i class="fas fa-flask"></i></a>'
+             . '<a title="' . $h($t_gate) . '" data-toggle="tooltip" data-placement="top" href="#" table_id="' . $id . '" class="btn btn-circle ' . ($gate ? 'btn-info' : 'btn-outline-info') . ' igfg_gate_button"><i class="fas fa-user-lock"></i></a>';
     }
 }
