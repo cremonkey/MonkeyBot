@@ -2663,6 +2663,9 @@ class Instagram_reply extends Home
 
           $already_replied_info = $this->basic->get_data('instagram_autoreply_report',['where'=>['autoreply_table_id'=>$post_column_id,'comment_id'=>$current_id]]);
           if(!empty($already_replied_info)) exit;
+          // atomic claim: a concurrent duplicate delivery stops here
+          $this->load->helper('ig_comment_guard');
+          if(!igcg_claim($this->db, $post_column_id, $current_id)) exit;
 
 
           if(isset($mentions_autoreply_info) && !empty($mentions_autoreply_info)) {
@@ -3098,6 +3101,9 @@ class Instagram_reply extends Home
             // for second time webhook call skip
             $already_replied_info = $this->basic->get_data('instagram_autoreply_report',['where'=>['autoreply_table_id'=>$post_column_id,'comment_id'=>$comment_id]]);
             if(!empty($already_replied_info)) exit;
+            // atomic claim: a concurrent duplicate delivery stops here
+            $this->load->helper('ig_comment_guard');
+            if(!igcg_claim($this->db, $post_column_id, $comment_id)) exit;
             
             $instagram_business_account_id = $autoreply_info[0]['instagram_business_account_id'];
             $offensive_words = $autoreply_info[0]['offensive_words'];
@@ -3203,16 +3209,7 @@ class Instagram_reply extends Home
 
                         if($trigger_matching_type == 'exact')
                         {
-                          $search_array = [];
-                          $temp_cam_keywords_array = [];
-                          $temp_cam_keywords_array = explode(" ", $value);
-                          if(count($temp_cam_keywords_array) == 1) $search_array = $single_words_from_message_array;
-                          else if(count($temp_cam_keywords_array) == 2) $search_array = $twowords_from_message_array;
-                          else if(count($temp_cam_keywords_array) == 3) $search_array = $three_words_from_message_array;
-
-                          if(in_array($value, $search_array))
-                            $pos = TRUE;
-                          else $pos = FALSE;
+                          $pos = igcg_exact_match($comment_text, $value) ? TRUE : FALSE;
                         }
                         else
                           $pos = stripos($comment_text, trim($value));
@@ -3408,16 +3405,7 @@ class Instagram_reply extends Home
 
                                 if($trigger_matching_type == 'exact')
                                 {
-                                  $search_array = [];
-                                  $temp_cam_keywords_array = [];
-                                  $temp_cam_keywords_array = explode(" ", $f_word);
-                                  if(count($temp_cam_keywords_array) == 1) $search_array = $single_words_from_message_array;
-                                  else if(count($temp_cam_keywords_array) == 2) $search_array = $twowords_from_message_array;
-                                  else if(count($temp_cam_keywords_array) == 3) $search_array = $three_words_from_message_array;
-
-                                  if(in_array($f_word, $search_array))
-                                    $pos = TRUE;
-                                  else $pos = FALSE;
+                                  $pos = igcg_exact_match($comment_text, $f_word) ? TRUE : FALSE;
                                 }
                                 else
                                   $pos = stripos($comment_text, trim($f_word));
